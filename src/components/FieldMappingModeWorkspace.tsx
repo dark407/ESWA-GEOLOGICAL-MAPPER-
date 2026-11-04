@@ -43,6 +43,7 @@ import { IndustryMode, JointSet, SurfaceType, LithologyRegion, Point2D, Litholog
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
+import { ReportHeaderLogoBox } from './UniversalLogoAndSignatureAdjuster';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import { TunnelMonitoringModal } from './TunnelMonitoringModal';
 import {
@@ -2154,8 +2155,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   // Strictly restricted to Android APK in Underground Face Mapping (Field Mode) & Surface Mapping only
   const androidApkSensorEnv = useMemo(() => detectAndroidApkOrMobileSensorEnv(), []);
   const isRealtimeCompassAvailableInFieldMode =
-    (androidApkSensorEnv.isAndroid || androidApkSensorEnv.isAndroidApkWebView) &&
-    !isVerticalShaftMode;
+    androidApkSensorEnv.isAndroid || androidApkSensorEnv.isAndroidApkWebView;
 
   const [isRealtimeCompassEnabled, setIsRealtimeCompassEnabled] = useState<boolean>(() =>
     loadRealtimeCompassEnabledSetting()
@@ -3768,7 +3768,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         !activeLocation ||
         !activeRound ||
         mappingDomain !== 'TUNNEL' ||
-        isVerticalShaftMode ||
         pts.length < 2
       ) {
         return null;
@@ -3778,19 +3777,191 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       const lwGeom = computePanelCanvasGeometry('left_wall', activeLocation, activeRound);
       const crGeom = computePanelCanvasGeometry('crown', activeLocation, activeRound);
       const rwGeom = computePanelCanvasGeometry('right_wall', activeLocation, activeRound);
+      const snGeom = computePanelCanvasGeometry('shaft_sn', activeLocation, activeRound);
 
       const panelNames: Record<FieldPanelId, string> = {
         face: domainPanelMap.face.shortLabel || 'Face',
         left_wall: domainPanelMap.leftWall.shortLabel || 'Left Wall',
         crown: domainPanelMap.crown.shortLabel || 'Crown',
         right_wall: domainPanelMap.rightWall.shortLabel || 'Right Wall',
-        shaft_sn: domainPanelMap.shaftSn?.shortLabel || 'Shaft Wall',
+        shaft_sn: domainPanelMap.shaftSn?.shortLabel || '4. WN (270°–360°)',
       };
 
       const pullM = Math.max(0.5, activeRound.pullLengthMeters || 3.5);
       const wallH = Math.max(0.5, activeLocation.wallHeightM || activeLocation.heightM * 0.58);
       const crownSpanM = Math.max(0.5, fGeom.crownLengthM || activeLocation.widthM);
       const faceWallTopY = fGeom.boxY + fGeom.boxH * (1 - (fGeom.splRatio ?? 0.58));
+
+      // Vertical Shaft Mode: Sump Face (0°–360° circular perimeter) ↔ 4 Quadrant Walls (Q1 NE, Q2 ES, Q3 SW, Q4 WN) & Quadrant-to-Quadrant vertical seams
+      if (isVerticalShaftMode) {
+        const activeShaftPanels = getActiveVerticalShaftPanels(activeRound);
+        const cx = fGeom.boxX + fGeom.boxW / 2;
+        const cy = fGeom.boxY + fGeom.boxH / 2;
+        const r = Math.min(fGeom.boxW, fGeom.boxH) / 2;
+
+        if (sourcePanel === 'face') {
+          const snap = snapPointToExactFieldPanelOutline(
+            lastPt,
+            'face',
+            activeLocation,
+            activeRound,
+            42
+          );
+          if (!snap.snapped) return null;
+          const sp = snap.point;
+          const distFromCenter = Math.hypot(sp.x - cx, sp.y - cy);
+          // Only extend when point is on the circular shaft perimeter (not on the interior half-face median line)
+          if (distFromCenter < r - 24) return null;
+
+          const deg = ((Math.atan2(sp.x - cx, -(sp.y - cy)) * 180) / Math.PI + 360) % 360;
+          let targetPanel: FieldPanelId = 'left_wall';
+          let u = 0.5;
+          if (deg >= 0 && deg < 90) {
+            targetPanel = 'left_wall';
+            u = deg / 90;
+          } else if (deg >= 90 && deg < 180) {
+            targetPanel = 'crown';
+            u = (deg - 90) / 90;
+          } else if (deg >= 180 && deg < 270) {
+            targetPanel = 'right_wall';
+            u = (deg - 180) / 90;
+          } else {
+            targetPanel = 'shaft_sn';
+            u = (deg - 270) / 90;
+          }
+
+          if (!activeShaftPanels.includes(targetPanel)) return null;
+          const tGeom =
+            targetPanel === 'left_wall'
+              ? lwGeom
+              : targetPanel === 'crown'
+              ? crGeom
+              : targetPanel === 'right_wall'
+              ? rwGeom
+              : snGeom;
+          const clampedU = Math.max(0.02, Math.min(0.98, u));
+          const targetPt = clampPointToFieldPanelOutline(
+            {
+              x: Number((tGeom.boxX + clampedU * tGeom.boxW).toFixed(1)),
+              y: Number((tGeom.boxY + 2).toFixed(1)),
+            },
+            targetPanel,
+            activeLocation,
+            activeRound,
+            0
+          );
+          const mLabel = `Az ${Math.round(deg)}° @ Sump Rim`;
+          return {
+            sourcePanel: 'face',
+            sourcePanelLabel: panelNames.face,
+            targetPanel,
+            targetPanelLabel: panelNames[targetPanel],
+            targetPoint: targetPt,
+            metricLabel: mLabel,
+            boundaryMetricLabel: mLabel,
+          };
+        }
+
+        const quadOrder: {
+          id: FieldPanelId;
+          startDeg: number;
+          endDeg: number;
+          geom: typeof lwGeom;
+        }[] = [
+          { id: 'left_wall', startDeg: 0, endDeg: 90, geom: lwGeom },
+          { id: 'crown', startDeg: 90, endDeg: 180, geom: crGeom },
+          { id: 'right_wall', startDeg: 180, endDeg: 270, geom: rwGeom },
+          { id: 'shaft_sn', startDeg: 270, endDeg: 360, geom: snGeom },
+        ];
+        const qIdx = quadOrder.findIndex((q) => q.id === sourcePanel);
+        if (qIdx >= 0) {
+          const curQ = quadOrder[qIdx];
+          const sGeom = curQ.geom;
+          const u = Math.max(
+            0,
+            Math.min(1, (lastPt.x - sGeom.boxX) / Math.max(1, sGeom.boxW))
+          );
+          const v = Math.max(
+            0,
+            Math.min(1, (lastPt.y - sGeom.boxY) / Math.max(1, sGeom.boxH))
+          );
+          const tolX = 42 / Math.max(1, sGeom.boxW);
+          const tolY = 42 / Math.max(1, sGeom.boxH);
+
+          // 1. Top edge (v ~ 0) -> Sump Face at corresponding azimuth on perimeter arc
+          if (v <= tolY) {
+            const deg = (curQ.startDeg + u * 90) % 360;
+            const rad = (deg * Math.PI) / 180;
+            const rawFacePt = {
+              x: cx + (r - 2) * Math.sin(rad),
+              y: cy - (r - 2) * Math.cos(rad),
+            };
+            const snappedFace = snapPointToExactFieldPanelOutline(
+              rawFacePt,
+              'face',
+              activeLocation,
+              activeRound,
+              120
+            );
+            const mLabel = `Az ${Math.round(deg)}° @ Sump Rim`;
+            return {
+              sourcePanel,
+              sourcePanelLabel: panelNames[sourcePanel],
+              targetPanel: 'face',
+              targetPanelLabel: panelNames.face,
+              targetPoint: snappedFace.point,
+              metricLabel: mLabel,
+              boundaryMetricLabel: mLabel,
+            };
+          }
+
+          // 2. Right edge (u ~ 1) -> Clockwise Next Quadrant Wall
+          if (u >= 1 - tolX) {
+            const nextQ = quadOrder[(qIdx + 1) % 4];
+            if (activeShaftPanels.includes(nextQ.id)) {
+              const nGeom = nextQ.geom;
+              const clampedV = Math.max(0.02, Math.min(0.98, v));
+              const mLabel = `Az ${curQ.endDeg % 360}° Seam · Pull ${(clampedV * pullM).toFixed(1)}m`;
+              return {
+                sourcePanel,
+                sourcePanelLabel: panelNames[sourcePanel],
+                targetPanel: nextQ.id,
+                targetPanelLabel: panelNames[nextQ.id],
+                targetPoint: {
+                  x: Number((nGeom.boxX + 2).toFixed(1)),
+                  y: Number((nGeom.boxY + clampedV * nGeom.boxH).toFixed(1)),
+                },
+                metricLabel: mLabel,
+                boundaryMetricLabel: mLabel,
+              };
+            }
+          }
+
+          // 3. Left edge (u ~ 0) -> Counter-Clockwise Previous Quadrant Wall
+          if (u <= tolX) {
+            const prevQ = quadOrder[(qIdx + 3) % 4];
+            if (activeShaftPanels.includes(prevQ.id)) {
+              const pGeom = prevQ.geom;
+              const clampedV = Math.max(0.02, Math.min(0.98, v));
+              const mLabel = `Az ${curQ.startDeg}° Seam · Pull ${(clampedV * pullM).toFixed(1)}m`;
+              return {
+                sourcePanel,
+                sourcePanelLabel: panelNames[sourcePanel],
+                targetPanel: prevQ.id,
+                targetPanelLabel: panelNames[prevQ.id],
+                targetPoint: {
+                  x: Number((pGeom.boxX + pGeom.boxW - 2).toFixed(1)),
+                  y: Number((pGeom.boxY + clampedV * pGeom.boxH).toFixed(1)),
+                },
+                metricLabel: mLabel,
+                boundaryMetricLabel: mLabel,
+              };
+            }
+          }
+        }
+
+        return null;
+      }
 
       if (sourcePanel === 'face') {
         const snap = snapPointToExactFieldPanelOutline(
@@ -4093,7 +4264,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   );
 
   const activeBoundaryExtensionOption = useMemo<CrossPortionBoundaryOption | null>(() => {
-    if (stage !== 'field_canvas' || mappingDomain !== 'TUNNEL' || isVerticalShaftMode) {
+    if (stage !== 'field_canvas' || mappingDomain !== 'TUNNEL') {
       return null;
     }
     if (pending2DTrace && pending2DTrace.points.length >= 2) {
@@ -4109,7 +4280,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   }, [
     stage,
     mappingDomain,
-    isVerticalShaftMode,
     pending2DTrace,
     lastCompletedBoundaryOption,
     activePanel,
@@ -4145,8 +4315,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           panel: option.targetPanel,
           points: [option.targetPoint],
           dipDirection: liveDipDirection,
-          dipAmount:
-            option.targetPanel === 'crown' ? 90 : liveDipAmount,
+          dipAmount: isStrikeOnlyHorizontalPanel(option.targetPanel, isVerticalShaftMode)
+            ? 90
+            : liveDipAmount,
           strike: (liveDipDirection - 90 + 360) % 360,
         });
       }
@@ -4160,6 +4331,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       activeDrawSubTool,
       liveDipDirection,
       liveDipAmount,
+      isVerticalShaftMode,
       setStatusMessage,
     ]
   );
@@ -4570,7 +4742,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.tunnelDriveDirection,
         liveCrownSign,
         activeLocation.widthM,
-        activeLocation.heightM
+        activeLocation.heightM,
+        isVerticalShaftMode
       );
       setLiveDipDirection(computedOri.dipDirection);
       setLiveDipAmount(computedOri.dipAmount);
@@ -4746,7 +4919,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               activeRound.tunnelDriveDirection,
               liveCrownSign,
               activeLocation.widthM,
-              activeLocation.heightM
+              activeLocation.heightM,
+              isVerticalShaftMode
             )
           : {
               dipDirection: liveDipDirection,
@@ -4802,7 +4976,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         activeRound.tunnelDriveDirection,
         liveCrownSign,
         activeLocation.widthM,
-        activeLocation.heightM
+        activeLocation.heightM,
+        isVerticalShaftMode
       );
       setLiveDipDirection(featOri.dipDirection);
       setLiveDipAmount(featOri.dipAmount);
@@ -4982,7 +5157,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound.tunnelDriveDirection,
           liveCrownSign,
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVerticalShaftMode
         );
         setLiveDipDirection(est.dipDirection);
         setLiveDipAmount(est.dipAmount);
@@ -5011,7 +5187,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound.tunnelDriveDirection,
           liveCrownSign,
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVerticalShaftMode
         );
         setLiveDipDirection(est.dipDirection);
         setLiveDipAmount(est.dipAmount);
@@ -5039,7 +5216,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound.tunnelDriveDirection,
           liveCrownSign,
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVerticalShaftMode
         );
         setLiveDipDirection(est.dipDirection);
         setLiveDipAmount(est.dipAmount);
@@ -5065,7 +5243,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           activeRound.tunnelDriveDirection,
           liveCrownSign,
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVerticalShaftMode
         );
         setLiveDipDirection(est.dipDirection);
         setLiveDipAmount(est.dipAmount);
@@ -6391,6 +6570,61 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       }
                       className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
                     />
+                  </div>
+                </div>
+                <div className="pt-1.5 border-t border-slate-800">
+                  <label className="block text-[10px] font-bold text-amber-300 mb-1">
+                    Universal Report Header Logos (Click to Upload, Crop &amp; Fit to Box)
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="bg-white rounded border border-slate-700 p-1">
+                      <ReportHeaderLogoBox
+                        side="left"
+                        logoDataUrl={activeProject.leftLogoDataUrl}
+                        rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                        cropConfig={activeProject.leftLogoCropConfig}
+                        fallbackTitle={activeProject.clientName || 'LEFT LOGO (CLIENT)'}
+                        onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                          updateActiveProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: croppedUrl,
+                            leftLogoRawDataUrl: rawUrl,
+                            leftLogoCropConfig: cfg,
+                          }))
+                        }
+                        onClearLogo={() =>
+                          updateActiveProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: '',
+                            leftLogoRawDataUrl: '',
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="bg-white rounded border border-slate-700 p-1">
+                      <ReportHeaderLogoBox
+                        side="right"
+                        logoDataUrl={activeProject.rightLogoDataUrl}
+                        rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                        cropConfig={activeProject.rightLogoCropConfig}
+                        fallbackTitle={activeProject.contractorName || 'RIGHT LOGO (CONTRACTOR)'}
+                        onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                          updateActiveProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: croppedUrl,
+                            rightLogoRawDataUrl: rawUrl,
+                            rightLogoCropConfig: cfg,
+                          }))
+                        }
+                        onClearLogo={() =>
+                          updateActiveProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: '',
+                            rightLogoRawDataUrl: '',
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="pt-1.5 border-t border-slate-800">
@@ -8694,7 +8928,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     >
                       {workflowMode === 'field_mapping'
                         ? 'Save Round & Open Field Camera →'
-                        : 'Save Round Details & Upload 4 Photos →'}
+                        : `Save Round Details & Upload ${isVerticalShaftMode ? 'Shaft' : '4'} Photos →`}
                     </button>
                   </div>
                 </div>
@@ -9423,12 +9657,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <div className="flex-1 min-h-0 overflow-y-auto touch-pan-y space-y-2 pr-0.5">
                 <div className="bg-amber-500/15 border border-amber-500/40 rounded-xl p-2">
                   <div className="text-[11px] font-black uppercase tracking-wider text-amber-300">
-                    5. Group Joints (All 4 Panels)
+                    5. Group Joints ({isVerticalShaftMode ? 'All Shaft Surfaces' : 'All 4 Panels'})
                   </div>
                   <p className="text-[10px] text-slate-300 mt-0.5 leading-snug">
                     1. Choose a Joint Set below (`J1`–`J5`, `J-Bedding`, `J-Random`).
                     <br />
-                    2. Tap any Joint Trace or Dip Surface on <strong>{domainPanelMap.face.shortLabel}</strong>, <strong>{domainPanelMap.leftWall.shortLabel}</strong>, <strong>{domainPanelMap.crown.shortLabel}</strong>, or <strong>{domainPanelMap.rightWall.shortLabel}</strong> to group it!
+                    2. Tap any Joint Trace or Dip Surface on{' '}
+                    <strong>{domainPanelMap.face.shortLabel}</strong>,{' '}
+                    <strong>{domainPanelMap.leftWall.shortLabel}</strong>,{' '}
+                    <strong>{domainPanelMap.crown.shortLabel}</strong>,{' '}
+                    {isVerticalShaftMode && domainPanelMap.shaftSn ? (
+                      <>
+                        <strong>{domainPanelMap.rightWall.shortLabel}</strong>, or{' '}
+                        <strong>{domainPanelMap.shaftSn.shortLabel}</strong>
+                      </>
+                    ) : (
+                      <>
+                        or <strong>{domainPanelMap.rightWall.shortLabel}</strong>
+                      </>
+                    )}{' '}
+                    to group it!
                   </p>
                 </div>
 
@@ -11132,7 +11380,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                   { x: 750, y: 550 },
                                 ],
                                 dipDirection: activeRound.tunnelDriveDirection || 135,
-                                dipAmount: activePanel === 'crown' ? 90 : 65,
+                                dipAmount: isStrikeOnlyHorizontalPanel(activePanel, isVerticalShaftMode) ? 90 : 65,
                                 strike: ((activeRound.tunnelDriveDirection || 135) - 90 + 360) % 360,
                                 setId: 'J1',
                                 strokeWidthPx: 3.8,
@@ -16109,6 +16357,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               mappingDomain={mappingDomain}
               surfaceParams={surfaceParams}
               rememberedRocks={rememberedRocksList}
+              onUpdateProject={updateActiveProject}
               onUpdateRound={updateActiveRound}
               onBackToCleanReport={() => setStage('word_template_export')}
               onProceedTo3DReport={() => {
@@ -16234,7 +16483,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     id: t.id,
                     surface: (t.panel === 'left_wall'
                       ? 'leftWall'
-                      : t.panel === 'right_wall'
+                      : t.panel === 'right_wall' || t.panel === 'shaft_sn'
                       ? 'rightWall'
                       : t.panel) as SurfaceType,
                     points: t.points.map((p) => ({ x: p.x, y: p.y })),
@@ -16266,7 +16515,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     id: s.id,
                     surface: (s.panel === 'left_wall'
                       ? 'leftWall'
-                      : s.panel === 'right_wall'
+                      : s.panel === 'right_wall' || s.panel === 'shaft_sn'
                       ? 'rightWall'
                       : s.panel) as SurfaceType,
                     points: (s.outlinePolygon || s.points || []).map((p) => ({ x: p.x, y: p.y })),
@@ -16298,7 +16547,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     id: f.id,
                     surface: (f.panel === 'left_wall'
                       ? 'leftWall'
-                      : f.panel === 'right_wall'
+                      : f.panel === 'right_wall' || f.panel === 'shaft_sn'
                       ? 'rightWall'
                       : f.panel) as SurfaceType,
                     points: (f.points || []).map((p) => ({ x: p.x, y: p.y })),

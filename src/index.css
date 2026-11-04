@@ -1064,8 +1064,8 @@ canvas,
 }
 
 /* ============================================================================
-   QA/QC LOGO & SIGNATURE STRICT FIT CONTAINERS
-   Ensures uploaded logos and signature PNGs strictly fit inside their target box
+   QA/QC LOGO & SIGNATURE STRICT FIT CONTAINERS + BORDERLESS REPORT INPUTS
+   Ensures uploaded logos fit their target box and Geologist Name & Signature have zero box/border
    ============================================================================ */
 .eswa-logo-fit-box {
   display: flex;
@@ -1080,17 +1080,21 @@ canvas,
   max-height: 100% !important;
   width: auto !important;
   height: auto !important;
-  object-fit: contain !important;
+  object-fit: contain;
   display: block;
 }
 
 .eswa-signature-fit-box {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
-  background-color: #ffffff;
+  background-color: transparent !important;
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .eswa-signature-fit-box img {
@@ -1098,9 +1102,27 @@ canvas,
   max-height: 100% !important;
   width: auto !important;
   height: auto !important;
-  object-fit: contain !important;
+  object-fit: contain;
   mix-blend-mode: multiply;
   display: block;
+  border: none !important;
+}
+
+html input.eswa-borderless-report-input,
+html input.eswa-borderless-report-input:hover,
+html input.eswa-borderless-report-input:focus,
+html:not([data-theme="dark"]) input.eswa-borderless-report-input,
+html:not([data-theme="dark"]) input.eswa-borderless-report-input:hover,
+html:not([data-theme="dark"]) input.eswa-borderless-report-input:focus,
+html[data-theme="dark"] input.eswa-borderless-report-input,
+html[data-theme="dark"] input.eswa-borderless-report-input:hover,
+html[data-theme="dark"] input.eswa-borderless-report-input:focus {
+  border: none !important;
+  border-width: 0 !important;
+  border-color: transparent !important;
+  background-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 @media print {

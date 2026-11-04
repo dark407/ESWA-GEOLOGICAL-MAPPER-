@@ -109,7 +109,7 @@ export const FieldCanvasFloatingControls: React.FC<FieldCanvasFloatingControlsPr
     if (!pending2DTrace) return null;
 
     const isStrikeOnly =
-      pending2DTrace.tool === '3_joints' &&
+      (pending2DTrace.tool === '3_joint_trace' || pending2DTrace.tool === '3_joints') &&
       isStrikeOnlyHorizontalPanel(
         pending2DTrace.panel as FieldPanelId,
         isVerticalShaftMode

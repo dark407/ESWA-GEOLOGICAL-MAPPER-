@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  buildDipSurfaceOutlineAndCentroid,
   buildDipSurfacePolygonWithOutlineSnap,
   buildSmoothSvgPath,
   computeFaceTunnelOutlineDetails,
@@ -4201,9 +4202,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
               ds.outlinePolygon && ds.outlinePolygon.length >= 3
                 ? {
                     outlinePolygon: ds.outlinePolygon,
-                    centroid:
-                      ds.centroid ||
-                      buildDipSurfaceOutlineAndCentroid(ds.points, ds.brushRadius).centroid,
+                    centroid: buildDipSurfaceOutlineAndCentroid(ds.points, ds.brushRadius).centroid,
                   }
                 : ds.brushRadius && ds.brushRadius >= 10
                 ? buildDipSurfaceOutlineAndCentroid(ds.points, ds.brushRadius)

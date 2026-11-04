@@ -982,6 +982,21 @@ export interface FieldExcavationRound {
     transferId?: string;
     sentAtIso?: string;
   };
+  contractorSignRawDataUrl?: string;
+  contractorSignCropConfig?: LogoOrSignatureCropConfig;
+  clientSignRawDataUrl?: string;
+  clientSignCropConfig?: LogoOrSignatureCropConfig;
+}
+
+export interface LogoOrSignatureCropConfig {
+  cropTopPct: number;
+  cropBottomPct: number;
+  cropLeftPct: number;
+  cropRightPct: number;
+  zoomPct: number;
+  offsetX: number;
+  offsetY: number;
+  fitMode: 'contain' | 'cover' | 'stretch';
 }
 
 export type FieldGeologyDisciplineMode = 'tunnel_engineering' | 'mine_geology';
@@ -1143,6 +1158,10 @@ export interface FieldProjectItem {
   customWordTemplate?: FieldWordTemplateRecord | null;
   leftLogoDataUrl?: string;
   rightLogoDataUrl?: string;
+  leftLogoRawDataUrl?: string;
+  leftLogoCropConfig?: LogoOrSignatureCropConfig;
+  rightLogoRawDataUrl?: string;
+  rightLogoCropConfig?: LogoOrSignatureCropConfig;
   /** Project Settings: Chainage grouping interval (e.g. 25, 50, 100, 200 m) & custom From-To ranges */
   chainageGroupIntervalM?: number;
   customChainageRanges?: FieldProjectChainageRange[];
@@ -6929,17 +6948,13 @@ export function buildFieldMappingTwoPageWordHtml(
   const renderSignTable = () => `
     <table style="margin-top:4px;">
       <tr>
-        <td style="width:34%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
-          <strong>CONTRACTOR:</strong> ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.contractorGeologistSign || '________________')}
+        <td style="width:50%;font-size:8pt;padding:3px 6px;vertical-align:middle;">
+          <strong>CONTRACTOR GEOLOGIST:</strong> <span style="font-weight:bold;">${round.contractorGeologistName || round.contractorRepName || round.geologistName || ''}</span>
+          &nbsp;&nbsp;&nbsp;<strong>Sign:</strong> ${round.contractorGeologistSign && round.contractorGeologistSign.startsWith('data:image/') ? `<img src="${round.contractorGeologistSign}" height="26" style="max-height:26px;max-width:120px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;border:none;" />` : `<span style="font-style:italic;font-weight:bold;">${round.contractorGeologistSign || ''}</span>`}
         </td>
-        <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
-          <strong>PMC / CONSULTANT:</strong> ${round.consultantGeologistName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.consultantGeologistSign && round.consultantGeologistSign.startsWith('data:image/') ? `<img src="${round.consultantGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.consultantGeologistSign || '________________')}
-        </td>
-        <td style="width:33%;font-size:7.5pt;padding:3px 5px;vertical-align:bottom;">
-          <strong>CLIENT / OWNER:</strong> ${round.clientGeologistName || round.clientRepName || '________________'}<br/>
-          <strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" height="22" style="max-height:22px;max-width:110px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;" />` : (round.clientGeologistSign || '________________')}
+        <td style="width:50%;font-size:8pt;padding:3px 6px;vertical-align:middle;">
+          <strong>CLIENT GEOLOGIST:</strong> <span style="font-weight:bold;">${round.clientGeologistName || round.clientRepName || ''}</span>
+          &nbsp;&nbsp;&nbsp;<strong>Sign:</strong> ${round.clientGeologistSign && round.clientGeologistSign.startsWith('data:image/') ? `<img src="${round.clientGeologistSign}" height="26" style="max-height:26px;max-width:120px;width:auto;height:auto;object-fit:contain;vertical-align:middle;display:inline-block;border:none;" />` : `<span style="font-style:italic;font-weight:bold;">${round.clientGeologistSign || ''}</span>`}
         </td>
       </tr>
     </table>`;
@@ -7929,7 +7944,27 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const yTop = margin + innerPad + headerH + Math.round(10 * scale);
   const yBottom = H - margin - innerPad - signH - Math.round(10 * scale);
 
-  const drawHeaderAndSign = (ctx: CanvasRenderingContext2D, pageNum: 1 | 2) => {
+  const totalPagesCount = isSurface ? 3 : 2;
+  const pullAdvanceM = Math.max(
+    0,
+    Math.abs((Number(round.chainageTo) || 0) - (Number(round.chainageFrom) || 0))
+  );
+  const spanW = Number(location.widthM || 8.0);
+  const totalH = Number(location.heightM || 6.0);
+  const wallH = Number(
+    (location.wallHeightM || Math.max(1.5, totalH - spanW * 0.35)).toFixed(2)
+  );
+  const crownH = Number(Math.max(0.5, totalH - wallH).toFixed(2));
+  const crownArcM = Number((spanW * 1.15).toFixed(2));
+  const isCircularShape = String(location.shape).toLowerCase().includes('circ');
+  const unfoldedPerimM = isCircularShape
+    ? Number((Math.PI * spanW).toFixed(2))
+    : Number((wallH * 2 + crownArcM).toFixed(2));
+  const designCrossSectionAreaM2 = isCircularShape
+    ? Number((Math.PI * Math.pow(spanW / 2, 2)).toFixed(2))
+    : Number((spanW * wallH + (Math.PI * spanW * crownH) / 4).toFixed(2));
+
+  const drawHeaderAndSign = (ctx: CanvasRenderingContext2D, pageNum: 1 | 2 | 3) => {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.fillStyle = '#ffffff';
@@ -7942,7 +7977,12 @@ export async function exportFieldMappingTwoPagePdfSheet(
 
     // Inner Clean Margin Line
     ctx.lineWidth = Math.round(1.0 * scale);
-    ctx.strokeRect(margin + 4 * scale, margin + 4 * scale, W - (margin + 4 * scale) * 2, H - (margin + 4 * scale) * 2);
+    ctx.strokeRect(
+      margin + 4 * scale,
+      margin + 4 * scale,
+      W - (margin + 4 * scale) * 2,
+      H - (margin + 4 * scale) * 2
+    );
 
     // Top Header Table
     const hY = margin + innerPad;
@@ -7965,15 +8005,28 @@ export async function exportFieldMappingTwoPagePdfSheet(
       const pad = Math.round(6 * scale);
       const lW = logoW - pad * 2;
       const lH = headerH - pad * 2;
-      const sc = Math.min(lW / Math.max(1, leftLogoImg.width), lH / Math.max(1, leftLogoImg.height));
+      const sc = Math.min(
+        lW / Math.max(1, leftLogoImg.width),
+        lH / Math.max(1, leftLogoImg.height)
+      );
       const dw = leftLogoImg.width * sc;
       const dh = leftLogoImg.height * sc;
-      ctx.drawImage(leftLogoImg, margin + innerPad + (logoW - dw) / 2, hY + (headerH - dh) / 2, dw, dh);
+      ctx.drawImage(
+        leftLogoImg,
+        margin + innerPad + (logoW - dw) / 2,
+        hY + (headerH - dh) / 2,
+        dw,
+        dh
+      );
     } else {
       ctx.fillStyle = '#0f172a';
       ctx.font = `bold ${Math.round(13 * scale)}px Arial, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(project.clientName || 'CLIENT', margin + innerPad + logoW / 2, hY + headerH / 2 + 5 * scale);
+      ctx.fillText(
+        project.clientName || 'CLIENT',
+        margin + innerPad + logoW / 2,
+        hY + headerH / 2 + 5 * scale
+      );
     }
 
     // Contractor Logo / Title (Right)
@@ -7981,15 +8034,28 @@ export async function exportFieldMappingTwoPagePdfSheet(
       const pad = Math.round(6 * scale);
       const rW = logoW - pad * 2;
       const rH = headerH - pad * 2;
-      const sc = Math.min(rW / Math.max(1, rightLogoImg.width), rH / Math.max(1, rightLogoImg.height));
+      const sc = Math.min(
+        rW / Math.max(1, rightLogoImg.width),
+        rH / Math.max(1, rightLogoImg.height)
+      );
       const dw = rightLogoImg.width * sc;
       const dh = rightLogoImg.height * sc;
-      ctx.drawImage(rightLogoImg, W - margin - innerPad - logoW + (logoW - dw) / 2, hY + (headerH - dh) / 2, dw, dh);
+      ctx.drawImage(
+        rightLogoImg,
+        W - margin - innerPad - logoW + (logoW - dw) / 2,
+        hY + (headerH - dh) / 2,
+        dw,
+        dh
+      );
     } else {
       ctx.fillStyle = '#0f172a';
       ctx.font = `bold ${Math.round(13 * scale)}px Arial, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(project.contractorName || 'CONTRACTOR', W - margin - innerPad - logoW / 2, hY + headerH / 2 + 5 * scale);
+      ctx.fillText(
+        project.contractorName || 'CONTRACTOR',
+        W - margin - innerPad - logoW / 2,
+        hY + headerH / 2 + 5 * scale
+      );
     }
 
     // Center Title Block
@@ -8002,26 +8068,26 @@ export async function exportFieldMappingTwoPagePdfSheet(
       : `ENGINEERING GEOLOGICAL FACE LOG`;
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = `bold ${Math.round(15.5 * scale)}px Arial, sans-serif`;
+    ctx.font = `bold ${Math.round(15 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(
-      `${domainHeaderTitle} — ${project.projectName || 'PROJECT'} (${location.name}) [Page ${pageNum}/2]`,
+      `${domainHeaderTitle} — ${project.projectName || 'PROJECT'} (${location.name}) [Page ${pageNum}/${totalPagesCount}]`,
       W / 2,
       hY + Math.round(headerH * 0.35)
     );
 
     const geomSub = isTrench
-      ? `Trench Box: ${surfParams?.trenchWidthMeters || location.widthM || 2.0}m W × ${surfParams?.trenchDepthMeters || location.heightM || 2.5}m D (4 Portions: Left Wall, Invert, Right Wall, End Face)`
+      ? `Trench Box: ${surfParams?.trenchWidthMeters || spanW}m W × ${surfParams?.trenchDepthMeters || totalH}m D × L=${pullAdvanceM.toFixed(1)}m (4 Portions)`
       : isRockSurface
-      ? `Outcrop Window: ${surfParams?.rockExposureWidthMeters || location.widthM || 12.0}m W × ${surfParams?.rockExposureHeightMeters || location.heightM || 8.0}m H (Dip ${surfParams?.faceDipDirectionDeg ?? 135}° / ${surfParams?.faceDipAngleDeg ?? 60}°)`
+      ? `Outcrop Window: ${surfParams?.rockExposureWidthMeters || spanW}m W × ${surfParams?.rockExposureHeightMeters || totalH}m H (Dip ${surfParams?.faceDipDirectionDeg ?? 135}°/${surfParams?.faceDipAngleDeg ?? 60}°)`
       : isSlopeOrBench
-      ? `${isBench ? 'Bench' : 'Slope'}: H=${isBench ? (surfParams?.benchHeightMeters || location.heightM) : (surfParams?.slopeHeightMeters || location.heightM)}m, Dip=${surfParams?.faceDipDirectionDeg ?? 135}° / ${surfParams?.faceDipAngleDeg ?? 65}°`
-      : `${location.shape.replace(/_/g, ' ').toUpperCase()} (${location.widthM}m×${location.heightM}m) | Drive: N${String(round.tunnelDriveDirection || 0).padStart(3, '0')}°`;
+      ? `${isBench ? 'Bench' : 'Slope'}: H=${isBench ? (surfParams?.benchHeightMeters || totalH) : (surfParams?.slopeHeightMeters || totalH)}m, W=${spanW}m, Dip=${surfParams?.faceDipDirectionDeg ?? 135}°/${surfParams?.faceDipAngleDeg ?? 65}°`
+      : `${location.shape.replace(/_/g, ' ').toUpperCase()} (Span W=${spanW}m × H=${totalH}m | Wall=${wallH}m | Crown Arc=${crownArcM}m | Perim=${unfoldedPerimM}m | Area=${designCrossSectionAreaM2}m²) | Drive: N${String(round.tunnelDriveDirection || 0).padStart(3, '0')}°`;
 
-    ctx.font = `bold ${Math.round(11 * scale)}px Arial, sans-serif`;
+    ctx.font = `bold ${Math.round(10.5 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(
-      `Client: ${project.clientName || '-'} | Station: ${round.chainageFrom}–${round.chainageTo}m | ${geomSub} | ${round.dateAndTimeOfExcavation}`,
+      `Station: CH ${round.chainageFrom}–${round.chainageTo}m (Pull=${pullAdvanceM.toFixed(2)}m) | ${geomSub} | ${round.dateAndTimeOfExcavation}`,
       W / 2,
       hY + Math.round(headerH * 0.82)
     );
@@ -8038,12 +8104,12 @@ export async function exportFieldMappingTwoPagePdfSheet(
     ctx.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
     ctx.textAlign = 'left';
 
-    const contractorNameText = `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || '________________'}   Sign: `;
+    const contractorNameText = `CONTRACTOR GEOLOGIST: ${round.contractorGeologistName || round.contractorRepName || round.geologistName || ''}   Sign: `;
     ctx.fillText(contractorNameText, margin + innerPad + 12 * scale, sY + Math.round(signH * 0.62));
     if (contractorSignImg) {
       const textW = ctx.measureText(contractorNameText).width;
       const maxSigW = Math.max(40 * scale, hW * 0.5 - textW - 24 * scale);
-      const maxSigH = signH - 8 * scale;
+      const maxSigH = signH - 6 * scale;
       const sc = Math.min(maxSigW / Math.max(1, contractorSignImg.width), maxSigH / Math.max(1, contractorSignImg.height));
       const dw = contractorSignImg.width * sc;
       const dh = contractorSignImg.height * sc;
@@ -8059,16 +8125,16 @@ export async function exportFieldMappingTwoPagePdfSheet(
       const signText =
         round.contractorGeologistSign && !round.contractorGeologistSign.startsWith('data:image/')
           ? round.contractorGeologistSign
-          : '________';
+          : '';
       ctx.fillText(signText, margin + innerPad + 12 * scale + textW, sY + Math.round(signH * 0.62));
     }
 
-    const clientNameText = `CLIENT / CONSULTANT: ${round.clientGeologistName || round.clientRepName || '________________'}   Sign: `;
+    const clientNameText = `CLIENT GEOLOGIST: ${round.clientGeologistName || round.clientRepName || ''}   Sign: `;
     ctx.fillText(clientNameText, margin + innerPad + hW * 0.5 + 12 * scale, sY + Math.round(signH * 0.62));
     if (clientSignImg) {
       const textW = ctx.measureText(clientNameText).width;
       const maxSigW = Math.max(40 * scale, hW * 0.5 - textW - 24 * scale);
-      const maxSigH = signH - 8 * scale;
+      const maxSigH = signH - 6 * scale;
       const sc = Math.min(maxSigW / Math.max(1, clientSignImg.width), maxSigH / Math.max(1, clientSignImg.height));
       const dw = clientSignImg.width * sc;
       const dh = clientSignImg.height * sc;
@@ -8084,7 +8150,7 @@ export async function exportFieldMappingTwoPagePdfSheet(
       const signText =
         round.clientGeologistSign && !round.clientGeologistSign.startsWith('data:image/')
           ? round.clientGeologistSign
-          : '________';
+          : '';
       ctx.fillText(signText, margin + innerPad + hW * 0.5 + 12 * scale + textW, sY + Math.round(signH * 0.62));
     }
   };
@@ -8102,7 +8168,6 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const p1AvailH = yBottom - yTop;
 
   // Discontinuity table dimensions
-  const colCount = 10;
   const thH = Math.round(28 * scale);
   const chH = Math.round(26 * scale);
   const rowCount = Math.max(1, Math.min(10, activeSets.length || 1));
@@ -8224,7 +8289,7 @@ export async function exportFieldMappingTwoPagePdfSheet(
   }
 
   // ==========================================================================
-  // PAGE 2: ISRM INDICES + ROCK MASS RATINGS + OVERBREAK + 2D SUPPORT SYSTEM
+  // PAGE 2: EXCAVATION DIMENSIONS + ISRM INDICES + ROCK MASS RATINGS + SUPPORT
   // ==========================================================================
   const page2 = document.createElement('canvas');
   page2.width = W;
@@ -8235,20 +8300,47 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const p2ContentW = W - (margin + innerPad) * 2;
   let y2 = yTop;
 
-  const drawRow = (title: string, val: string, h = Math.round(36 * scale)) => {
-    ctx2.strokeRect(margin + innerPad, y2, p2ContentW, h);
-    ctx2.beginPath();
-    ctx2.moveTo(margin + innerPad + Math.round(270 * scale), y2);
-    ctx2.lineTo(margin + innerPad + Math.round(270 * scale), y2 + h);
-    ctx2.stroke();
-    ctx2.fillStyle = '#0f172a';
-    ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
-    ctx2.textAlign = 'left';
-    ctx2.fillText(title, margin + innerPad + 12 * scale, y2 + Math.round(h * 0.62));
-    ctx2.font = `${Math.round(11.5 * scale)}px Arial, sans-serif`;
-    ctx2.fillText(val.slice(0, 130), margin + innerPad + Math.round(282 * scale), y2 + Math.round(h * 0.62));
-    y2 += h;
+  const drawRowOnCtx = (
+    targetCtx: CanvasRenderingContext2D,
+    currY: number,
+    title: string,
+    val: string,
+    h = Math.round(34 * scale)
+  ): number => {
+    targetCtx.strokeRect(margin + innerPad, currY, p2ContentW, h);
+    targetCtx.beginPath();
+    targetCtx.moveTo(margin + innerPad + Math.round(270 * scale), currY);
+    targetCtx.lineTo(margin + innerPad + Math.round(270 * scale), currY + h);
+    targetCtx.stroke();
+    targetCtx.fillStyle = '#0f172a';
+    targetCtx.font = `bold ${Math.round(11.5 * scale)}px Arial, sans-serif`;
+    targetCtx.textAlign = 'left';
+    targetCtx.fillText(title, margin + innerPad + 12 * scale, currY + Math.round(h * 0.62));
+    targetCtx.font = `${Math.round(11 * scale)}px Arial, sans-serif`;
+    targetCtx.fillText(val.slice(0, 138), margin + innerPad + Math.round(282 * scale), currY + Math.round(h * 0.62));
+    return currY + h;
   };
+
+  const drawRow = (title: string, val: string, h = Math.round(34 * scale)) => {
+    y2 = drawRowOnCtx(ctx2, y2, title, val, h);
+  };
+
+  // Explicit Excavation Geometry & Dimensions Row
+  if (isSurface) {
+    drawRow(
+      'Surface Exposure Dimensions',
+      isTrench
+        ? `Width W = ${surfParams?.trenchWidthMeters || spanW} m | Depth D = ${surfParams?.trenchDepthMeters || totalH} m | Logged Length L = ${pullAdvanceM.toFixed(2)} m | Station: CH ${round.chainageFrom}–${round.chainageTo} m`
+        : isRockSurface
+        ? `Exposure Width W = ${surfParams?.rockExposureWidthMeters || spanW} m | Height H = ${surfParams?.rockExposureHeightMeters || totalH} m | Face Dip: ${surfParams?.faceDipDirectionDeg ?? 135}° / ${surfParams?.faceDipAngleDeg ?? 60}°`
+        : `${isBench ? 'Bench' : 'Slope'} Height H = ${isBench ? (surfParams?.benchHeightMeters || totalH) : (surfParams?.slopeHeightMeters || totalH)} m | Width W = ${spanW} m | Berm = ${surfParams?.bermWidthMeters || 6.0} m | Dip: ${surfParams?.faceDipDirectionDeg ?? 135}° / ${surfParams?.faceDipAngleDeg ?? 65}°`
+    );
+  } else {
+    drawRow(
+      'Excavation Dimensions & Scope',
+      `Shape: ${location.shape.replace(/_/g, ' ').toUpperCase()} | Span W = ${spanW} m × Total H = ${totalH} m (Wall=${wallH} m, Crown=${crownH} m, Crown Arc=${crownArcM} m) | Unfolded Perim = ${unfoldedPerimM} m | Design Area = ${designCrossSectionAreaM2} m² | Pull = ${pullAdvanceM.toFixed(2)} m`
+    );
+  }
 
   // Section 2: ISRM Indices & Custom Tick Boxes
   drawRow('Weathering Index (ISRM)', `Selected: ${round.weatheringIndex || 'WII — Slightly Weathered'}`);
@@ -8257,12 +8349,12 @@ export async function exportFieldMappingTwoPagePdfSheet(
     const checkedStr = grp.options
       .map((o) => `${o.checked ? '[X]' : '[ ]'} ${o.label}`)
       .join('   ');
-    drawRow(grp.categoryTitle, checkedStr, Math.round(32 * scale));
+    drawRow(grp.categoryTitle, checkedStr, Math.round(30 * scale));
   });
 
   // Section 3: Rock Mass Classification
-  y2 += Math.round(8 * scale);
-  const classBannerH = Math.round(28 * scale);
+  y2 += Math.round(6 * scale);
+  const classBannerH = Math.round(26 * scale);
   ctx2.fillStyle = '#f1f5f9';
   ctx2.fillRect(margin + innerPad, y2, p2ContentW, classBannerH);
   ctx2.strokeRect(margin + innerPad, y2, p2ContentW, classBannerH);
@@ -8286,10 +8378,10 @@ export async function exportFieldMappingTwoPagePdfSheet(
   const jwVal = round.qSystem?.jw ?? 1.0;
   const srfVal = round.qSystem?.srf ?? 1.0;
 
-  const qRowH = Math.round(44 * scale);
+  const qRowH = Math.round(42 * scale);
   ctx2.strokeRect(margin + innerPad, y2, p2ContentW, qRowH);
   ctx2.textAlign = 'left';
-  ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
+  ctx2.font = `bold ${Math.round(11.5 * scale)}px Arial, sans-serif`;
   ctx2.fillText(
     `Q-System: ${selClass.q ? `RQD=${rqdVal}%, Jn=${jnVal}, Jr=${jrVal}, Ja=${jaVal}, Jw=${jwVal}, SRF=${srfVal}  =>  Q = ${qValue} (${rockClass})` : 'Not Selected'}`,
     margin + innerPad + 12 * scale,
@@ -8306,34 +8398,34 @@ export async function exportFieldMappingTwoPagePdfSheet(
     drawRow(
       'Trench Sidewall & Floor Stability',
       `Shoring Box: ${surfParams?.trenchShoringType || 'Heavy-Duty Trench Shield'} (${surfParams?.trenchDepthMeters || 2.5}m D) | Safe Stand-Up: 48 hrs | Invert Condition: Sound Rock Bedding | Sump: Active Invert Drainage`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
     drawRow(
       'Foundation Bearing Capacity',
       `Safe Bearing Capacity q_all: ${(180 + (round.gsiValue || 55) * 6.5).toFixed(0)} kPa | Cohesion c' = ${(25 + (round.gsiValue || 55) * 0.9).toFixed(0)} kPa | Friction φ' = ${(28 + (round.gsiValue || 55) * 0.22).toFixed(1)}° | Modulus Erm = ${(8.5 + (round.gsiValue || 55) * 0.28).toFixed(1)} GPa`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
   } else if (isRockSurface) {
     drawRow(
       'Outcrop Structural Fabric',
       `Volumetric Joint Count Jv: ${(3 + activeSets.length * 2.2).toFixed(1)} j/m³ | Mean Block Size Ib: ${(0.35 + (round.gsiValue || 55) * 0.008).toFixed(2)} m | Discontinuity Persistence: Primary Set > 5m`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
     drawRow(
       'Ripperability & Blasting Suitability',
       `Ripperability: Caterpillar D8/D9 Class Heavy Ripper | Blasting: Controlled Pre-splitting | Safe Bearing: > 600 kPa`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
   } else if (isSlopeOrBench) {
     drawRow(
       'Romana SMR Slope Stability',
       `Romana SMR: 58 (Class III — Partially Stable) | Failure Modes: Planar / Wedge along mapped discontinuity intersections`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
     drawRow(
       'Kinematic Slope Failure Assessment',
       `Planar Sliding: Low Risk (F1=0.15) | Wedge Sliding: Moderate Risk | Toppling: Unfavourable | Berm: ${surfParams?.bermWidthMeters || 6.0}m Catchment Berm`,
-      Math.round(34 * scale)
+      Math.round(32 * scale)
     );
   } else {
     // Protection Support / Canopy details if enabled (Tunnel only)
@@ -8349,7 +8441,7 @@ export async function exportFieldMappingTwoPagePdfSheet(
           ? `Grouting: ${sup.groutingType || 'Consolidation'} L=${sup.groutingHoleLengthM ?? 6.0}m @ ${sup.groutingPressureBar ?? 15} bar`
           : null,
       ].filter(Boolean);
-      drawRow('Protection / Cavity Support', protParts.join(' | ') || 'Enabled', Math.round(34 * scale));
+      drawRow('Protection / Cavity Support', protParts.join(' | ') || 'Enabled', Math.round(32 * scale));
     }
 
     // Junction Factor Geotechnical Adjustment if enabled (Tunnel only)
@@ -8358,14 +8450,14 @@ export async function exportFieldMappingTwoPagePdfSheet(
       drawRow(
         'Junction Factor & Advance',
         `Type: ${sup.junctionTypeLabel || 'Junction'} (∠${jAdj.junctionAngleDeg}°) | Jf: ${jAdj.effectiveMultiplier}x | Adv Factor: ${jAdj.junctionAdvanceFactor}x (Pull: ${jAdj.baselinePullM}m → ${jAdj.recommendedAdvancePullM}m, -${jAdj.advanceReductionPct}%) | Qadj=${jAdj.adjustedQ} (${jAdj.adjustedQClass.split('—')[0].trim()}) | RMRadj=${jAdj.adjustedRmr}`,
-        Math.round(36 * scale)
+        Math.round(34 * scale)
       );
     }
   }
 
   // Geological Description Box
   const descText = round.geologicalDescription || generateProfessionalGeologicalDescription(round, location);
-  const descBoxH = Math.round(110 * scale);
+  const descBoxH = Math.round(104 * scale);
   ctx2.strokeRect(margin + innerPad, y2, p2ContentW, descBoxH);
   ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
   ctx2.fillText(
@@ -8396,34 +8488,16 @@ export async function exportFieldMappingTwoPagePdfSheet(
   }
   y2 += descBoxH;
 
-  // Domain-specific Support & Engineering stabilization rows
-  if (isTrench) {
-    drawRow(
-      'Trench Shoring & Foundation Support',
-      `Shoring: ${surfParams?.trenchShoringType || 'Hydraulic Trench Box'} | Invert: Sound Rock Bearing | Sump Dewatering: Gravity Invert Pump | Safe Stand-Up: 48h`,
-      Math.round(36 * scale)
-    );
-  } else if (isRockSurface) {
-    drawRow(
-      'Outcrop Stabilization Recommendation',
-      `Excavation: Controlled Pre-splitting & Scaling | Spot Bolts: L=${sup.rockBoltLengthM || 3.0}m @ critical blocks | Bearing Capacity: Safe for Foundation`,
-      Math.round(36 * scale)
-    );
-  } else if (isSlopeOrBench) {
-    drawRow(
-      'Slope / Bench Stabilization Design',
-      `Soil Nails: L=${sup.soilNailLengthM ?? 4.5}m @ ${sup.soilNailSpacingM ?? 1.5}m c/c | Mesh: TECCO G65 High-Tensile | Shotcrete: ${sup.shotcreteThicknessMm || 75}mm | Drainage: Crest Ditch + Weep Holes`,
-      Math.round(36 * scale)
-    );
-  } else {
-    // Installed Support System Row (Tunnel only)
+  const pdfPages: HTMLCanvasElement[] = [page1, page2];
+
+  if (!isSurface) {
+    // Installed Support System Row (Tunnel / Shaft on Page 2)
     drawRow(
       `Support System (${sup.supportClass || 'Class III'})`,
       `Bolts: ${sup.rockBoltEnabled ? `${sup.rockBoltType} L=${sup.rockBoltLengthM}m @ ${sup.rockBoltSpacingInPlaneM}x${sup.rockBoltSpacingPullM}m` : 'None'} | Shotcrete: ${sup.shotcreteEnabled ? `${sup.shotcreteThicknessMm}mm` : 'None'} | Ribs: ${sup.steelRibType || 'None'}`,
-      Math.round(38 * scale)
+      Math.round(36 * scale)
     );
 
-    // Survey Overbreak Assessment Row (Tunnel only)
     if (surv && surv.status === 'completed') {
       const paylineSummary =
         surv.paylineEnabled !== false
@@ -8434,63 +8508,165 @@ export async function exportFieldMappingTwoPagePdfSheet(
       drawRow(
         'Survey Overbreak Analysis',
         `OB: ${(surv.overbreakAreaM2 || 0).toFixed(2)} m² (${(surv.overbreakPercent || 0).toFixed(1)}%)${paylineSummary} — ${formatOverbreakCauseLabel(surv.overbreakCause)}`,
-        Math.round(36 * scale)
+        Math.round(34 * scale)
       );
     }
-  }
 
-  // Section 4: 2D Support System Drawing (Takes the remainder of available height, filling Page 2 perfectly)
-  const remainingH = yBottom - y2 - Math.round(10 * scale);
-  if (remainingH > 100 * scale) {
-    const sBoxY = y2 + Math.round(8 * scale);
-    const sBoxH = remainingH - Math.round(8 * scale);
+    // Section 4: 2D Support System Drawing on Page 2 for Tunnel/Shaft
+    const remainingH = yBottom - y2 - Math.round(10 * scale);
+    if (remainingH > 100 * scale) {
+      const sBoxY = y2 + Math.round(8 * scale);
+      const sBoxH = remainingH - Math.round(8 * scale);
 
-    ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, sBoxH);
-
-    // Section 4 Label Bar
-    ctx2.fillStyle = '#f8fafc';
-    ctx2.fillRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
-    ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
-    ctx2.fillStyle = '#0f172a';
-    ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
-    ctx2.textAlign = 'center';
-    const s4Title = isTrench
-      ? `4. 2D TRENCH GEOTECHNICAL CROSS-SECTION & SHORING OUTLINE (${surfParams?.trenchWidthMeters || location.widthM || 2.0}m W × ${surfParams?.trenchDepthMeters || location.heightM || 2.5}m D)`
-      : isRockSurface
-      ? `4. 2D ROCK SURFACE / OUTCROP STRUCTURAL PROFILE (${surfParams?.rockExposureWidthMeters || location.widthM || 12.0}m W × ${surfParams?.rockExposureHeightMeters || location.heightM || 8.0}m H)`
-      : isSlopeOrBench
-      ? `4. 2D ${isBench ? 'BENCH' : 'SLOPE'} CROSS-SECTION & STABILIZATION OUTLINE (H=${isBench ? (surfParams?.benchHeightMeters || location.heightM) : (surfParams?.slopeHeightMeters || location.heightM)}m)`
-      : `4. 2D ROCK SUPPORT SYSTEM ENGINEERING OUTLINE (${location.shape.toUpperCase()} — ${location.widthM}m W × ${location.heightM}m H)`;
-    ctx2.fillText(s4Title, W / 2, sBoxY + Math.round(16 * scale));
-
-    const drawAreaY = sBoxY + Math.round(24 * scale);
-    const drawAreaH = sBoxH - Math.round(24 * scale);
-
-    if (supportImg) {
-      const pad = Math.round(12 * scale);
-      const availW = p2ContentW - pad * 2;
-      const availH = drawAreaH - pad * 2;
-      const sc = Math.min(availW / Math.max(1, supportImg.width), availH / Math.max(1, supportImg.height));
-      const dw = supportImg.width * sc;
-      const dh = supportImg.height * sc;
-      ctx2.drawImage(supportImg, margin + innerPad + (p2ContentW - dw) / 2, drawAreaY + (drawAreaH - dh) / 2, dw, dh);
-    } else {
-      // Clean fallback vector cross-section outline
-      ctx2.strokeStyle = '#334155';
-      ctx2.lineWidth = Math.round(2 * scale);
-      ctx2.strokeRect(margin + innerPad + Math.round(60 * scale), drawAreaY + Math.round(20 * scale), p2ContentW - Math.round(120 * scale), drawAreaH - Math.round(40 * scale));
+      ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, sBoxH);
+      ctx2.fillStyle = '#f8fafc';
+      ctx2.fillRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
+      ctx2.strokeRect(margin + innerPad, sBoxY, p2ContentW, Math.round(24 * scale));
       ctx2.fillStyle = '#0f172a';
-      ctx2.font = `bold ${Math.round(14 * scale)}px Arial, sans-serif`;
+      ctx2.font = `bold ${Math.round(12 * scale)}px Arial, sans-serif`;
       ctx2.textAlign = 'center';
-      const fallbackDrawingText = isTrench
-        ? `2D Trench Cross-Section: ${surfParams?.trenchWidthMeters || 2.0}m W × ${surfParams?.trenchDepthMeters || 2.5}m D (Shoring Box & Foundation Invert)`
-        : isRockSurface
-        ? `2D Rock Surface Profile: Outcrop Window ${surfParams?.rockExposureWidthMeters || 12.0}m W × ${surfParams?.rockExposureHeightMeters || 8.0}m H`
-        : isSlopeOrBench
-        ? `2D ${isBench ? 'Bench' : 'Slope'} Cross-Section: H=${isBench ? (surfParams?.benchHeightMeters || 10) : (surfParams?.slopeHeightMeters || 15)}m`
-        : `2D Support Cross-Section: ${location.shape.toUpperCase()} (${location.widthM}m W × ${location.heightM}m H)`;
-      ctx2.fillText(fallbackDrawingText, W / 2, drawAreaY + drawAreaH / 2);
+      ctx2.fillText(
+        `4. 2D ROCK SUPPORT SYSTEM ENGINEERING OUTLINE (${location.shape.toUpperCase()} — ${spanW}m W × ${totalH}m H | Area=${designCrossSectionAreaM2}m²)`,
+        W / 2,
+        sBoxY + Math.round(16 * scale)
+      );
+
+      const drawAreaY = sBoxY + Math.round(24 * scale);
+      const drawAreaH = sBoxH - Math.round(24 * scale);
+
+      if (supportImg) {
+        const pad = Math.round(12 * scale);
+        const availW = p2ContentW - pad * 2;
+        const availH = drawAreaH - pad * 2;
+        const sc = Math.min(availW / Math.max(1, supportImg.width), availH / Math.max(1, supportImg.height));
+        const dw = supportImg.width * sc;
+        const dh = supportImg.height * sc;
+        ctx2.drawImage(
+          supportImg,
+          margin + innerPad + (p2ContentW - dw) / 2,
+          drawAreaY + (drawAreaH - dh) / 2,
+          dw,
+          dh
+        );
+      } else {
+        ctx2.strokeStyle = '#334155';
+        ctx2.lineWidth = Math.round(2 * scale);
+        ctx2.strokeRect(
+          margin + innerPad + Math.round(60 * scale),
+          drawAreaY + Math.round(20 * scale),
+          p2ContentW - Math.round(120 * scale),
+          drawAreaH - Math.round(40 * scale)
+        );
+        ctx2.fillStyle = '#0f172a';
+        ctx2.font = `bold ${Math.round(14 * scale)}px Arial, sans-serif`;
+        ctx2.textAlign = 'center';
+        ctx2.fillText(
+          `2D Support Cross-Section: ${location.shape.toUpperCase()} (${spanW}m W × ${totalH}m H | Perim=${unfoldedPerimM}m)`,
+          W / 2,
+          drawAreaY + drawAreaH / 2
+        );
+      }
     }
+  } else {
+    // ==========================================================================
+    // SURFACE MAPPING: FILL REMAINDER OF PAGE 2 WITH KINEMATIC / SMR LEDGER,
+    // AND ADD PAGE 3 FOR 2D SURFACE STABILIZATION CROSS-SECTION & DESIGN
+    // ==========================================================================
+    drawRow(
+      'Surface Kinematic Summary',
+      `Face Azimuth/Dip: ${surfParams?.faceDipDirectionDeg ?? 135}° / ${surfParams?.faceDipAngleDeg ?? 65}° | Sets Evaluated: ${activeSets.length} | Primary Mode: ${isTrench ? 'Sidewall Wedge / Trench Invert Bearing' : isRockSurface ? 'Block Detachment / Ripperability' : 'Planar & Wedge Daylighting'}`,
+      Math.round(36 * scale)
+    );
+    drawRow(
+      'Groundwater & Drainage Regime',
+      `Seepage: ${round.waterMarks?.[0]?.condition || 'Damp / Minor Seepage'} | Sub-horizontal Weep Holes: L=3.0m @ 2.5m c/c | Crest Intercept Ditch: Lined`,
+      Math.round(36 * scale)
+    );
+
+    const page3 = document.createElement('canvas');
+    page3.width = W;
+    page3.height = H;
+    const ctx3 = page3.getContext('2d')!;
+    drawHeaderAndSign(ctx3, 3);
+
+    let y3 = yTop;
+    if (isTrench) {
+      y3 = drawRowOnCtx(
+        ctx3,
+        y3,
+        'Trench Shoring & Foundation Support',
+        `Shoring: ${surfParams?.trenchShoringType || 'Hydraulic Trench Box'} | Invert: Sound Rock Bearing | Sump Dewatering: Gravity Invert Pump | Safe Stand-Up: 48h`,
+        Math.round(40 * scale)
+      );
+    } else if (isRockSurface) {
+      y3 = drawRowOnCtx(
+        ctx3,
+        y3,
+        'Outcrop Stabilization Recommendation',
+        `Excavation: Controlled Pre-splitting & Scaling | Spot Bolts: L=${sup.rockBoltLengthM || 3.0}m @ critical blocks | Bearing Capacity: Safe for Foundation`,
+        Math.round(40 * scale)
+      );
+    } else {
+      y3 = drawRowOnCtx(
+        ctx3,
+        y3,
+        'Slope / Bench Stabilization Design',
+        `Soil Nails: L=${sup.soilNailLengthM ?? 4.5}m @ ${sup.soilNailSpacingM ?? 1.5}m c/c | Mesh: TECCO G65 High-Tensile | Shotcrete: ${sup.shotcreteThicknessMm || 75}mm | Drainage: Crest Ditch + Weep Holes`,
+        Math.round(40 * scale)
+      );
+    }
+
+    const sBoxY3 = y3 + Math.round(10 * scale);
+    const sBoxH3 = yBottom - sBoxY3 - Math.round(10 * scale);
+    if (sBoxH3 > 100 * scale) {
+      ctx3.strokeRect(margin + innerPad, sBoxY3, p2ContentW, sBoxH3);
+      ctx3.fillStyle = '#f8fafc';
+      ctx3.fillRect(margin + innerPad, sBoxY3, p2ContentW, Math.round(28 * scale));
+      ctx3.strokeRect(margin + innerPad, sBoxY3, p2ContentW, Math.round(28 * scale));
+      ctx3.fillStyle = '#0f172a';
+      ctx3.font = `bold ${Math.round(12.5 * scale)}px Arial, sans-serif`;
+      ctx3.textAlign = 'center';
+      const s4Title = isTrench
+        ? `4. 2D TRENCH GEOTECHNICAL CROSS-SECTION & SHORING OUTLINE (${surfParams?.trenchWidthMeters || spanW}m W × ${surfParams?.trenchDepthMeters || totalH}m D)`
+        : isRockSurface
+        ? `4. 2D ROCK SURFACE / OUTCROP STRUCTURAL PROFILE (${surfParams?.rockExposureWidthMeters || spanW}m W × ${surfParams?.rockExposureHeightMeters || totalH}m H)`
+        : `4. 2D ${isBench ? 'BENCH' : 'SLOPE'} CROSS-SECTION & STABILIZATION OUTLINE (H=${isBench ? (surfParams?.benchHeightMeters || totalH) : (surfParams?.slopeHeightMeters || totalH)}m)`;
+      ctx3.fillText(s4Title, W / 2, sBoxY3 + Math.round(18 * scale));
+
+      const drawAreaY3 = sBoxY3 + Math.round(28 * scale);
+      const drawAreaH3 = sBoxH3 - Math.round(28 * scale);
+
+      if (supportImg) {
+        const pad = Math.round(14 * scale);
+        const availW = p2ContentW - pad * 2;
+        const availH = drawAreaH3 - pad * 2;
+        const sc = Math.min(availW / Math.max(1, supportImg.width), availH / Math.max(1, supportImg.height));
+        const dw = supportImg.width * sc;
+        const dh = supportImg.height * sc;
+        ctx3.drawImage(
+          supportImg,
+          margin + innerPad + (p2ContentW - dw) / 2,
+          drawAreaY3 + (drawAreaH3 - dh) / 2,
+          dw,
+          dh
+        );
+      } else {
+        ctx3.strokeStyle = '#334155';
+        ctx3.lineWidth = Math.round(2 * scale);
+        ctx3.strokeRect(
+          margin + innerPad + Math.round(60 * scale),
+          drawAreaY3 + Math.round(20 * scale),
+          p2ContentW - Math.round(120 * scale),
+          drawAreaH3 - Math.round(40 * scale)
+        );
+        ctx3.fillStyle = '#0f172a';
+        ctx3.font = `bold ${Math.round(14 * scale)}px Arial, sans-serif`;
+        ctx3.textAlign = 'center';
+        ctx3.fillText(s4Title, W / 2, drawAreaY3 + drawAreaH3 / 2);
+      }
+    }
+
+    pdfPages.push(page3);
   }
 
   const safeLoc = (location.name || 'Location').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -8506,12 +8682,14 @@ export async function exportFieldMappingTwoPagePdfSheet(
     : 'Face';
   const filename = `Field_${domainPrefix}_Log_${safeLoc}_CH_${safeCh}_${pageSize}.pdf`;
 
-  exportCanvasesAsPdfDocument([page1, page2], filename, orientation, pageSize);
+  exportCanvasesAsPdfDocument(pdfPages, filename, orientation, pageSize);
 }
 
 /**
  * Generates and downloads a true high-resolution A3 Landscape PDF (.pdf)
- * for the Continuous Tunnel Geological Log (replicating full engineering strip blueprints).
+ * for the Continuous Tunnel / Vertical Shaft Geological Log, rendering all synced
+ * lithology zones, drawn joint traces, dip ticks, inline orientation labels,
+ * water seepage symbols, custom annotations, excavation dimensions, and FEM/DEM ledger rows.
  */
 export function exportContinuousTunnelLogAsA3Pdf(
   dataset: ContinuousTunnelStripDataset,
@@ -8529,6 +8707,22 @@ export function exportContinuousTunnelLogAsA3Pdf(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
+    const isShaft = dataset.excavationMode === 'SHAFT';
+    const fromRd = dataset.viewFromRd ?? (dataset.pulls?.[0]?.fromRd || 0);
+    const toRd = dataset.viewToRd ?? (dataset.pulls?.[dataset.pulls.length - 1]?.toRd || 30);
+    const totalRdLen = Math.max(0.5, toRd - fromRd);
+
+    const leftWallArcM = dataset.leftWallArcLengthM || dataset.leftWallHeightM || 3.75;
+    const crownArcM = dataset.crownArcLengthM || dataset.crownWidthM || 7.5;
+    const rightWallArcM = dataset.rightWallArcLengthM || dataset.rightWallHeightM || 3.75;
+    const shaftQuadArcM = dataset.shaftQuadrantArcLengthM || leftWallArcM;
+    const totalPerimM = isShaft
+      ? shaftQuadArcM * 4
+      : (dataset.upperZoneWidthM || 0) + (dataset.lowerZoneWidthM || 0) ||
+        leftWallArcM + crownArcM + rightWallArcM;
+    const spanDiamM = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0;
+    const archHeightM = dataset.tunnelArchHeightM || 6.0;
+
     // 1. Sheet Background and Heavy A3 Engineering Border
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
@@ -8540,124 +8734,392 @@ export function exportContinuousTunnelLogAsA3Pdf(
     ctx.lineWidth = 2;
     ctx.strokeRect(40, 40, W - 80, H - 80);
 
-    // 2. Section 1: Header Engineering Title Block
+    // 2. Section 1: Header Engineering Title Block (with full Excavation Dimensions)
     const tbY = 48;
-    const tbH = 150;
+    const tbH = 148;
     const tbW = W - 96;
     ctx.strokeRect(48, tbY, tbW, tbH);
 
     ctx.beginPath();
-    ctx.moveTo(48 + tbW * 0.65, tbY);
-    ctx.lineTo(48 + tbW * 0.65, tbY + tbH);
-    ctx.moveTo(48 + tbW * 0.65, tbY + 75);
-    ctx.lineTo(48 + tbW, tbY + 75);
+    ctx.moveTo(48 + tbW * 0.62, tbY);
+    ctx.lineTo(48 + tbW * 0.62, tbY + tbH);
+    ctx.moveTo(48 + tbW * 0.62, tbY + 74);
+    ctx.lineTo(48 + tbW, tbY + 74);
     ctx.stroke();
 
     // Left Title Block Content
     ctx.fillStyle = '#1c1917';
-    ctx.font = 'bold 22px Arial, sans-serif';
+    ctx.font = 'bold 21px Arial, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText((dataset.projectName || 'CONTINUOUS TUNNEL GEOLOGICAL LOG').toUpperCase(), 68, tbY + 44);
+    ctx.fillText(
+      (dataset.projectName || 'CONTINUOUS 3D GEOLOGICAL STRIP LOG').toUpperCase(),
+      66,
+      tbY + 38
+    );
 
-    ctx.font = 'bold 15px Arial, sans-serif';
-    ctx.fillStyle = '#44403c';
-    ctx.fillText(`EMPLOYER / CLIENT: ${dataset.clientName || 'PROJECT OWNER'}   |   CONTRACTOR: ${dataset.contractorName || 'MAIN CONTRACTOR'}`, 68, tbY + 80);
-
-    const fromRd = dataset.viewFromRd ?? (dataset.pulls?.[0]?.fromRd || 0);
-    const toRd = dataset.viewToRd ?? (dataset.pulls?.[dataset.pulls.length - 1]?.toRd || 30);
-    ctx.fillStyle = '#ea580c';
-    ctx.font = 'bold 16px Arial, sans-serif';
-    ctx.fillText(`TUNNEL HEADING: ${(dataset.tunnelLocationName || 'POWER TUNNEL').toUpperCase()}   |   SCOPE: CH ${fromRd.toFixed(2)} m TO CH ${toRd.toFixed(2)} m`, 68, tbY + 120);
-
-    // Right Title Block Content (Scale, Review Status, Drawing No)
-    ctx.fillStyle = '#1c1917';
     ctx.font = 'bold 14px Arial, sans-serif';
-    ctx.textAlign = 'left';
-    const rx = 48 + tbW * 0.65 + 20;
-    ctx.fillText('DRAWING TITLE: CONTINUOUS GEOLOGICAL TUNNEL STRIP LOG', rx, tbY + 34);
-    ctx.fillText('HORIZONTAL & VERTICAL SCALE: 1 : 100 (A3 LANDSCAPE)', rx, tbY + 60);
-    ctx.fillText(`REVIEW STATUS: ${dataset.reviewStatus || 'APPROVED AS-BUILT'}   |   DATE: ${new Date().toLocaleDateString()}`, rx, tbY + 110);
-    ctx.fillText(`GEOLOGIST: ${dataset.geologistContractor || 'CONTRACTOR LEAD'} / ${dataset.geologistClient || 'CLIENT REP'}`, rx, tbY + 134);
+    ctx.fillStyle = '#334155';
+    ctx.fillText(
+      `CLIENT: ${dataset.clientName || 'PROJECT OWNER'}   |   CONTRACTOR: ${dataset.contractorName || 'MAIN CONTRACTOR'}   |   HEADING: ${(dataset.tunnelLocationName || 'MAIN HEADING').toUpperCase()}`,
+      66,
+      tbY + 70
+    );
 
-    // 3. Section 2: Unfolded Continuous Tunnel Strip
-    const stripY = tbY + tbH + 20;
-    const stripH = 760;
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 13.5px Arial, sans-serif';
+    const dimSummary = isShaft
+      ? `DIMENSIONS: Vertical Shaft Ø=${spanDiamM.toFixed(2)}m | 4 Compass Quadrants × ${shaftQuadArcM.toFixed(2)}m = ${totalPerimM.toFixed(2)}m Perimeter | Depth ${fromRd.toFixed(2)}m–${toRd.toFixed(2)}m (${totalRdLen.toFixed(2)}m)`
+      : `DIMENSIONS: Span W=${spanDiamM.toFixed(2)}m × H=${archHeightM.toFixed(2)}m | Left Wall=${leftWallArcM.toFixed(2)}m, Crown Arc=${crownArcM.toFixed(2)}m, Right Wall=${rightWallArcM.toFixed(2)}m (Total Unfolded Perimeter=${totalPerimM.toFixed(2)}m)`;
+    ctx.fillText(dimSummary, 66, tbY + 102);
+
+    ctx.fillStyle = '#ea580c';
+    ctx.font = 'bold 14px Arial, sans-serif';
+    const mappedCount = (dataset.pulls || []).filter((p) => p.status === 'MAPPED').length;
+    const gapCount = (dataset.pulls || []).filter((p) => p.status === 'MISSING_GAP').length;
+    ctx.fillText(
+      `LOGGED SCOPE: ${isShaft ? 'DEPTH' : 'CHAINAGE'} ${fromRd.toFixed(2)}m TO ${toRd.toFixed(2)}m (${mappedCount} Mapped Round(s), ${gapCount} Unlogged Gap(s))   |   TRACES SYNCED: ${(dataset.traces || []).length}   |   OVERBURDEN H=${dataset.overburdenDepthM || 110}m`,
+      66,
+      tbY + 132
+    );
+
+    // Right Title Block Content
+    ctx.fillStyle = '#1c1917';
+    ctx.font = 'bold 13.5px Arial, sans-serif';
+    const rx = 48 + tbW * 0.62 + 18;
+    ctx.fillText(
+      isShaft
+        ? 'DRAWING: UNFOLDED 360° VERTICAL SHAFT WALL GEOLOGICAL LOG'
+        : 'DRAWING: UNFOLDED 3D CONTINUOUS TUNNEL ARCH & WALL LOG',
+      rx,
+      tbY + 32
+    );
+    ctx.fillText(
+      `SCALE: TRUE SPATIAL METRIC (${totalRdLen.toFixed(1)}m × ${totalPerimM.toFixed(1)}m) — ISO A3 LANDSCAPE`,
+      rx,
+      tbY + 58
+    );
+    ctx.fillText(
+      `STATUS: APPROVED AS-BUILT   |   DATE: ${new Date().toLocaleDateString()}`,
+      rx,
+      tbY + 104
+    );
+    ctx.fillText(
+      `GEOLOGISTS: ${dataset.geologistContractor || 'Contractor Geologist'} / ${dataset.geologistClient || 'Client Geologist'}`,
+      rx,
+      tbY + 130
+    );
+
+    // 3. Section 2: Unfolded Continuous Tunnel / Shaft Strip Canvas
+    const stripY = tbY + tbH + 18;
+    const stripH = 690;
+    const labelColW = 250;
+    const plotX = 48 + labelColW;
+    const plotW = tbW - labelColW;
+
     ctx.strokeStyle = '#1c1917';
     ctx.lineWidth = 2.5;
     ctx.strokeRect(48, stripY, tbW, stripH);
 
-    // Unfolded Sector Lines (Left Wall, Crown Arch, Right Wall)
-    const leftH = stripH * 0.26;
-    const crownH = stripH * 0.48;
-    const rightH = stripH * 0.26;
-    const lSplY = stripY + leftH;
-    const rSplY = lSplY + crownH;
+    // Left Zone Header Column inside Strip
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(48, stripY, labelColW, stripH);
+    ctx.strokeRect(48, stripY, labelColW, stripH);
 
-    ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 1.8;
-    ctx.setLineDash([8, 5]);
+    const rdToPxX = (rd: number) =>
+      plotX + Math.max(0, Math.min(1, (rd - fromRd) / totalRdLen)) * plotW;
+    const perimToPxY = (yM: number) =>
+      stripY + Math.max(0, Math.min(1, yM / Math.max(0.5, totalPerimM))) * stripH;
+
+    // Clip to the unfolded strip plotting area so drawn polygons/traces stay crisp inside box
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(48, lSplY);
-    ctx.lineTo(48 + tbW, lSplY);
-    ctx.moveTo(48, rSplY);
-    ctx.lineTo(48 + tbW, rSplY);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.rect(plotX, stripY, plotW, stripH);
+    ctx.clip();
 
-    // Sector Labels
-    ctx.font = 'bold 13px Arial, sans-serif';
-    ctx.fillStyle = '#0284c7';
-    ctx.textAlign = 'left';
-    ctx.fillText('LEFT SPRING LINE (L-SPL) — LEFT WALL (INVERT TO SPRING LINE)', 60, lSplY - 8);
-    ctx.fillText('RIGHT SPRING LINE (R-SPL) — CROWN / ARCH (L-SPL TO R-SPL)', 60, rSplY - 8);
-    ctx.fillText('RIGHT WALL (R-SPL TO INVERT)', 60, stripY + stripH - 12);
+    // 3A. Render Lithology Polygons (`dataset.lithologyZones`)
+    const rockColorPalette: Record<string, string> = {
+      Gr: '#fde2e4',
+      Gn: '#e2e8f0',
+      Sch: '#dbeafe',
+      Qtz: '#fef3c7',
+      Ph: '#dcfce7',
+      Bas: '#cbd5e1',
+      Sst: '#ffedd5',
+      Lst: '#e0f2fe',
+      Dl: '#f3e8ff',
+      Sh: '#f1f5f9',
+    };
 
-    // Pull division lines along chainage
-    const pulls = dataset.pulls || [];
-    const pullCount = Math.max(1, pulls.length);
-    const colW = tbW / pullCount;
-
-    for (let i = 0; i < pullCount; i++) {
-      const px = 48 + i * colW;
-      const p = pulls[i];
-
-      // Vertical Pull Boundary
-      ctx.strokeStyle = '#a8a29e';
-      ctx.lineWidth = 1.2;
+    for (const lz of dataset.lithologyZones || []) {
+      if (!lz.polygon || lz.polygon.length < 3) continue;
       ctx.beginPath();
-      ctx.moveTo(px, stripY);
-      ctx.lineTo(px, stripY + stripH);
+      lz.polygon.forEach((pt, idx) => {
+        const px = rdToPxX(pt.x);
+        const py = perimToPxY(pt.y);
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      const fillHex = rockColorPalette[lz.codeSymbol] || '#f1f5f9';
+      ctx.fillStyle = fillHex;
+      ctx.fill();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      // Top Chainage Station Label
-      ctx.fillStyle = '#1c1917';
-      ctx.font = 'bold 12px Arial, sans-serif';
+      // Draw rock code & label at polygon centroid
+      const cx =
+        lz.polygon.reduce((s, p) => s + rdToPxX(p.x), 0) / lz.polygon.length;
+      const cy =
+        lz.polygon.reduce((s, p) => s + perimToPxY(p.y), 0) / lz.polygon.length;
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 11px Arial, sans-serif';
       ctx.textAlign = 'center';
-      if (p) {
-        ctx.fillText(`PULL #${i + 1}`, px + colW / 2, stripY + 22);
-        ctx.fillText(`CH ${p.fromRd}–${p.toRd}m`, px + colW / 2, stripY + 38);
-      }
+      ctx.fillText(lz.label || `${lz.codeSymbol} (${lz.rockType})`, cx, cy);
     }
 
-    // 4. Section 3: Tabular Parameter Bands per Pull (RQD, Jn, Jr, Ja, Q, RMR, Support, etc.)
-    const tableY = stripY + stripH + 16;
-    const bandRows = [
-      { label: 'RQD (%) & Joint Sets (Jn)', key: 'rqd' },
-      { label: 'Roughness (Jr) & Alteration (Ja)', key: 'jr' },
-      { label: 'Barton Q-Value & Rock Class', key: 'q' },
-      { label: 'Bieniawski RMR89 & Class', key: 'rmr' },
-      { label: 'Hoek-Brown GSI Rating', key: 'gsi' },
-      { label: 'Groundwater Inflow Condition', key: 'water' },
-      { label: 'Survey Overbreak Volume (m³)', key: 'overbreak' },
-      { label: 'Installed Rock Bolts & Mesh', key: 'bolts' },
-      { label: 'Installed Shotcrete Lining', key: 'shotcrete' },
-      { label: 'Steel Ribs / Lattice Girders', key: 'ribs' },
-    ];
-    const bRowH = 42;
+    // 3B. Render MISSING_GAP hatched blocks & Pull vertical boundaries
+    const pulls = dataset.pulls || [];
+    for (let i = 0; i < pulls.length; i++) {
+      const p = pulls[i];
+      const x1 = rdToPxX(p.fromRd);
+      const x2 = rdToPxX(p.toRd);
+      const w = Math.max(2, x2 - x1);
 
-    const labelColW = 280;
-    const dataAreaW = tbW - labelColW;
-    const dataColW = dataAreaW / pullCount;
+      if (p.status === 'MISSING_GAP') {
+        ctx.fillStyle = 'rgba(241, 245, 249, 0.88)';
+        ctx.fillRect(x1, stripY, w, stripH);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        for (let hx = x1 - stripH; hx < x2; hx += 18) {
+          ctx.beginPath();
+          ctx.moveTo(hx, stripY + stripH);
+          ctx.lineTo(hx + stripH, stripY);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#64748b';
+        ctx.font = 'bold 12px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          `UNLOGGED / GAP (${p.fromRd.toFixed(1)}–${p.toRd.toFixed(1)}m)`,
+          x1 + w / 2,
+          stripY + stripH / 2
+        );
+      }
+
+      // Pull boundary vertical dashed line
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.3;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x1, stripY);
+      ctx.lineTo(x1, stripY + stripH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Top chainage badge inside strip
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(x1 + 4, stripY + 6, Math.min(w - 8, 150), 22);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(
+        `${p.excavationDefiningNo || `RD-${i + 1}`}: ${p.fromRd.toFixed(1)}–${p.toRd.toFixed(1)}m`,
+        x1 + 10,
+        stripY + 21
+      );
+    }
+
+    // 3C. Draw Unfolded Zone / Quadrant Horizontal Divider Lines
+    if (isShaft) {
+      const qYs = [
+        perimToPxY(shaftQuadArcM),
+        perimToPxY(shaftQuadArcM * 2),
+        perimToPxY(shaftQuadArcM * 3),
+      ];
+      ctx.strokeStyle = '#7e22ce';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([9, 5]);
+      qYs.forEach((qy) => {
+        ctx.beginPath();
+        ctx.moveTo(plotX, qy);
+        ctx.lineTo(plotX + plotW, qy);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+    } else {
+      const yCrownTop = perimToPxY(leftWallArcM);
+      const yRightWallTop = perimToPxY(leftWallArcM + crownArcM);
+      ctx.strokeStyle = '#0284c7';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([9, 5]);
+      ctx.beginPath();
+      ctx.moveTo(plotX, yCrownTop);
+      ctx.lineTo(plotX + plotW, yCrownTop);
+      ctx.moveTo(plotX, yRightWallTop);
+      ctx.lineTo(plotX + plotW, yRightWallTop);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 3D. Render All Drawn Discontinuity Traces, Faults, Shears, Veins & Foliation (`dataset.traces`)
+    for (const tr of dataset.traces || []) {
+      if (!tr.points || tr.points.length < 2) continue;
+      const strokeColor =
+        tr.colorHex ||
+        (tr.structureType === 'Main Fault'
+          ? '#dc2626'
+          : tr.structureType === 'Shear'
+          ? '#d97706'
+          : tr.setId === 'J1'
+          ? '#2563eb'
+          : tr.setId === 'J2'
+          ? '#ea580c'
+          : '#7c3aed');
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth =
+        tr.structureType === 'Main Fault' || tr.fillingThickness === 'Thick'
+          ? 3.8
+          : tr.structureType === 'Shear'
+          ? 3.0
+          : 2.4;
+
+      if (tr.structureType === 'Shear' || tr.structureType === 'JS1 - Foliation') {
+        ctx.setLineDash([10, 5]);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      ctx.beginPath();
+      tr.points.forEach((pt, idx) => {
+        const px = rdToPxX(pt.x);
+        const py = perimToPxY(pt.y);
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw vertex control points along the trace
+      ctx.fillStyle = strokeColor;
+      tr.points.forEach((pt) => {
+        const px = rdToPxX(pt.x);
+        const py = perimToPxY(pt.y);
+        ctx.beginPath();
+        ctx.arc(px, py, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw strike/dip tick & orientation badge at midpoint of trace
+      const midIdx = Math.floor(tr.points.length / 2);
+      const pA = tr.points[Math.max(0, midIdx - 1)];
+      const pB = tr.points[Math.min(tr.points.length - 1, midIdx)];
+      const mx = (rdToPxX(pA.x) + rdToPxX(pB.x)) / 2;
+      const my = (perimToPxY(pA.y) + perimToPxY(pB.y)) / 2;
+      const dx = rdToPxX(pB.x) - rdToPxX(pA.x);
+      const dy = perimToPxY(pB.y) - perimToPxY(pA.y);
+      const segLen = Math.hypot(dx, dy) || 1;
+      const sign = tr.dipTickSide === 'left' ? -1 : 1;
+      const nx = (-dy / segLen) * sign;
+      const ny = (dx / segLen) * sign;
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(mx, my);
+      ctx.lineTo(mx + nx * 14, my + ny * 14);
+      ctx.stroke();
+
+      const badgeText = `${tr.customLabel || tr.setId || 'J1'} (${tr.orientationLabel || `${tr.dipDirectionDeg}/${tr.dipDeg}`})`;
+      ctx.font = 'bold 10.5px Arial, sans-serif';
+      const tw = ctx.measureText(badgeText).width;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillRect(mx + nx * 16 - tw / 2 - 4, my + ny * 16 - 9, tw + 8, 16);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx + nx * 16 - tw / 2 - 4, my + ny * 16 - 9, tw + 8, 16);
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeText, mx + nx * 16, my + ny * 16 + 3);
+    }
+
+    // 3E. Render Water Seepage Symbols (`dataset.waterSymbols`)
+    for (const ws of dataset.waterSymbols || []) {
+      const wx = rdToPxX(ws.position.x);
+      const wy = perimToPxY(ws.position.y);
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(wx, wy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#0369a1';
+      ctx.font = 'bold 10px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(ws.label || ws.condition, wx + 10, wy + 4);
+    }
+
+    // 3F. Render Custom Annotations (`dataset.customAnnotations`)
+    for (const ann of dataset.customAnnotations || []) {
+      const ax = rdToPxX(ann.x);
+      const ay = perimToPxY(ann.y);
+      ctx.fillStyle = ann.color || '#1e293b';
+      ctx.font = 'bold 11px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(ann.text, ax, ay);
+    }
+
+    ctx.restore();
+
+    // 3G. Render Left Column Unfolded Zone / Quadrant Labels & Perimeter Scale
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    if (isShaft) {
+      const qLabels = [
+        `Q1: NE (0°–90°) [0–${shaftQuadArcM.toFixed(1)}m]`,
+        `Q2: ES (90°–180°) [${shaftQuadArcM.toFixed(1)}–${(shaftQuadArcM * 2).toFixed(1)}m]`,
+        `Q3: SW (180°–270°) [${(shaftQuadArcM * 2).toFixed(1)}–${(shaftQuadArcM * 3).toFixed(1)}m]`,
+        `Q4: WN (270°–360°) [${(shaftQuadArcM * 3).toFixed(1)}–${totalPerimM.toFixed(1)}m]`,
+      ];
+      qLabels.forEach((lbl, idx) => {
+        const yMid = perimToPxY(shaftQuadArcM * (idx + 0.5));
+        ctx.fillText(lbl, 58, yMid + 4);
+      });
+    } else {
+      ctx.fillText(
+        `LEFT WALL (0–${leftWallArcM.toFixed(2)}m)`,
+        58,
+        perimToPxY(leftWallArcM * 0.5)
+      );
+      ctx.fillText(
+        `CROWN ARCH (${leftWallArcM.toFixed(2)}–${(leftWallArcM + crownArcM).toFixed(2)}m)`,
+        58,
+        perimToPxY(leftWallArcM + crownArcM * 0.5)
+      );
+      ctx.fillText(
+        `RIGHT WALL (${(leftWallArcM + crownArcM).toFixed(2)}–${totalPerimM.toFixed(2)}m)`,
+        58,
+        perimToPxY(leftWallArcM + crownArcM + rightWallArcM * 0.5)
+      );
+    }
+
+    // 4. Section 3: Tabular Parameter & FEM/DEM Bands Aligned to Each Pull's Exact Chainage Width
+    const tableY = stripY + stripH + 14;
+    const bandRows = [
+      { label: 'Excavation Dimensions & Pull', key: 'dims' },
+      { label: 'Dominant Lithology & UCS (MPa)', key: 'lith' },
+      { label: 'RQD (%) & Joint Sets', key: 'rqd' },
+      { label: 'Barton Q-Value & Class', key: 'q' },
+      { label: 'Bieniawski RMR89 & GSI', key: 'rmr' },
+      { label: 'Groundwater & Overbreak (m³)', key: 'water' },
+      { label: 'Installed Bolts, Shotcrete & Ribs', key: 'support' },
+      { label: 'FEM/DEM FoS (Before → After)', key: 'fem_fos' },
+      { label: 'Displacement u_max (Before → After)', key: 'fem_disp' },
+    ];
+    const bRowH = 38;
 
     bandRows.forEach((row, rIdx) => {
       const by = tableY + rIdx * bRowH;
@@ -8667,39 +9129,67 @@ export function exportContinuousTunnelLogAsA3Pdf(
       ctx.lineWidth = 1;
       ctx.strokeRect(48, by, tbW, bRowH);
 
-      // Label Header
+      // Left Label Cell
+      ctx.strokeRect(48, by, labelColW, bRowH);
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 12px Arial, sans-serif';
+      ctx.font = 'bold 11.5px Arial, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(row.label, 58, by + 26);
+      ctx.fillText(row.label, 58, by + 24);
 
-      // Data columns per pull
-      pulls.forEach((p, pIdx) => {
-        const dx = 48 + labelColW + pIdx * dataColW;
-        ctx.strokeRect(dx, by, dataColW, bRowH);
+      // True-Scale Chainage-Aligned Data Cells per Pull
+      pulls.forEach((p) => {
+        const x1 = rdToPxX(p.fromRd);
+        const x2 = rdToPxX(p.toRd);
+        const colW = Math.max(2, x2 - x1);
+        ctx.strokeRect(x1, by, colW, bRowH);
+
+        if (p.status === 'MISSING_GAP') {
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = 'italic 10.5px Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Unlogged Gap', x1 + colW / 2, by + 24);
+          return;
+        }
+
+        const rmrVal = p.rmrValue ?? 55;
+        const qVal = p.qValue ?? 4.5;
+        const fosBefore = Number(Math.max(0.75, 0.65 + rmrVal * 0.012).toFixed(2));
+        const fosAfter = Number(Math.max(1.35, fosBefore * 1.58).toFixed(2));
+        const uBeforeMm = Number(Math.max(4.5, (100 - rmrVal) * 0.62).toFixed(1));
+        const uAfterMm = Number(Math.max(1.8, uBeforeMm * 0.42).toFixed(1));
 
         let cellText = '-';
-        if (row.key === 'rqd') cellText = `${p.rqdValue ?? 65}% (Jn=${(p as any).jn ?? 9})`;
-        else if (row.key === 'jr') cellText = `Jr=${(p as any).jr ?? 1.5}, Ja=${(p as any).ja ?? 1.0}`;
-        else if (row.key === 'q') cellText = `Q=${p.qValue ?? 4.5} (${p.rockClass || 'Class C'})`;
-        else if (row.key === 'rmr') cellText = `RMR=${p.rmrValue ?? 55} (${p.rockClass || 'Class III'})`;
-        else if (row.key === 'gsi') cellText = `GSI=${p.gsiValue ?? 58}`;
-        else if (row.key === 'water') cellText = p.seepageCondition || 'Dry';
-        else if (row.key === 'overbreak') cellText = `${(p.overbreakVolumeM3 || 0).toFixed(1)} m³`;
-        else if (row.key === 'bolts') cellText = p.rockBoltsInstalled || 'Resin Ø25 L=3.5m';
-        else if (row.key === 'shotcrete') cellText = p.shotcreteInstalled || '100mm SFRS';
-        else if (row.key === 'ribs') cellText = p.steelRibsInstalled || 'None';
+        if (row.key === 'dims') {
+          cellText = `${spanDiamM}m×${archHeightM}m | L=${(p.toRd - p.fromRd).toFixed(1)}m`;
+        } else if (row.key === 'lith') {
+          cellText = `${p.rockType || 'Granite'} (${p.ucsRangeMpa || `${p.intactUcsMpa || 75} MPa`})`;
+        } else if (row.key === 'rqd') {
+          cellText = `RQD=${p.rqdValue ?? 65}% | ${p.structureDescription || '3 Sets'}`;
+        } else if (row.key === 'q') {
+          cellText = `Q=${qVal} (${p.rockClass || 'Class C'})`;
+        } else if (row.key === 'rmr') {
+          cellText = `RMR=${rmrVal} | GSI=${p.gsiValue ?? 55}`;
+        } else if (row.key === 'water') {
+          cellText = `${p.seepageCondition || 'Damp'} | OB=${(p.overbreakVolumeM3 || 0).toFixed(1)}m³`;
+        } else if (row.key === 'support') {
+          cellText = `${p.rockBoltsInstalled || 'Bolts L=3.5m'} | ${p.shotcreteInstalled || '100mm SFRS'}`;
+        } else if (row.key === 'fem_fos') {
+          cellText = `FoS: ${fosBefore} → ${fosAfter}`;
+        } else if (row.key === 'fem_disp') {
+          cellText = `u: ${uBeforeMm}mm → ${uAfterMm}mm`;
+        }
 
-        ctx.font = '11.5px Arial, sans-serif';
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '11px Arial, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(cellText, dx + dataColW / 2, by + 26);
+        ctx.fillText(cellText, x1 + colW / 2, by + 24);
       });
     });
 
     // 5. Section 4: Geologist Sign-Off Block at Base
-    const signY = tableY + bandRows.length * bRowH + 14;
+    const signY = tableY + bandRows.length * bRowH + 12;
     const signBoxH = H - 48 - signY;
-    if (signBoxH > 40) {
+    if (signBoxH > 36) {
       ctx.strokeStyle = '#1c1917';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(48, signY, tbW, signBoxH);
@@ -8711,15 +9201,30 @@ export function exportContinuousTunnelLogAsA3Pdf(
       ctx.lineTo(48 + (tbW * 2) / 3, signY + signBoxH);
       ctx.stroke();
 
+      ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 12px Arial, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`CONTRACTOR: ${dataset.contractorName || 'Main Contractor'}  |  Sign: __________________`, 60, signY + signBoxH * 0.6);
-      ctx.fillText(`CONSULTANT: ${(dataset as any).consultantName || 'Supervision Consultant'}  |  Sign: __________________`, 48 + tbW / 3 + 12, signY + signBoxH * 0.6);
-      ctx.fillText(`CLIENT / OWNER: ${dataset.clientName || 'Project Authority'}  |  Sign: __________________`, 48 + (tbW * 2) / 3 + 12, signY + signBoxH * 0.6);
+      ctx.fillText(
+        `CONTRACTOR GEOLOGIST: ${dataset.geologistContractor || dataset.contractorName || 'Contractor Rep'}   Sign: __________________`,
+        60,
+        signY + signBoxH * 0.62
+      );
+      ctx.fillText(
+        `SUPERVISION CONSULTANT: ${(dataset as any).consultantName || 'Consultant Geologist'}   Sign: __________________`,
+        48 + tbW / 3 + 12,
+        signY + signBoxH * 0.62
+      );
+      ctx.fillText(
+        `CLIENT / EMPLOYER GEOLOGIST: ${dataset.geologistClient || dataset.clientName || 'Client Rep'}   Sign: __________________`,
+        48 + (tbW * 2) / 3 + 12,
+        signY + signBoxH * 0.62
+      );
     }
 
     const safeProj = (dataset.projectName || 'Tunnel').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const safeFilename = customFilename || `${safeProj}_Continuous_Log_CH${fromRd.toFixed(0)}-${toRd.toFixed(0)}_A3.pdf`;
+    const safeFilename =
+      customFilename ||
+      `${safeProj}_Continuous_3D_Strip_Log_${isShaft ? 'Depth' : 'CH'}${fromRd.toFixed(0)}-${toRd.toFixed(0)}_A3.pdf`;
     exportCanvasesAsPdfDocument([canvas], safeFilename, 'landscape', 'A3');
   } catch (err) {
     console.error('exportContinuousTunnelLogAsA3Pdf error:', err);

@@ -307,7 +307,7 @@ async function startServer() {
         try {
           const originUrl =
             String(req.headers.origin || '').trim() ||
-            'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+            'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
           const fsResp = await fetch(
             `https://formsubmit.co/ajax/${encodeURIComponent(recipient)}`,
             {
@@ -2676,7 +2676,7 @@ ${safeJsContent}
       try {
         const originUrl =
           String(req.headers.origin || '').trim() ||
-          'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+          'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
         const fsResp = await fetch(
           `https://formsubmit.co/ajax/${encodeURIComponent(cleanTo)}`,
           {

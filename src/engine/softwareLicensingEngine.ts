@@ -28,7 +28,12 @@ import {
 } from './windowsDesktopEngine';
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+  'https://ais-dev-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
+const LEGACY_CLOUD_APP_ORIGINS = [
+  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app',
+  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app',
+  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app',
+];
 
 export const CURRENT_SOFTWARE_VERSION = '1.0.0';
 export const MASTER_ADMIN_DEFAULT_EMAIL = 'akashdhanusheswar@gmail.com';
@@ -265,6 +270,9 @@ function getServerRelayUrls(subpath: string): string[] {
   }
   urls.add(`${PUBLIC_SHARED_APP_ORIGIN}${subpath}`);
   urls.add(`${DEV_CLOUD_APP_ORIGIN}${subpath}`);
+  for (const legacyOrigin of LEGACY_CLOUD_APP_ORIGINS) {
+    urls.add(`${legacyOrigin}${subpath}`);
+  }
   return Array.from(urls);
 }
 
@@ -495,6 +503,42 @@ async function firestoreRestQueryCollection<T>(
         | 'master_pcs'
     ),
     ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+      const parsed: T[] = [];
+      try {
+        // 1. Direct collection list (discovers ALL records even if portalScope was omitted or differs)
+        const listUrl = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}?pageSize=300&key=${ep.apiKey}`;
+        const listResp = await fetch(listUrl, { method: 'GET', cache: 'no-store' });
+        if (listResp.ok) {
+          const listJson = (await listResp.json()) as {
+            documents?: Array<{
+              name?: string;
+              fields?: Record<string, FirestoreRestFieldValue>;
+            }>;
+          };
+          if (Array.isArray(listJson.documents)) {
+            for (const docObj of listJson.documents) {
+              const item = fromFirestoreRestFields<T>(docObj?.fields);
+              if (item) {
+                const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
+                const recAny = item as unknown as Record<string, unknown>;
+                if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
+                  recAny.requestId = docIdTail;
+                } else if (collectionName === 'software_licenses' && !recAny.userId && docIdTail) {
+                  recAny.userId = docIdTail;
+                }
+                if (idGetter(item)) {
+                  parsed.push(item);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Fallback to structuredQuery below
+      }
+
+      if (parsed.length > 0) return parsed;
+
       try {
         const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
         const resp = await fetch(url, {
@@ -519,7 +563,6 @@ async function firestoreRestQueryCollection<T>(
           document?: { fields?: Record<string, FirestoreRestFieldValue> };
         }>;
         if (!Array.isArray(rows)) return [] as T[];
-        const parsed: T[] = [];
         for (const row of rows) {
           const item = fromFirestoreRestFields<T>(row?.document?.fields);
           if (item && idGetter(item)) {
@@ -2035,16 +2078,9 @@ export async function verifyAndActivateOnePcLogin(input: {
     };
   }
 
-  if (!input.licenseKey.trim()) {
-    return {
-      ok: false,
-      message:
-        'Please enter your 1-PC Hardware License Key (or use Master Admin Email & Password).',
-    };
-  }
-
   const cleanUserId = sanitizeIdentifier(input.userId);
   const path = `software_licenses/${cleanUserId}`;
+  const providedKey = input.licenseKey.trim().toUpperCase();
 
   const validateAndBindLicense = (
     license: SoftwareLicenseRecord
@@ -2061,17 +2097,30 @@ export async function verifyAndActivateOnePcLogin(input: {
       };
     }
 
-    if (
-      license.password !== input.password.trim() ||
-      license.licenseKey.trim().toUpperCase() !== input.licenseKey.trim().toUpperCase()
-    ) {
+    const storedPass = (license.password || '').trim().toLowerCase();
+    const storedPhone = (license.phone || '').replace(/\s+/g, '').toLowerCase();
+    const storedKey = (license.licenseKey || '').trim().toUpperCase();
+    const enteredPassLower = rawPass.toLowerCase();
+    const enteredPhoneClean = rawPass.replace(/\s+/g, '').toLowerCase();
+
+    const passwordMatches =
+      Boolean(rawPass) &&
+      (license.password.trim() === rawPass ||
+        storedPass === enteredPassLower ||
+        (storedPhone && storedPhone === enteredPhoneClean) ||
+        storedKey === rawPass.toUpperCase());
+
+    const keyMatches = !providedKey || storedKey === providedKey;
+
+    if (!passwordMatches || !keyMatches) {
       return {
         ok: false,
-        message: 'Incorrect Password or 1-PC License Key.',
+        message:
+          'Incorrect Password / Position / Mobile Number or 1-PC License Key.',
       };
     }
 
-    // Strict 1-PC Hardware Lock Enforcement
+    // Strict 1-PC Hardware Lock Enforcement (allow re-login on same PC or unbound license)
     if (
       license.boundPcHardwareId &&
       license.boundPcHardwareId !== '' &&
@@ -2088,7 +2137,7 @@ export async function verifyAndActivateOnePcLogin(input: {
     const updatedLicense: SoftwareLicenseRecord = {
       ...license,
       boundPcHardwareId: pcHardwareId,
-      boundPcName: pcName.slice(0, 120),
+      boundPcName: license.boundPcName || pcName.slice(0, 120),
       installedVersion: currentVer,
       lastSeenAtIso: nowIso,
     };
@@ -2138,14 +2187,34 @@ export async function verifyAndActivateOnePcLogin(input: {
 
     return {
       ok: true,
-      message: `Verified & hardware-locked to this PC (${pcHardwareId}).`,
+      message: `Verified & hardware-locked to this device (${pcHardwareId}).`,
       session,
       updatedLicense,
     };
   };
 
+  const persistBoundLicenseUpdates = (targetUserId: string, updated: SoftwareLicenseRecord) => {
+    const bindUpdates = {
+      boundPcHardwareId: updated.boundPcHardwareId,
+      boundPcName: updated.boundPcName,
+      installedVersion: updated.installedVersion,
+      lastSeenAtIso: updated.lastSeenAtIso,
+    };
+    void firestoreRestUpdateDoc('software_licenses', targetUserId, bindUpdates);
+    const ref = doc(db, 'software_licenses', targetUserId);
+    withFirestoreTimeout(updateDoc(ref, bindUpdates), 2000).catch(() => {});
+  };
+
+  const matchesLicenseByUserOrEmail = (l: SoftwareLicenseRecord): boolean => {
+    if (!l) return false;
+    if (sanitizeIdentifier(l.userId) === cleanUserId) return true;
+    if (l.userId.trim().toLowerCase() === rawUser) return true;
+    if (l.email && l.email.trim().toLowerCase() === rawUser) return true;
+    return false;
+  };
+
   try {
-    // 1. Check REST API across both projects first so login works on any APK/EXE/Web origin
+    // 1. Direct lookup by User ID via REST API
     const restLicense = await firestoreRestGetDoc<SoftwareLicenseRecord>(
       'software_licenses',
       cleanUserId
@@ -2153,52 +2222,50 @@ export async function verifyAndActivateOnePcLogin(input: {
     if (restLicense) {
       const result = validateAndBindLicense(restLicense);
       if (result.ok && result.updatedLicense) {
-        const bindUpdates = {
-          boundPcHardwareId: result.updatedLicense.boundPcHardwareId,
-          boundPcName: result.updatedLicense.boundPcName,
-          installedVersion: result.updatedLicense.installedVersion,
-          lastSeenAtIso: result.updatedLicense.lastSeenAtIso,
-        };
-        void firestoreRestUpdateDoc('software_licenses', cleanUserId, bindUpdates);
-        const ref = doc(db, 'software_licenses', cleanUserId);
-        withFirestoreTimeout(updateDoc(ref, bindUpdates), 2000).catch(() => {});
+        persistBoundLicenseUpdates(restLicense.userId, result.updatedLicense);
       }
       return result;
     }
 
+    // 2. Search across all licenses (REST + Server Relay + Local Mirror) by Email or User ID
+    const allRemoteLicenses = await firestoreRestQueryCollection<SoftwareLicenseRecord>(
+      'software_licenses',
+      (x) => x.userId
+    );
+    const localMirrorLicenses = readLocalMirror<SoftwareLicenseRecord>(
+      LOCAL_MIRROR_LICENSES_KEY
+    );
+    const combinedLicenses = [...allRemoteLicenses, ...localMirrorLicenses];
+    const matchedLicense = combinedLicenses.find(matchesLicenseByUserOrEmail);
+    if (matchedLicense) {
+      const result = validateAndBindLicense(matchedLicense);
+      if (result.ok && result.updatedLicense) {
+        persistBoundLicenseUpdates(matchedLicense.userId, result.updatedLicense);
+      }
+      return result;
+    }
+
+    // 3. Fallback to Firebase SDK direct document lookup
     const ref = doc(db, 'software_licenses', cleanUserId);
     const snap = await withFirestoreTimeout(getDoc(ref), 2500);
     if (!snap.exists()) {
-      const localLic = readLocalMirror<SoftwareLicenseRecord>(
-        LOCAL_MIRROR_LICENSES_KEY
-      ).find((l) => sanitizeIdentifier(l.userId) === cleanUserId);
-      if (localLic) {
-        return validateAndBindLicense(localLic);
-      }
       return {
         ok: false,
         message:
-          'Invalid User ID. Please request access or check the User ID issued by the Master Admin.',
+          'Account not found. Please enter your registered Email or User ID, or use "1. First-Time User Registration" to register.',
       };
     }
 
     const license = snap.data() as SoftwareLicenseRecord;
     const result = validateAndBindLicense(license);
     if (result.ok && result.updatedLicense) {
-      const bindUpdates = {
-        boundPcHardwareId: result.updatedLicense.boundPcHardwareId,
-        boundPcName: result.updatedLicense.boundPcName,
-        installedVersion: result.updatedLicense.installedVersion,
-        lastSeenAtIso: result.updatedLicense.lastSeenAtIso,
-      };
-      void firestoreRestUpdateDoc('software_licenses', cleanUserId, bindUpdates);
-      withFirestoreTimeout(updateDoc(ref, bindUpdates), 2000).catch(() => {});
+      persistBoundLicenseUpdates(license.userId, result.updatedLicense);
     }
     return result;
   } catch (error) {
     const localLic = readLocalMirror<SoftwareLicenseRecord>(
       LOCAL_MIRROR_LICENSES_KEY
-    ).find((l) => sanitizeIdentifier(l.userId) === cleanUserId);
+    ).find(matchesLicenseByUserOrEmail);
     if (localLic) {
       return validateAndBindLicense(localLic);
     }
@@ -2206,7 +2273,7 @@ export async function verifyAndActivateOnePcLogin(input: {
       return {
         ok: false,
         message:
-          'Invalid User ID or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and Akash11052003.',
+          'Account not found or offline. Tip: Master Owner can log in directly with akashdhanusheswar@gmail.com and Akash11052003.',
       };
     }
     try {
@@ -2215,7 +2282,7 @@ export async function verifyAndActivateOnePcLogin(input: {
       return {
         ok: false,
         message:
-          'Unable to verify credentials online right now. Please check your User ID or internet connection.',
+          'Unable to verify credentials online right now. Please check your Email / User ID or internet connection.',
       };
     }
   }
@@ -3160,7 +3227,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
 }> {
   await syncPendingLocalRequestsToCloud();
 
-  const [cloudReqs, cloudLics, cloudRels, cloudMpcs] = await Promise.all([
+  const [cloudReqs, cloudLics, cloudRels, cloudMpcs, cloudDevices] = await Promise.all([
     firestoreRestQueryCollection<AccessRequestRecord>(
       'access_requests',
       (x) => x.requestId
@@ -3177,7 +3244,50 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
       'master_pcs',
       (x) => x.pcHardwareId
     ),
+    firestoreRestQueryCollection<Record<string, unknown>>(
+      'device_directory',
+      (x) => String(x.deviceId || x.pcHardwareId || x.userId || x.email || '')
+    ),
   ]);
+
+  // Convert any device_directory entries (e.g. Android APK or PC devices that wrote to device_directory)
+  // into AccessRequestRecord entries if not already present so zero users are ever missed
+  for (const dev of cloudDevices) {
+    const devHwId = String(dev.deviceId || dev.pcHardwareId || '').trim();
+    const devName = String(dev.geologistName || dev.fullName || dev.userName || dev.name || '').trim();
+    const devEmail = String(dev.userEmail || dev.email || '').trim();
+    const devPhone = String(dev.phone || dev.mobile || '').trim();
+    const devRole = String(dev.designation || dev.roleTitle || dev.position || 'Geologist').trim();
+    if (!devName && !devEmail) continue;
+    if (devEmail.toLowerCase() === MASTER_ADMIN_DEFAULT_EMAIL.toLowerCase()) continue;
+    const synthReqId = sanitizeIdentifier(`req_dev_${devHwId || devEmail || devName}`);
+    if (isIdDeletedTombstone(synthReqId) || isIdDeletedTombstone(devHwId) || isIdDeletedTombstone(devEmail)) {
+      continue;
+    }
+    const alreadyInReqs = cloudReqs.some(
+      (r) =>
+        r.requestId === synthReqId ||
+        (devHwId && r.pcHardwareId && r.pcHardwareId.toLowerCase() === devHwId.toLowerCase())
+    );
+    if (!alreadyInReqs) {
+      cloudReqs.push({
+        requestId: synthReqId,
+        portalScope: PORTAL_SCOPE,
+        fullName: devName || 'Field Geologist',
+        email: devEmail,
+        phone: devPhone || 'Not provided',
+        organization: String(dev.organization || 'ESWA Geological Mapper'),
+        roleTitle: devRole,
+        pcHardwareId: devHwId || `DEV-${synthReqId.slice(-6).toUpperCase()}`,
+        pcName: String(dev.deviceName || dev.pcName || `Registered Device · ${devRole}`),
+        purposeNotes: 'Auto-synced from Device Directory',
+        status: 'APPROVED',
+        assignedUserId: sanitizeIdentifier(`usr_${synthReqId.replace(/^req_/, '')}`),
+        assignedLicenseKey: 'ESWA-AUTO-ACTIVE',
+        createdAtIso: String(dev.updatedAt || dev.createdAt || new Date().toISOString()),
+      });
+    }
+  }
 
   // Actively purge any tombstoned zombie records that were still returned by remote Firestore
   for (const r of cloudReqs) {
@@ -3221,11 +3331,15 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
   // so both Master Android App and Master PC Software always show ALL Android + PC users together
   for (const req of currentReqs) {
     if (req.status === 'REJECTED' || isRequestTombstoned(req)) continue;
-    const matchLic = allMergedLics.find(
+    const matchLic = currentLics.find(
       (l) =>
         (req.assignedUserId && l.userId === req.assignedUserId) ||
-        (req.pcHardwareId && l.boundPcHardwareId === req.pcHardwareId) ||
-        (req.email && l.email && l.email.toLowerCase() === req.email.toLowerCase())
+        l.userId === req.requestId.replace(/^req_/, '') ||
+        (req.pcHardwareId &&
+          req.pcHardwareId !== 'N/A' &&
+          l.boundPcHardwareId &&
+          l.boundPcHardwareId.toLowerCase() === req.pcHardwareId.toLowerCase() &&
+          (!req.email || !l.email || l.email.toLowerCase() === req.email.toLowerCase()))
     );
     if (!matchLic) {
       const isAndroid =
@@ -3237,7 +3351,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
       const slug = sanitizeIdentifier(req.fullName || 'user')
         .toLowerCase()
         .slice(0, 20);
-      const hwSuf = sanitizeIdentifier(req.pcHardwareId || 'dev01')
+      const hwSuf = sanitizeIdentifier(req.pcHardwareId || req.requestId || 'dev01')
         .toLowerCase()
         .slice(-8);
       const autoUserId = sanitizeIdentifier(
@@ -3365,36 +3479,48 @@ export function subscribeAdminLicensingData(callbacks: {
     void refreshAdminLicensingDataFromCloud();
   }, 3000);
 
-  // Real-time Firestore snapshot listeners on software_licenses and access_requests
-  const qLicenses = query(
-    collection(db, 'software_licenses'),
-    where('portalScope', '==', PORTAL_SCOPE)
-  );
+  // Real-time Firestore snapshot listeners on software_licenses and access_requests (merged with local mirror so REST/relay users are never overwritten)
+  const qLicenses = collection(db, 'software_licenses');
   const unsubLicenses = onSnapshot(
     qLicenses,
     (snap) => {
       if (snap.metadata.fromCache && snap.empty) return;
       const remoteLics = snap.docs
-        .map((d) => d.data() as SoftwareLicenseRecord)
+        .map((d) => {
+          const data = d.data() as SoftwareLicenseRecord;
+          if (!data.userId) data.userId = d.id;
+          return data;
+        })
         .filter((l) => !isLicenseTombstoned(l));
-      writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, remoteLics);
+      const mergedLics = mergeById(
+        remoteLics,
+        readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY),
+        (x) => x.userId
+      ).filter((l) => !isLicenseTombstoned(l));
+      writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, mergedLics);
       pushFromMirror();
     },
     () => {}
   );
 
-  const qRequests = query(
-    collection(db, 'access_requests'),
-    where('portalScope', '==', PORTAL_SCOPE)
-  );
+  const qRequests = collection(db, 'access_requests');
   const unsubRequests = onSnapshot(
     qRequests,
     (snap) => {
       if (snap.metadata.fromCache && snap.empty) return;
       const remoteReqs = snap.docs
-        .map((d) => d.data() as AccessRequestRecord)
+        .map((d) => {
+          const data = d.data() as AccessRequestRecord;
+          if (!data.requestId) data.requestId = d.id;
+          return data;
+        })
         .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
-      writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, remoteReqs);
+      const mergedReqs = mergeById(
+        remoteReqs,
+        readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY),
+        (x) => x.requestId
+      ).filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
+      writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, mergedReqs);
       pushFromMirror();
     },
     () => {}

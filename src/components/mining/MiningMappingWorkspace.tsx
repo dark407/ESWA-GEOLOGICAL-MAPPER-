@@ -1002,11 +1002,11 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const handleCommitFeature = useCallback(
     (ptsToCommit?: MiningGeologicalPoint[]) => {
       const rawPts = ptsToCommit || draftPointsRef.current || currentDraftPoints;
-      // Filter out duplicate identical points
+      // Filter out duplicate identical points while preserving start and end points
       const cleanPts = rawPts.filter((p, idx) => {
-        if (idx === 0) return true;
+        if (idx === 0 || idx === rawPts.length - 1) return true;
         const prev = rawPts[idx - 1];
-        return Math.hypot(p.x - prev.x, p.y - prev.y) > 0.02;
+        return Math.hypot(p.x - prev.x, p.y - prev.y) > 0.012;
       });
 
       if (activeTool === 'POLYGON' && cleanPts.length < 3) {
@@ -1022,41 +1022,47 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         return;
       }
 
-      const isSpl = activeTool === 'SPL';
+      const isSpl = activeTool === 'SPL' || activeTool === 'PENCIL';
       const isPolygon = activeTool === 'POLYGON';
 
-      let targetType: MiningGeologicalFeatureType = featureClassification;
-      let color = '#F59E0B';
+      const targetType: MiningGeologicalFeatureType = featureClassification;
+      let color = '#D97706';
       let name = 'Geological Feature';
 
       if (featureClassification === 'ORE_BOUNDARY') {
         name = `${selectedOreCategory.replace('_', ' ')} Ore Lode`;
         color =
           selectedOreCategory === 'HIGH_GRADE'
-            ? '#EF4444'
+            ? '#DC2626'
             : selectedOreCategory === 'MEDIUM_GRADE'
-            ? '#F59E0B'
+            ? '#D97706'
             : selectedOreCategory === 'LOW_GRADE'
-            ? '#EAB308'
-            : '#64748B';
+            ? '#CA8A04'
+            : '#475569';
+      } else if (featureClassification === 'VEIN') {
+        name = `Quartz-Sulfide Vein (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
+        color = '#EAB308';
       } else if (featureClassification === 'FAULT') {
-        name = `Fault Trace / Shear (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
+        name = `Fault Zone (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
         color = '#DC2626';
       } else if (featureClassification === 'SHEAR') {
         name = `Ductile Shear Zone (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
-        color = '#FB7185';
+        color = '#E11D48';
       } else if (featureClassification === 'JOINT') {
         name = `Structural Joint (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
-        color = '#38BDF8';
+        color = '#0284C7';
+      } else if (featureClassification === 'FOLIATION') {
+        name = `Metamorphic Foliation S1 (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
+        color = '#7C3AED';
       } else if (featureClassification === 'LITH_CONTACT') {
-        name = 'Stratigraphic Litho Contact';
-        color = '#34D399';
+        name = `Lithological Contact (${symbolStrikeDeg}°/${symbolDipDeg}°)`;
+        color = '#059669';
       } else if (featureClassification === 'ALTERATION_HALO') {
-        name = 'Silicified Alteration Halo';
-        color = '#A855F7';
+        name = 'Silicified / Sericite Alteration Halo';
+        color = '#9333EA';
       } else if (featureClassification === 'BRECCIA') {
-        name = 'Hydrothermal Breccia';
-        color = '#F97316';
+        name = 'Hydrothermal / Fault Breccia Zone';
+        color = '#EA580C';
       }
 
       const newFeat: MiningGeologicalFeature = {
@@ -1070,13 +1076,13 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         strokeWidth: strokeWidthSetting,
         fillOpacity: fillOpacitySetting,
         isSpline: isSpl,
-        drawTool: isSpl ? 'SPL' : isPolygon ? 'POLYLINE' : activeTool === 'PENCIL' ? 'PENCIL' : 'POLYLINE',
+        drawTool: activeTool === 'SPL' ? 'SPL' : activeTool === 'PENCIL' ? 'PENCIL' : 'POLYLINE',
         visible: true,
         strikeDeg: symbolStrikeDeg,
         dipDeg: symbolDipDeg,
         dipDirectionDeg: (symbolStrikeDeg + 90) % 360,
         roughness: 'Rough Undulating',
-        infill: 'Quartz / Pyrite',
+        infill: featureClassification === 'VEIN' ? 'Auriferous Quartz + Sulfides' : 'Quartz / Carbonate',
         waterInflow: 'DRY',
         author: sheetNames.geologistName || '',
         createdAt: new Date().toISOString(),
@@ -1099,6 +1105,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       fillOpacitySetting,
       features,
       channelSamples,
+      sheetNames.geologistName,
     ]
   );
   handleCommitFeatureRef.current = handleCommitFeature;
@@ -1226,37 +1233,38 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         (e.currentTarget as Element)?.setPointerCapture?.(e.pointerId);
       } catch {}
       const startPt: MiningGeologicalPoint = { x: mx, y: my };
-      setCurrentDraftPoints([startPt]);
       draftPointsRef.current = [startPt];
+      setCurrentDraftPoints([startPt]);
       return;
     }
 
     if (activeTool === 'SPL' || activeTool === 'POLYLINE' || activeTool === 'POLYGON') {
       // Check if clicking close to the first point of a polygon to close it!
-      if (activeTool === 'POLYGON' && currentDraftPoints.length >= 3) {
-        const p0 = currentDraftPoints[0];
+      if (activeTool === 'POLYGON' && draftPointsRef.current.length >= 3) {
+        const p0 = draftPointsRef.current[0];
         const p0Canvas = meterToCanvas(p0.x, p0.y);
         const distPx = Math.hypot(px - p0Canvas.px, py - p0Canvas.py);
         if (distPx < 25) {
-          handleCommitFeature();
+          handleCommitFeature(draftPointsRef.current);
           return;
         }
       }
 
-      // Check if clicking close to the last point (ignore accidental rapid double-click in same spot)
-      if (currentDraftPoints.length > 0) {
-        const lastPt = currentDraftPoints[currentDraftPoints.length - 1];
-        if (Math.hypot(mx - lastPt.x, my - lastPt.y) < 0.04) {
+      // Check if clicking close to the last point (double click / finish gesture)
+      if (draftPointsRef.current.length >= 2) {
+        const lastPt = draftPointsRef.current[draftPointsRef.current.length - 1];
+        if (Math.hypot(mx - lastPt.x, my - lastPt.y) < 0.035) {
+          if (activeTool !== 'POLYGON' || draftPointsRef.current.length >= 3) {
+            handleCommitFeature(draftPointsRef.current);
+          }
           return;
         }
       }
 
       setIsDrawing(true);
-      setCurrentDraftPoints((prev) => {
-        const next = [...prev, { x: mx, y: my }];
-        draftPointsRef.current = next;
-        return next;
-      });
+      const next = [...draftPointsRef.current, { x: mx, y: my }];
+      draftPointsRef.current = next;
+      setCurrentDraftPoints(next);
     }
   };
 
@@ -1279,16 +1287,19 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     }
 
     if (activeTool === 'PENCIL' && isDrawing) {
-      setCurrentDraftPoints((prev) => {
-        if (prev.length === 0) return [{ x: mx, y: my }];
-        const last = prev[prev.length - 1];
-        if (Math.hypot(mx - last.x, my - last.y) >= 0.03) {
-          const next = [...prev, { x: mx, y: my }];
-          draftPointsRef.current = next;
-          return next;
-        }
-        return prev;
-      });
+      const prev = draftPointsRef.current;
+      if (prev.length === 0) {
+        const next = [{ x: mx, y: my }];
+        draftPointsRef.current = next;
+        setCurrentDraftPoints(next);
+        return;
+      }
+      const last = prev[prev.length - 1];
+      if (Math.hypot(mx - last.x, my - last.y) >= 0.015) {
+        const next = [...prev, { x: mx, y: my }];
+        draftPointsRef.current = next;
+        setCurrentDraftPoints(next);
+      }
     }
   };
 
@@ -1307,7 +1318,12 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       try {
         (e.currentTarget as Element)?.releasePointerCapture?.(e.pointerId);
       } catch {}
-      const pts = draftPointsRef.current;
+      const { mx, my } = getEventMeterPoint(e);
+      let pts = draftPointsRef.current;
+      if (pts.length === 1 && Math.hypot(mx - pts[0].x, my - pts[0].y) > 0.02) {
+        pts = [pts[0], { x: mx, y: my }];
+        draftPointsRef.current = pts;
+      }
       if (pts.length >= 2) {
         handleCommitFeature(pts);
       } else {
@@ -1610,7 +1626,19 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                           <button
                             key={t.id}
                             type="button"
-                            onClick={() => setActiveTool(t.id)}
+                            onClick={() => {
+                              if (
+                                isDrawing &&
+                                draftPointsRef.current.length >= (activeTool === 'POLYGON' ? 3 : 2)
+                              ) {
+                                handleCommitFeature(draftPointsRef.current);
+                              } else if (isDrawing) {
+                                setIsDrawing(false);
+                                setCurrentDraftPoints([]);
+                                draftPointsRef.current = [];
+                              }
+                              setActiveTool(t.id);
+                            }}
                             className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
                               isAct
                                 ? 'bg-amber-500 text-slate-950 font-black border-amber-400 shadow-md ring-1 ring-amber-400'
@@ -1641,16 +1669,19 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                     activeTool === 'POLYGON') && (
                     <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
                       <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
-                        Feature Classification:
+                        Feature Classification &amp; Symbol:
                       </span>
                       <div className="grid grid-cols-2 gap-1.5">
                         {[
-                          { id: 'ORE_BOUNDARY' as const, label: 'Ore Vein / Lode', color: 'bg-amber-500' },
-                          { id: 'FAULT' as const, label: 'Fault / Shear', color: 'bg-rose-500' },
-                          { id: 'JOINT' as const, label: 'Structural Joint', color: 'bg-cyan-500' },
-                          { id: 'LITH_CONTACT' as const, label: 'Litho Contact', color: 'bg-emerald-500' },
-                          { id: 'ALTERATION_HALO' as const, label: 'Alteration Halo', color: 'bg-purple-500' },
-                          { id: 'BRECCIA' as const, label: 'Breccia Zone', color: 'bg-orange-500' },
+                          { id: 'ORE_BOUNDARY' as const, label: 'Ore Lode', color: '#DC2626' },
+                          { id: 'VEIN' as const, label: 'Quartz Vein', color: '#EAB308' },
+                          { id: 'FAULT' as const, label: 'Fault (FLT)', color: '#DC2626' },
+                          { id: 'SHEAR' as const, label: 'Shear Zone', color: '#E11D48' },
+                          { id: 'JOINT' as const, label: 'Joint (J)', color: '#0284C7' },
+                          { id: 'FOLIATION' as const, label: 'Foliation (S1)', color: '#7C3AED' },
+                          { id: 'LITH_CONTACT' as const, label: 'Litho Contact', color: '#059669' },
+                          { id: 'ALTERATION_HALO' as const, label: 'Alteration', color: '#9333EA' },
+                          { id: 'BRECCIA' as const, label: 'Breccia Zone', color: '#EA580C' },
                         ].map((g) => (
                           <button
                             key={g.id}
@@ -1662,7 +1693,10 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                 : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700'
                             }`}
                           >
-                            <span className={`w-2 h-2 rounded-full ${g.color}`} />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/30"
+                              style={{ backgroundColor: g.color }}
+                            />
                             <span className="truncate">{g.label}</span>
                           </button>
                         ))}
@@ -1695,6 +1729,45 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                 <span className="truncate">{c.label}</span>
                               </button>
                             ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Orientation Strike / Dip for Structural Traces */}
+                      {(featureClassification === 'FAULT' ||
+                        featureClassification === 'SHEAR' ||
+                        featureClassification === 'JOINT' ||
+                        featureClassification === 'VEIN' ||
+                        featureClassification === 'FOLIATION' ||
+                        featureClassification === 'LITH_CONTACT') && (
+                        <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                          <div className="flex justify-between text-[9.5px] text-slate-300">
+                            <span>Strike / Dip:</span>
+                            <span className="text-amber-400 font-bold">{symbolStrikeDeg}° / {symbolDipDeg}°</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <span className="text-[8.5px] text-slate-500 block">Strike (0–360°)</span>
+                              <input
+                                type="range"
+                                min="0"
+                                max="360"
+                                value={symbolStrikeDeg}
+                                onChange={(e) => setSymbolStrikeDeg(Number(e.target.value))}
+                                className="w-full accent-amber-400 h-1 cursor-pointer"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8.5px] text-slate-500 block">Dip (0–90°)</span>
+                              <input
+                                type="range"
+                                min="0"
+                                max="90"
+                                value={symbolDipDeg}
+                                onChange={(e) => setSymbolDipDeg(Number(e.target.value))}
+                                className="w-full accent-cyan-400 h-1 cursor-pointer"
+                              />
+                            </div>
                           </div>
                         </div>
                       )}
@@ -2203,14 +2276,24 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 
                     {/* Quartz Vein: Crystalline matrix */}
                     <pattern id="quartzVeinPattern" width="14" height="14" patternUnits="userSpaceOnUse">
-                      <line x1="0" y1="7" x2="14" y2="7" stroke="#D97706" strokeWidth="1" strokeDasharray="3 3" />
-                      <line x1="7" y1="0" x2="7" y2="14" stroke="#D97706" strokeWidth="1" strokeDasharray="3 3" />
+                      <rect width="14" height="14" fill="#FEF08A" fillOpacity="0.45" />
+                      <line x1="0" y1="7" x2="14" y2="7" stroke="#CA8A04" strokeWidth="1.2" strokeDasharray="3 3" />
+                      <line x1="7" y1="0" x2="7" y2="14" stroke="#CA8A04" strokeWidth="1.2" strokeDasharray="3 3" />
+                    </pattern>
+
+                    {/* Alteration Halo: Silicified / Sericite cross-stipple */}
+                    <pattern id="alterationHaloPattern" width="14" height="14" patternUnits="userSpaceOnUse">
+                      <rect width="14" height="14" fill="#A855F7" fillOpacity="0.32" />
+                      <line x1="2" y1="7" x2="6" y2="7" stroke="#7E22CE" strokeWidth="1.2" />
+                      <line x1="4" y1="5" x2="4" y2="9" stroke="#7E22CE" strokeWidth="1.2" />
+                      <circle cx="11" cy="11" r="1.3" fill="#6B21A8" />
                     </pattern>
 
                     {/* Fault Breccia: Angular fragments */}
                     <pattern id="faultBrecciaPattern" width="16" height="16" patternUnits="userSpaceOnUse">
-                      <polygon points="2,2 6,4 4,8" fill="#DC2626" fillOpacity="0.6" />
-                      <polygon points="10,10 14,9 12,14" fill="#DC2626" fillOpacity="0.6" />
+                      <rect width="16" height="16" fill="#F97316" fillOpacity="0.35" />
+                      <polygon points="2,2 7,4 4,9" fill="#DC2626" fillOpacity="0.75" stroke="#991B1B" strokeWidth="0.6" />
+                      <polygon points="9,9 14,8 12,14" fill="#EA580C" fillOpacity="0.8" stroke="#9A3412" strokeWidth="0.6" />
                     </pattern>
                   </defs>
 
@@ -2392,11 +2475,21 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       .map((f) => {
                         const isSelected = selectedFeatureId === f.id;
                         const canvasPts = f.points.map((pt) => meterToCanvas(pt.x, pt.y));
+                        const selectionHaloColor = canvasTheme === 'light' ? '#0F172A' : '#F8FAFC';
 
                         // 1. POINT GEOLOGICAL SYMBOL
                         if (f.geometryType === 'POINT' && f.points.length >= 1) {
                           const p0 = canvasPts[0];
-                          const symType = (f.lithologyCode || 'joint') as GeologicalSymbolType;
+                          const symType = (f.lithologyCode ||
+                            (f.featureType === 'FAULT'
+                              ? 'fault'
+                              : f.featureType === 'SHEAR'
+                              ? 'shear_zone'
+                              : f.featureType === 'VEIN'
+                              ? 'vein'
+                              : f.featureType === 'FOLIATION'
+                              ? 'foliation'
+                              : 'joint')) as GeologicalSymbolType;
                           const strike = f.strikeDeg ?? 45;
                           const dip = f.dipDeg ?? 65;
 
@@ -2419,17 +2512,25 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   : 'pointer-events-none group'
                               }
                             >
-                              {/* Selection halo */}
+                              {/* High-contrast selection halo that works on both light and dark themes */}
                               {isSelected && (
-                                <circle cx="0" cy="0" r="26" fill="none" stroke="#FFFFFF" strokeWidth="2.5" strokeDasharray="4 2" />
+                                <circle
+                                  cx="0"
+                                  cy="0"
+                                  r="24"
+                                  fill="rgba(245, 158, 11, 0.14)"
+                                  stroke={selectionHaloColor}
+                                  strokeWidth="2"
+                                  strokeDasharray="4 2"
+                                />
                               )}
 
                               {/* Geological Symbol Glyph with Strike Rotation */}
                               <g transform={`rotate(${strike})`}>
                                 <StructuralGeologicalSymbolGlyph
                                   symbolType={symType}
-                                  color={isSelected ? '#FFFFFF' : f.colorHex}
-                                  scale={1.3}
+                                  color={f.colorHex || '#0284C7'}
+                                  scale={1.35}
                                   dipDeg={dip}
                                 />
                               </g>
@@ -2439,20 +2540,23 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                 <text
                                   x="18"
                                   y="5"
-                                  fill={isSelected ? '#FFFFFF' : f.colorHex}
+                                  fill={f.colorHex || '#0284C7'}
+                                  stroke={activeTheme.textHalo}
+                                  strokeWidth="2.5"
+                                  paintOrder="stroke"
                                   fontSize="10"
                                   fontWeight="bold"
                                   fontFamily="monospace"
-                                  className="select-none drop-shadow"
+                                  className="select-none"
                                 >
-                                  {dip}°
+                                  {String(strike).padStart(3, '0')}°/{dip}°
                                 </text>
                               )}
                             </g>
                           );
                         }
 
-                        // 2. CLOSED POLYGON (ORE BODY / ALTERATION / LITHO REGION)
+                        // 2. CLOSED POLYGON (ORE BODY / VEIN / ALTERATION / BRECCIA / LITHO REGION)
                         if (f.geometryType === 'POLYGON' && f.points.length >= 3) {
                           const dPath = f.isSpline
                             ? pointsToSplinePath(canvasPts, true)
@@ -2467,6 +2571,10 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                               : f.name.includes('Low')
                               ? 'url(#oreLowGradePattern)'
                               : 'url(#wasteDykePattern)';
+                          } else if (f.featureType === 'VEIN') {
+                            fillUrl = 'url(#quartzVeinPattern)';
+                          } else if (f.featureType === 'ALTERATION_HALO') {
+                            fillUrl = 'url(#alterationHaloPattern)';
                           } else if (f.featureType === 'BRECCIA') {
                             fillUrl = 'url(#faultBrecciaPattern)';
                           }
@@ -2489,14 +2597,39 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   : 'pointer-events-none'
                               }
                             >
+                              {isSelected && (
+                                <path
+                                  d={dPath}
+                                  fill="none"
+                                  stroke={selectionHaloColor}
+                                  strokeWidth={(f.strokeWidth || 3) + 5}
+                                  strokeOpacity="0.35"
+                                  strokeLinejoin="round"
+                                />
+                              )}
                               <path
                                 d={dPath}
                                 fill={fillUrl}
-                                fillOpacity={isSelected ? 0.75 : f.fillOpacity ?? 0.45}
-                                stroke={isSelected ? '#FFFFFF' : f.colorHex}
-                                strokeWidth={isSelected ? (f.strokeWidth || 3) + 2 : f.strokeWidth || 3}
+                                fillOpacity={isSelected ? Math.min(0.85, (f.fillOpacity ?? 0.5) + 0.15) : f.fillOpacity ?? 0.5}
+                                stroke={f.colorHex}
+                                strokeWidth={f.strokeWidth || 3}
                                 strokeLinejoin="round"
                               />
+
+                              {/* Show polygon vertices only when actively selected in SELECT mode */}
+                              {isSelected &&
+                                activeTool === 'SELECT' &&
+                                canvasPts.map((p, pIdx) => (
+                                  <circle
+                                    key={`poly-v-${pIdx}`}
+                                    cx={p.px}
+                                    cy={p.py}
+                                    r="3.5"
+                                    fill="#FFFFFF"
+                                    stroke={f.colorHex}
+                                    strokeWidth="2"
+                                  />
+                                ))}
 
                               {/* Label at centroid */}
                               {showLabels && (
@@ -2520,14 +2653,59 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                           );
                         }
 
-                        // 3. POLYLINE (FAULT, SHEAR, JOINT, CONTACT TRACE)
+                        // 3. POLYLINE / PENCIL / SPLINE TRACE (FAULT, SHEAR, JOINT, VEIN, FOLIATION, CONTACT)
                         if (f.points.length >= 2) {
-                          const dPath = f.isSpline
+                          const useSmoothCurve = f.isSpline || f.drawTool === 'PENCIL' || f.drawTool === 'SPL';
+                          const dPath = useSmoothCurve
                             ? pointsToSplinePath(canvasPts, false)
                             : canvasPts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px},${p.py}`).join(' ');
 
                           const isFault = f.featureType === 'FAULT';
                           const isShear = f.featureType === 'SHEAR';
+                          const isJoint = f.featureType === 'JOINT';
+                          const isFoliation = f.featureType === 'FOLIATION';
+                          const isVein = f.featureType === 'VEIN' || f.featureType === 'ORE_BOUNDARY';
+                          const isContact = f.featureType === 'LITH_CONTACT';
+                          const isBreccia = f.featureType === 'BRECCIA';
+                          const isAlteration = f.featureType === 'ALTERATION_HALO';
+
+                          // Sample ornamental structural ticks along the trace so every drawn line has authentic geological symbology
+                          const tickNodes: { px: number; py: number; angleDeg: number }[] = [];
+                          if (canvasPts.length >= 2) {
+                            let accumPx = 0;
+                            const tickSpacingPx = isJoint ? 9999 : 55;
+                            for (let i = 1; i < canvasPts.length; i++) {
+                              const A = canvasPts[i - 1];
+                              const B = canvasPts[i];
+                              const segLen = Math.hypot(B.px - A.px, B.py - A.py);
+                              if (segLen < 1) continue;
+                              const angleDeg = (Math.atan2(B.py - A.py, B.px - A.px) * 180) / Math.PI;
+                              if (accumPx + segLen >= tickSpacingPx || (tickNodes.length === 0 && i === Math.ceil(canvasPts.length / 2))) {
+                                tickNodes.push({
+                                  px: (A.px + B.px) / 2,
+                                  py: (A.py + B.py) / 2,
+                                  angleDeg,
+                                });
+                                accumPx = 0;
+                              } else {
+                                accumPx += segLen;
+                              }
+                            }
+                            if (tickNodes.length === 0) {
+                              const midIdx = Math.floor((canvasPts.length - 1) / 2);
+                              const A = canvasPts[midIdx];
+                              const B = canvasPts[Math.min(canvasPts.length - 1, midIdx + 1)];
+                              const angleDeg = (Math.atan2(B.py - A.py, B.px - A.px) * 180) / Math.PI;
+                              tickNodes.push({
+                                px: (A.px + B.px) / 2,
+                                py: (A.py + B.py) / 2,
+                                angleDeg,
+                              });
+                            }
+                          }
+
+                          const midNode = tickNodes[Math.floor(tickNodes.length / 2)];
+                          const sw = f.strokeWidth || 3;
 
                           return (
                             <g
@@ -2547,24 +2725,134 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   : 'pointer-events-none'
                               }
                             >
+                              {/* Selection Halo Underlay (Never turns stroke white on white canvas!) */}
+                              {isSelected && (
+                                <path
+                                  d={dPath}
+                                  fill="none"
+                                  stroke={selectionHaloColor}
+                                  strokeWidth={sw + 6}
+                                  strokeOpacity="0.28"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              )}
+
+                              {/* Secondary ribbon underlay for Shear Zone / Vein / Alteration / Breccia traces */}
+                              {(isShear || isVein || isAlteration || isBreccia) && (
+                                <path
+                                  d={dPath}
+                                  fill="none"
+                                  stroke={f.colorHex}
+                                  strokeWidth={sw + (isVein ? 5 : 7)}
+                                  strokeOpacity={isVein ? 0.28 : 0.22}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              )}
+
+                              {/* Primary Geological Trace Path */}
                               <path
                                 d={dPath}
                                 fill="none"
-                                stroke={isSelected ? '#FFFFFF' : f.colorHex}
-                                strokeWidth={isSelected ? (f.strokeWidth || 3) + 2 : f.strokeWidth || 3}
-                                strokeDasharray={isFault ? '8 4' : isShear ? '5 2' : undefined}
+                                stroke={f.colorHex}
+                                strokeWidth={sw}
+                                strokeDasharray={
+                                  isFault
+                                    ? '10 4'
+                                    : isShear
+                                    ? '6 3 2 3'
+                                    : isFoliation
+                                    ? '5 3'
+                                    : isContact
+                                    ? '8 3 2 3'
+                                    : undefined
+                                }
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               />
 
-                              {/* Vertex indicator points when selected */}
+                              {/* Structural Symbols Along Trace */}
+                              {tickNodes.map((tn, tIdx) => (
+                                <g
+                                  key={`sym-tick-${tIdx}`}
+                                  transform={`translate(${tn.px}, ${tn.py}) rotate(${tn.angleDeg})`}
+                                  className="pointer-events-none"
+                                >
+                                  {isFault && (
+                                    <>
+                                      {/* Fault Dip Triangle & Sense-of-Slip Arrows */}
+                                      <polygon points="-5,0 5,0 0,8" fill={f.colorHex} />
+                                      <polyline
+                                        points="-8,-4 4,-4 1,-7"
+                                        fill="none"
+                                        stroke={f.colorHex}
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </>
+                                  )}
+                                  {isShear && (
+                                    <>
+                                      {/* Ductile Shear Zone Conjugate En-Echelon Hatching */}
+                                      <line x1="-5" y1="-5" x2="5" y2="5" stroke={f.colorHex} strokeWidth="1.6" />
+                                      <line x1="-1" y1="-5" x2="9" y2="5" stroke={f.colorHex} strokeWidth="1.6" />
+                                    </>
+                                  )}
+                                  {isJoint && (
+                                    <>
+                                      {/* Standard ISRM Joint Dip Tick */}
+                                      <line x1="0" y1="0" x2="0" y2="8" stroke={f.colorHex} strokeWidth="2.2" />
+                                    </>
+                                  )}
+                                  {isFoliation && (
+                                    <>
+                                      {/* Metamorphic Cleavage Double Ticks */}
+                                      <line x1="-3" y1="-5" x2="-3" y2="5" stroke={f.colorHex} strokeWidth="1.5" />
+                                      <line x1="3" y1="-5" x2="3" y2="5" stroke={f.colorHex} strokeWidth="1.5" />
+                                    </>
+                                  )}
+                                  {isContact && (
+                                    <>
+                                      {/* Stratigraphic Contact Short Perpendicular Ticks */}
+                                      <line x1="0" y1="-5" x2="0" y2="5" stroke={f.colorHex} strokeWidth="1.6" />
+                                      <circle cx="0" cy="-5" r="1.5" fill={f.colorHex} />
+                                    </>
+                                  )}
+                                  {isVein && (
+                                    <>
+                                      {/* Quartz-Sulfide Vein Crystalline Diamond Node */}
+                                      <polygon
+                                        points="0,-4 4,0 0,4 -4,0"
+                                        fill="#FEF08A"
+                                        stroke={f.colorHex}
+                                        strokeWidth="1.4"
+                                      />
+                                    </>
+                                  )}
+                                  {isBreccia && (
+                                    <polygon
+                                      points="-4,-3 4,-2 1,4"
+                                      fill={f.colorHex}
+                                      fillOpacity="0.8"
+                                    />
+                                  )}
+                                </g>
+                              ))}
+
+                              {/* Only show start/end vertex handles when selected in SELECT mode (never clutter freehand PENCIL traces with dots) */}
                               {isSelected &&
-                                canvasPts.map((p, pIdx) => (
+                                activeTool === 'SELECT' &&
+                                (f.drawTool === 'PENCIL'
+                                  ? [canvasPts[0], canvasPts[canvasPts.length - 1]]
+                                  : canvasPts
+                                ).map((p, pIdx) => (
                                   <circle
                                     key={`v-${pIdx}`}
                                     cx={p.px}
                                     cy={p.py}
-                                    r="4"
+                                    r="3.5"
                                     fill="#FFFFFF"
                                     stroke={f.colorHex}
                                     strokeWidth="2"
@@ -2572,11 +2860,11 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                 ))}
 
                               {/* Feature callout label */}
-                              {showLabels && canvasPts.length >= 2 && (
+                              {showLabels && midNode && (
                                 <text
-                                  x={canvasPts[Math.floor(canvasPts.length / 2)].px}
-                                  y={canvasPts[Math.floor(canvasPts.length / 2)].py - 8}
-                                  fill={isSelected ? '#0284C7' : f.colorHex}
+                                  x={midNode.px}
+                                  y={midNode.py - 10}
+                                  fill={f.colorHex}
                                   stroke={activeTheme.textHalo}
                                   strokeWidth="3"
                                   paintOrder="stroke"
@@ -2621,10 +2909,10 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 
                           const chipColor =
                             gradeNum >= cutoffGrade
-                              ? '#EF4444'
+                              ? '#DC2626'
                               : gradeNum >= cutoffGrade / 2
-                              ? '#F59E0B'
-                              : '#64748B';
+                              ? '#D97706'
+                              : '#475569';
 
                           return (
                             <g
@@ -2647,20 +2935,34 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   : 'pointer-events-none group'
                               }
                             >
-                              {/* Heavy Sample Line */}
+                              {/* Selection Halo for Channel Sample */}
+                              {isSelected && (
+                                <line
+                                  x1={p1.px}
+                                  y1={p1.py}
+                                  x2={p2.px}
+                                  y2={p2.py}
+                                  stroke={canvasTheme === 'light' ? '#0F172A' : '#F8FAFC'}
+                                  strokeWidth={10}
+                                  strokeOpacity="0.28"
+                                  strokeLinecap="round"
+                                />
+                              )}
+
+                              {/* Heavy Sample Line (Never turns white on white background!) */}
                               <line
                                 x1={p1.px}
                                 y1={p1.py}
                                 x2={p2.px}
                                 y2={p2.py}
-                                stroke={isSelected ? '#FFFFFF' : chipColor}
-                                strokeWidth={isSelected ? 6 : 4}
+                                stroke={chipColor}
+                                strokeWidth={isSelected ? 6 : 4.5}
                                 strokeLinecap="round"
                               />
 
                               {/* Interval End Markers */}
-                              <circle cx={p1.px} cy={p1.py} r="4" fill="#FFFFFF" stroke={chipColor} strokeWidth="1.5" />
-                              <circle cx={p2.px} cy={p2.py} r="4" fill="#FFFFFF" stroke={chipColor} strokeWidth="1.5" />
+                              <circle cx={p1.px} cy={p1.py} r="4" fill="#FFFFFF" stroke={chipColor} strokeWidth="2" />
+                              <circle cx={p2.px} cy={p2.py} r="4" fill="#FFFFFF" stroke={chipColor} strokeWidth="2" />
 
                               {/* Sample Callout Tag */}
                               <g transform={`translate(${midX}, ${p1.py - 24})`}>
@@ -2671,7 +2973,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   height="22"
                                   rx="5"
                                   fill="#020617"
-                                  stroke={isSelected ? '#FFFFFF' : chipColor}
+                                  stroke={isSelected ? '#F59E0B' : chipColor}
                                   strokeWidth={isSelected ? 2 : 1.2}
                                 />
                                 <text
@@ -2698,25 +3000,43 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                     {isDrawing && currentDraftPoints.length > 0 && (() => {
                       const draftCanvasPts = currentDraftPoints.map((p) => meterToCanvas(p.x, p.y));
                       const curCanvas = meterToCanvas(cursorMeters.x, cursorMeters.y);
-                      const isSpl = activeTool === 'SPL';
+                      const isSpl = activeTool === 'SPL' || activeTool === 'PENCIL';
                       const isPolygon = activeTool === 'POLYGON';
-                      const previewPts = [...draftCanvasPts, curCanvas];
+                      const previewPts = activeTool === 'PENCIL' ? draftCanvasPts : [...draftCanvasPts, curCanvas];
+                      const previewColor =
+                        featureClassification === 'FAULT'
+                          ? '#DC2626'
+                          : featureClassification === 'SHEAR'
+                          ? '#E11D48'
+                          : featureClassification === 'JOINT'
+                          ? '#0284C7'
+                          : featureClassification === 'FOLIATION'
+                          ? '#7C3AED'
+                          : featureClassification === 'LITH_CONTACT'
+                          ? '#059669'
+                          : featureClassification === 'ALTERATION_HALO'
+                          ? '#9333EA'
+                          : featureClassification === 'BRECCIA'
+                          ? '#EA580C'
+                          : '#D97706';
 
                       return (
                         <g className="pointer-events-none">
-                          {isSpl && draftCanvasPts.length >= 1 ? (
+                          {isSpl && previewPts.length >= 2 ? (
                             <path
                               d={pointsToSplinePath(previewPts, isPolygon)}
                               fill={isPolygon ? 'rgba(239, 68, 68, 0.25)' : 'none'}
-                              stroke="#38BDF8"
+                              stroke={previewColor}
                               strokeWidth={Math.max(3, strokeWidthSetting)}
-                              strokeDasharray="6 3"
+                              strokeDasharray={activeTool === 'PENCIL' ? undefined : '6 3'}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             />
                           ) : isPolygon ? (
                             <polygon
                               points={previewPts.map((p) => `${p.px},${p.py}`).join(' ')}
                               fill="rgba(245, 158, 11, 0.25)"
-                              stroke="#F59E0B"
+                              stroke={previewColor}
                               strokeWidth={Math.max(2.5, strokeWidthSetting)}
                               strokeDasharray="5 3"
                             />
@@ -2725,9 +3045,11 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                               <polyline
                                 points={draftCanvasPts.map((p) => `${p.px},${p.py}`).join(' ')}
                                 fill="none"
-                                stroke="#F59E0B"
+                                stroke={previewColor}
                                 strokeWidth={Math.max(2.5, strokeWidthSetting)}
                                 strokeDasharray={activeTool === 'PENCIL' ? undefined : '5 3'}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
                               />
                               {activeTool !== 'PENCIL' && (
                                 <line
@@ -2735,7 +3057,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   y1={draftCanvasPts[draftCanvasPts.length - 1].py}
                                   x2={curCanvas.px}
                                   y2={curCanvas.py}
-                                  stroke="#38BDF8"
+                                  stroke="#0284C7"
                                   strokeWidth="2.5"
                                   strokeDasharray="4 2"
                                 />
@@ -2743,15 +3065,15 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                             </>
                           )}
 
-                          {/* Vertex points with numbers */}
+                          {/* Vertex points with numbers (only for multi-click SPL / POLYLINE / POLYGON) */}
                           {activeTool !== 'PENCIL' &&
                             draftCanvasPts.map((p, idx) => (
                               <g key={`draft-v-${idx}`}>
                                 <circle
                                   cx={p.px}
                                   cy={p.py}
-                                  r={idx === 0 ? 7 : 5}
-                                  fill={idx === 0 ? '#10B981' : '#F59E0B'}
+                                  r={idx === 0 ? 6.5 : 4.5}
+                                  fill={idx === 0 ? '#10B981' : previewColor}
                                   stroke="#FFFFFF"
                                   strokeWidth="2"
                                 />
@@ -2762,8 +3084,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                   fontSize="9"
                                   fontWeight="black"
                                   fill="#FFFFFF"
-                                  stroke="rgba(0,0,0,0.8)"
-                                  strokeWidth="2"
+                                  stroke="rgba(0,0,0,0.85)"
+                                  strokeWidth="2.5"
                                   paintOrder="stroke"
                                 >
                                   {idx === 0 ? 'Start (1)' : `${idx + 1}`}
@@ -2775,8 +3097,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                           <circle
                             cx={curCanvas.px}
                             cy={curCanvas.py}
-                            r="4.5"
-                            fill="#38BDF8"
+                            r="4"
+                            fill={previewColor}
                             stroke="#FFFFFF"
                             strokeWidth="1.5"
                           />
@@ -3718,17 +4040,26 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       const canvasPts = feat.points.map((pt) => meterToCanvas(pt.x, pt.y));
                       if (feat.geometryType === 'POINT') {
                         const pt = canvasPts[0];
+                        const symType = (feat.lithologyCode || 'joint') as GeologicalSymbolType;
                         return (
                           <g key={feat.id} transform={`translate(${pt.px}, ${pt.py})`}>
-                            <circle r="5" fill={feat.colorHex || '#DC2626'} stroke="#0F172A" strokeWidth="1.5" />
-                            <text y="-8" fontSize="9" fontWeight="bold" textAnchor="middle" fill="#0F172A">
+                            <g transform={`rotate(${feat.strikeDeg ?? 45})`}>
+                              <StructuralGeologicalSymbolGlyph
+                                symbolType={symType}
+                                color={feat.colorHex || '#DC2626'}
+                                scale={1.1}
+                                dipDeg={feat.dipDeg ?? 65}
+                              />
+                            </g>
+                            <text y="-10" fontSize="9" fontWeight="bold" textAnchor="middle" fill="#0F172A">
                               {feat.name}
                             </text>
                           </g>
                         );
                       }
                       const isClosed = feat.geometryType === 'POLYGON';
-                      const pathData = feat.isSpline
+                      const useSmooth = feat.isSpline || feat.drawTool === 'PENCIL' || feat.drawTool === 'SPL';
+                      const pathData = useSmooth
                         ? pointsToSplinePath(canvasPts, isClosed)
                         : canvasPts
                             .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px.toFixed(1)} ${p.py.toFixed(1)}`)
@@ -3741,6 +4072,15 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                             fillOpacity={isClosed ? feat.fillOpacity ?? 0.35 : 0}
                             stroke={feat.colorHex || '#0F172A'}
                             strokeWidth={feat.strokeWidth || 2.5}
+                            strokeDasharray={
+                              feat.featureType === 'FAULT'
+                                ? '8 4'
+                                : feat.featureType === 'SHEAR'
+                                ? '5 2'
+                                : undefined
+                            }
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           />
                         </g>
                       );

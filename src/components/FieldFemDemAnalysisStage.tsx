@@ -281,6 +281,61 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     }));
   };
 
+  const handleApplyAllLoggedReferenceValues = () => {
+    const refOverburden =
+      (analysisResult.parameters || []).find((p) => p.key === 'overburdenDepthM')
+        ?.defaultReferenceValue ?? 95;
+    const refUcs =
+      (analysisResult.parameters || []).find((p) => p.key === 'intactUcsMpa')
+        ?.defaultReferenceValue ?? 75;
+    setOverburdenDraft(String(refOverburden));
+    setUcsDraft(String(refUcs));
+    onUpdateRound((r) => {
+      const prevCfg = r.femDemAnalysis || createDefaultFemDemConfig();
+      return {
+        ...r,
+        gsiValue:
+          r.gsiValue && Number(r.gsiValue) > 0
+            ? r.gsiValue
+            : analysisResult.loggedReferenceBasis.synthesizedGsi,
+        femDemAnalysis: {
+          ...prevCfg,
+          overburdenDepthM: refOverburden,
+          horizontalStressRatioK0: undefined,
+          blastDamageFactorD: undefined,
+          parameterOverrides: {
+            overburdenDepthM: refOverburden,
+          },
+          lastUpdatedIso: new Date().toISOString(),
+        },
+      };
+    });
+  };
+
+  const handleUseLoggedReferenceForParam = (key: FemDemParameterKey) => {
+    onUpdateRound((r) => {
+      const prevCfg = r.femDemAnalysis || createDefaultFemDemConfig();
+      const nextOverrides = { ...(prevCfg.parameterOverrides || {}) };
+      delete nextOverrides[key];
+      return {
+        ...r,
+        femDemAnalysis: {
+          ...prevCfg,
+          overburdenDepthM:
+            key === 'overburdenDepthM' ? undefined : prevCfg.overburdenDepthM,
+          horizontalStressRatioK0:
+            key === 'horizontalStressRatioK0'
+              ? undefined
+              : prevCfg.horizontalStressRatioK0,
+          blastDamageFactorD:
+            key === 'blastDamageFactorD' ? undefined : prevCfg.blastDamageFactorD,
+          parameterOverrides: nextOverrides,
+          lastUpdatedIso: new Date().toISOString(),
+        },
+      };
+    });
+  };
+
   const handleToggleIncludeInEswaReport = (checked: boolean) => {
     onUpdateRound((r) => ({
       ...r,
@@ -1420,6 +1475,16 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={handleApplyAllLoggedReferenceValues}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-[11px] font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
+            title="Auto-populate and lock in all 20 FEM & DEM reference parameters from logged lithology, UCS, and joint/fault features"
+          >
+            <Sparkles className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Apply Logged Ref Values</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsParametersModalOpen(true)}
             className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
             title="Open Full Parameters & Common Reference Values Window"
@@ -1673,6 +1738,73 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
         </div>
       </div>
 
+      {/* 2B. LOGGED GEOLOGICAL REFERENCE BASIS BANNER (AREA-WEIGHTED LITHOLOGY + LOGGED UCS + JOINT & FAULT DERIVATION) */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800 border-2 border-cyan-500/45 rounded-2xl px-3.5 py-2.5 shadow-md flex flex-col gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-md bg-cyan-400 text-slate-950 text-[10.5px] font-black uppercase tracking-wider">
+              Logged-Data Reference Engine
+            </span>
+            <span className="text-xs font-black uppercase tracking-wider text-cyan-200">
+              Common Reference Values Synthesized Strictly from Logged Lithology, UCS &amp; Discontinuity Features
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {analysisResult.loggedReferenceBasis.lithologyShares.map((sh, idx) => (
+                <span
+                  key={`${sh.rockId}-${idx}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-[11px] font-mono font-bold text-white"
+                  title={`Family: ${sh.rockFamily} (UCS ${sh.ucsMpa} MPa, mi ${sh.mi})`}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm border border-white/40 shrink-0"
+                    style={{ backgroundColor: sh.colorHex }}
+                  />
+                  <span>{sh.rockName}</span>
+                  <span className="text-cyan-300 font-black">{sh.weightPct}%</span>
+                </span>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleApplyAllLoggedReferenceValues}
+              className="px-2.5 py-1 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer shadow-xs"
+            >
+              <Sparkles className="w-3 h-3 stroke-[2.5]" />
+              <span>Sync All to Logged Data</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] font-mono">
+          <div className="bg-slate-950/85 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200">
+            <span className="text-amber-300 font-sans font-black uppercase text-[10px] block">
+              1. Intact Rock &amp; UCS Basis (σci = {ucsParam?.value} MPa)
+            </span>
+            <span className="text-slate-300 text-[10.5px] leading-snug block truncate" title={analysisResult.loggedReferenceBasis.loggedUcsSourceLabel}>
+              {analysisResult.loggedReferenceBasis.loggedUcsSourceLabel}
+            </span>
+          </div>
+          <div className="bg-slate-950/85 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200">
+            <span className="text-cyan-300 font-sans font-black uppercase text-[10px] block">
+              2. Joint &amp; Structural Basis (JRC, JCS, Kn, Ks, φj, cj)
+            </span>
+            <span className="text-slate-300 text-[10.5px] leading-snug block truncate" title={`${analysisResult.loggedReferenceBasis.loggedJointsSummaryLabel} • ${analysisResult.loggedReferenceBasis.loggedStructuresSummaryLabel}`}>
+              {analysisResult.loggedReferenceBasis.loggedJointsSummaryLabel} • {analysisResult.loggedReferenceBasis.loggedStructuresSummaryLabel}
+            </span>
+          </div>
+          <div className="bg-slate-950/85 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200">
+            <span className="text-emerald-300 font-sans font-black uppercase text-[10px] block">
+              3. Rock Mass Classification Basis (Erm = {ermParam?.value} GPa)
+            </span>
+            <span className="text-slate-300 text-[10.5px] leading-snug block truncate" title={analysisResult.loggedReferenceBasis.classificationSourceLabel}>
+              {analysisResult.loggedReferenceBasis.classificationSourceLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* 3. STRICT GEOTECHNICAL PREREQUISITE GATE OR HERO 2D TRIANGULAR FEM & DEM CANVAS VIEWPORTS */}
       {!analysisResult.prerequisites.isBeforeAnalysisReady ? (
         <div className="bg-rose-950/90 border-2 border-rose-500 rounded-2xl p-5 shadow-2xl space-y-4 shrink-0">
@@ -1687,18 +1819,28 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 </span>
               </div>
               <p className="text-xs text-rose-200/90 leading-relaxed max-w-4xl">
-                Professional numerical stability modeling requires real site inputs. The solver will not fabricate or pre-fill unassessed classifications, rock strength, or overburden stress. Please complete the missing requirements below to unlock the FEM &amp; DEM solver:
+                Click &ldquo;Apply Logged-Data Reference Values&rdquo; to auto-populate all missing stress, intact rock, and joint parameters directly from your logged lithologies and discontinuities, or return to previous stages to complete field logging:
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={onBackToSupport}
-              className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
-              <span>Return to Previous Stages to Complete Data</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleApplyAllLoggedReferenceValues}
+                className="px-4 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 stroke-[2.5]" />
+                <span>Apply Logged-Data Reference Values</span>
+              </button>
+              <button
+                type="button"
+                onClick={onBackToSupport}
+                className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 stroke-[2.5]" />
+                <span>Return to Previous Stages</span>
+              </button>
+            </div>
           </div>
 
           {/* Checklist of Required Geotechnical Prerequisites */}
@@ -2351,6 +2493,16 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
 
               <button
                 type="button"
+                onClick={handleApplyAllLoggedReferenceValues}
+                className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10.5px] font-black flex items-center gap-1 cursor-pointer shadow-xs"
+                title="Reset any manual overrides and apply all 20 logged-data reference values"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Apply Logged Ref</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleResetAllOverrides}
                 className="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
               >
@@ -2424,15 +2576,27 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
 
                     <div className="text-[10px] text-slate-700 font-mono font-semibold flex items-center justify-between border-t border-slate-200/80 pt-1">
                       <span>Range: {param.applicableRange}</span>
-                      <span>
-                        Ref: {param.defaultReferenceValue} {param.unit}
+                      <span className="flex items-center gap-1">
+                        <span>
+                          Logged Ref: {param.defaultReferenceValue} {param.unit}
+                        </span>
+                        {isOverridden && (
+                          <button
+                            type="button"
+                            onClick={() => handleUseLoggedReferenceForParam(param.key)}
+                            className="px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-400 text-[9px] font-black cursor-pointer"
+                            title="Restore Logged-Data Reference Value"
+                          >
+                            Use Ref
+                          </button>
+                        )}
                       </span>
                     </div>
                     <div
                       className="text-[10px] text-slate-600 font-medium truncate"
                       title={param.referenceSource}
                     >
-                      Ref: {param.referenceSource}
+                      Basis: {param.referenceSource}
                     </div>
                   </div>
                 );
@@ -2460,6 +2624,14 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyAllLoggedReferenceValues}
+                  className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Apply Logged Reference Values</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleResetAllOverrides}
@@ -2503,8 +2675,8 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                   </button>
                 ))}
               </div>
-              <span className="text-[11px] text-amber-900 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-md font-bold">
-                All estimated values are badged as ESTIMATED / COMMON REFERENCE VALUE
+              <span className="text-[11px] text-emerald-950 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-md font-bold">
+                Synthesized from Area-Weighted Logged Lithology ({analysisResult.loggedReferenceBasis.lithologyShares.map((s) => `${s.rockName} ${s.weightPct}%`).join(' + ')}) &amp; Joint Features
               </span>
             </div>
 
@@ -2552,12 +2724,23 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
                     </div>
                     <div className="text-[11px] text-slate-800 font-mono font-semibold flex items-center justify-between border-t border-slate-200 pt-1.5">
                       <span>Valid Range: {param.applicableRange}</span>
-                      <span>
-                        Default Ref: {param.defaultReferenceValue} {param.unit}
+                      <span className="flex items-center gap-1.5">
+                        <span>
+                          Logged Ref: {param.defaultReferenceValue} {param.unit}
+                        </span>
+                        {isOverridden && (
+                          <button
+                            type="button"
+                            onClick={() => handleUseLoggedReferenceForParam(param.key)}
+                            className="px-2 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-400 text-[10px] font-black cursor-pointer"
+                          >
+                            Use Logged Ref
+                          </button>
+                        )}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-600 leading-snug">
-                      <strong>Reference Source:</strong> {param.referenceSource}
+                      <strong>Logged Derivation Basis:</strong> {param.referenceSource}
                     </div>
                   </div>
                 );

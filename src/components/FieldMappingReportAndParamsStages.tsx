@@ -20,7 +20,16 @@ import {
   Undo2,
   Upload,
   X,
+  Crop,
 } from 'lucide-react';
+import {
+  ReportHeaderLogoBox,
+  ReportBorderlessGeologistSignRow,
+  UniversalImageCropAndFitModal,
+  DEFAULT_LOGO_CROP_CONFIG,
+  detectAutoTrimCropPercentages,
+  renderCroppedLogoOrSignatureDataUrl,
+} from './UniversalLogoAndSignatureAdjuster';
 import {
   APERTURE_OPTIONS,
   alignFieldTracePointsTo3DOrientation,
@@ -269,6 +278,9 @@ export const FieldStripAlignmentStage: React.FC<{
     }));
   };
 
+  const isVertShaft =
+    activeLocation.undergroundSubMode === 'vertical_shaft' ||
+    activeRound?.undergroundSubMode === 'vertical_shaft';
   const stripMetrics = computeUnfoldedStripBoxes(activeLocation, activeRound, true);
   const {
     leftWallGeom,
@@ -610,7 +622,8 @@ export const FieldStripAlignmentStage: React.FC<{
               r.tunnelDriveDirection,
               tr.crownDipSign,
               activeLocation.widthM,
-              activeLocation.heightM
+              activeLocation.heightM,
+              isVertShaft
             );
             const metricPoints = computePhysicalMetricPoints(
               nextPoints,
@@ -655,7 +668,8 @@ export const FieldStripAlignmentStage: React.FC<{
             r.tunnelDriveDirection,
             '+90',
             activeLocation.widthM,
-            activeLocation.heightM
+            activeLocation.heightM,
+            isVertShaft
           );
           return {
             ...st,
@@ -689,7 +703,8 @@ export const FieldStripAlignmentStage: React.FC<{
           r.tunnelDriveDirection,
           '+90',
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVertShaft
         );
         return {
           ...ft,
@@ -754,7 +769,8 @@ export const FieldStripAlignmentStage: React.FC<{
       activeRound.tunnelDriveDirection,
       traceA.crownDipSign,
       activeLocation.widthM,
-      activeLocation.heightM
+      activeLocation.heightM,
+      isVertShaft
     );
     const metricPoints = computePhysicalMetricPoints(
       smoothedMerged,
@@ -3163,156 +3179,56 @@ export const FieldDiscontinuityAndClassificationsStage: React.FC<{
                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
               />
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <div>
-                <label className="block text-[9px] font-bold uppercase text-amber-400 mb-0.5">
-                  Contractor Geologist Name &amp; Sign
-                </label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={activeRound.contractorGeologistName ?? activeRound.geologistName ?? ''}
-                    onChange={(e) =>
-                      onUpdateRound((r) => ({
-                        ...r,
-                        contractorGeologistName: e.target.value,
-                        geologistName: e.target.value,
-                      }))
-                    }
-                    placeholder="Name"
-                    className="w-5/12 min-w-0 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs text-white"
-                  />
-                  {activeRound.contractorGeologistSign?.startsWith('data:image/') ? (
-                    <div className="eswa-signature-fit-box flex-1 h-7 rounded px-1 relative border border-amber-500/50">
-                      <img
-                        src={activeRound.contractorGeologistSign}
-                        alt="Contractor Sign"
-                        className="max-h-full max-w-full w-auto h-auto object-contain"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))
-                        }
-                        title="Clear signature PNG"
-                        className="absolute top-0 right-0.5 text-[9px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={activeRound.contractorGeologistSign ?? ''}
-                      onChange={(e) =>
-                        onUpdateRound((r) => ({
-                          ...r,
-                          contractorGeologistSign: e.target.value,
-                        }))
-                      }
-                      placeholder="Sign"
-                      className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs italic text-amber-300"
-                    />
-                  )}
-                  <label
-                    title="Upload Contractor Signature PNG"
-                    className="shrink-0 px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] font-bold text-amber-300 cursor-pointer"
-                  >
-                    PNG
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          onUpdateRound((r) => ({
-                            ...r,
-                            contractorGeologistSign: String(reader.result || ''),
-                          }));
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </label>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <div className="bg-slate-900/70 rounded px-2 py-1.5">
+                <ReportBorderlessGeologistSignRow
+                  roleLabel="Contractor:"
+                  nameValue={activeRound.contractorGeologistName ?? activeRound.geologistName ?? ''}
+                  signValue={activeRound.contractorGeologistSign ?? ''}
+                  rawSignDataUrl={activeRound.contractorSignRawDataUrl}
+                  signCropConfig={activeRound.contractorSignCropConfig}
+                  onNameChange={(val) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      contractorGeologistName: val,
+                      geologistName: val,
+                    }))
+                  }
+                  onSignChange={(val, rawUrl, cfg) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      contractorGeologistSign: val,
+                      ...(rawUrl !== undefined ? { contractorSignRawDataUrl: rawUrl } : {}),
+                      ...(cfg !== undefined ? { contractorSignCropConfig: cfg } : {}),
+                    }))
+                  }
+                  darkTheme
+                />
               </div>
-              <div>
-                <label className="block text-[9px] font-bold uppercase text-cyan-400 mb-0.5">
-                  Client Geologist Name &amp; Sign
-                </label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''}
-                    onChange={(e) =>
-                      onUpdateRound((r) => ({
-                        ...r,
-                        clientGeologistName: e.target.value,
-                        clientRepName: e.target.value,
-                      }))
-                    }
-                    placeholder="Name"
-                    className="w-5/12 min-w-0 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs text-white"
-                  />
-                  {activeRound.clientGeologistSign?.startsWith('data:image/') ? (
-                    <div className="eswa-signature-fit-box flex-1 h-7 rounded px-1 relative border border-cyan-500/50">
-                      <img
-                        src={activeRound.clientGeologistSign}
-                        alt="Client Sign"
-                        className="max-h-full max-w-full w-auto h-auto object-contain"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))
-                        }
-                        title="Clear signature PNG"
-                        className="absolute top-0 right-0.5 text-[9px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={activeRound.clientGeologistSign ?? ''}
-                      onChange={(e) =>
-                        onUpdateRound((r) => ({
-                          ...r,
-                          clientGeologistSign: e.target.value,
-                        }))
-                      }
-                      placeholder="Sign"
-                      className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs italic text-cyan-300"
-                    />
-                  )}
-                  <label
-                    title="Upload Client Signature PNG"
-                    className="shrink-0 px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] font-bold text-cyan-300 cursor-pointer"
-                  >
-                    PNG
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          onUpdateRound((r) => ({
-                            ...r,
-                            clientGeologistSign: String(reader.result || ''),
-                          }));
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </label>
-                </div>
+              <div className="bg-slate-900/70 rounded px-2 py-1.5">
+                <ReportBorderlessGeologistSignRow
+                  roleLabel="Client:"
+                  nameValue={activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''}
+                  signValue={activeRound.clientGeologistSign ?? ''}
+                  rawSignDataUrl={activeRound.clientSignRawDataUrl}
+                  signCropConfig={activeRound.clientSignCropConfig}
+                  onNameChange={(val) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      clientGeologistName: val,
+                      clientRepName: val,
+                    }))
+                  }
+                  onSignChange={(val, rawUrl, cfg) =>
+                    onUpdateRound((r) => ({
+                      ...r,
+                      clientGeologistSign: val,
+                      ...(rawUrl !== undefined ? { clientSignRawDataUrl: rawUrl } : {}),
+                      ...(cfg !== undefined ? { clientSignCropConfig: cfg } : {}),
+                    }))
+                  }
+                  darkTheme
+                />
               </div>
             </div>
           </div>
@@ -3371,14 +3287,34 @@ export const FieldReportTemplateEditorPanel: React.FC<{
     activeRound
   );
 
+  const [cropEditorTarget, setCropEditorTarget] = useState<
+    null | 'left_logo' | 'right_logo' | 'contractor_sign' | 'client_sign'
+  >(null);
+
   const handleLogoUpload = (side: 'left' | 'right', file: File | undefined) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '');
+    reader.onload = async () => {
+      const rawUrl = String(reader.result || '');
+      const trimmed = await detectAutoTrimCropPercentages(rawUrl);
+      const cfg = { ...DEFAULT_LOGO_CROP_CONFIG, ...trimmed };
+      const fittedUrl = await renderCroppedLogoOrSignatureDataUrl(rawUrl, cfg, 440, 120);
       onUpdateProject((p) =>
-        side === 'left' ? { ...p, leftLogoDataUrl: dataUrl } : { ...p, rightLogoDataUrl: dataUrl }
+        side === 'left'
+          ? {
+              ...p,
+              leftLogoDataUrl: fittedUrl || rawUrl,
+              leftLogoRawDataUrl: rawUrl,
+              leftLogoCropConfig: cfg,
+            }
+          : {
+              ...p,
+              rightLogoDataUrl: fittedUrl || rawUrl,
+              rightLogoRawDataUrl: rawUrl,
+              rightLogoCropConfig: cfg,
+            }
       );
+      setCropEditorTarget(side === 'left' ? 'left_logo' : 'right_logo');
     };
     reader.readAsDataURL(file);
   };
@@ -3441,11 +3377,11 @@ export const FieldReportTemplateEditorPanel: React.FC<{
         )}
       </div>
 
-      {/* 1. Upload Client & Contractor Logos for Report Header */}
+      {/* 1. Upload & Crop Client & Contractor Logos for Report Header */}
       <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-3 space-y-2.5">
         <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
           <ImageIcon className="w-3.5 h-3.5" />
-          1. Report Header Logo Position (Left &amp; Right)
+          1. Report Header Logo Position &amp; Crop-to-Box (Left &amp; Right)
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1.5">
@@ -3460,19 +3396,40 @@ export const FieldReportTemplateEditorPanel: React.FC<{
               />
             </label>
             {activeProject.leftLogoDataUrl && (
-              <div className="eswa-logo-fit-box h-10 w-full bg-white rounded border border-slate-700 p-1 relative">
-                <img
-                  src={activeProject.leftLogoDataUrl}
-                  alt="Left Logo Preview"
-                  className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
-                />
+              <div className="space-y-1">
+                <div
+                  onClick={() => setCropEditorTarget('left_logo')}
+                  title="Click to Crop & Adjust Left Logo"
+                  className="eswa-logo-fit-box h-10 w-full bg-white rounded border border-slate-700 p-1 relative cursor-pointer"
+                >
+                  <img
+                    src={activeProject.leftLogoDataUrl}
+                    alt="Left Logo Preview"
+                    className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateProject((p) => ({
+                        ...p,
+                        leftLogoDataUrl: '',
+                        leftLogoRawDataUrl: '',
+                      }));
+                    }}
+                    title="Remove Left Logo"
+                    className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => onUpdateProject((p) => ({ ...p, leftLogoDataUrl: '' }))}
-                  title="Remove Left Logo"
-                  className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                  onClick={() => setCropEditorTarget('left_logo')}
+                  className="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                 >
-                  ✕
+                  <Crop className="w-3 h-3" />
+                  <span>Crop &amp; Fit Left Logo</span>
                 </button>
               </div>
             )}
@@ -3489,29 +3446,50 @@ export const FieldReportTemplateEditorPanel: React.FC<{
               />
             </label>
             {activeProject.rightLogoDataUrl && (
-              <div className="eswa-logo-fit-box h-10 w-full bg-white rounded border border-slate-700 p-1 relative">
-                <img
-                  src={activeProject.rightLogoDataUrl}
-                  alt="Right Logo Preview"
-                  className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
-                />
+              <div className="space-y-1">
+                <div
+                  onClick={() => setCropEditorTarget('right_logo')}
+                  title="Click to Crop & Adjust Right Logo"
+                  className="eswa-logo-fit-box h-10 w-full bg-white rounded border border-slate-700 p-1 relative cursor-pointer"
+                >
+                  <img
+                    src={activeProject.rightLogoDataUrl}
+                    alt="Right Logo Preview"
+                    className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateProject((p) => ({
+                        ...p,
+                        rightLogoDataUrl: '',
+                        rightLogoRawDataUrl: '',
+                      }));
+                    }}
+                    title="Remove Right Logo"
+                    className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => onUpdateProject((p) => ({ ...p, rightLogoDataUrl: '' }))}
-                  title="Remove Right Logo"
-                  className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                  onClick={() => setCropEditorTarget('right_logo')}
+                  className="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                 >
-                  ✕
+                  <Crop className="w-3 h-3" />
+                  <span>Crop &amp; Fit Right Logo</span>
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* 1B. Upload Contractor & Client Geologist Signature PNG */}
+        {/* 1B. Upload & Adjust Contractor & Client Geologist Signature PNG */}
         <div className="pt-2 border-t border-slate-800">
           <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">
-            Geologist Signature PNG Upload (Contractor &amp; Client)
+            Geologist Signature PNG Upload &amp; Adjust (Borderless)
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
@@ -3526,30 +3504,57 @@ export const FieldReportTemplateEditorPanel: React.FC<{
                     const file = e.target.files?.[0];
                     if (!file) return;
                     const reader = new FileReader();
-                    reader.onload = () => {
+                    reader.onload = async () => {
+                      const rawUrl = String(reader.result || '');
+                      const trimmed = await detectAutoTrimCropPercentages(rawUrl);
+                      const cfg = { ...DEFAULT_LOGO_CROP_CONFIG, ...trimmed };
+                      const fitted = await renderCroppedLogoOrSignatureDataUrl(rawUrl, cfg, 420, 120);
                       onUpdateRound((r) => ({
                         ...r,
-                        contractorGeologistSign: String(reader.result || ''),
+                        contractorGeologistSign: fitted || rawUrl,
+                        contractorSignRawDataUrl: rawUrl,
+                        contractorSignCropConfig: cfg,
                       }));
+                      setCropEditorTarget('contractor_sign');
                     };
                     reader.readAsDataURL(file);
                   }}
                 />
               </label>
               {activeRound.contractorGeologistSign?.startsWith('data:image/') && (
-                <div className="eswa-signature-fit-box h-9 w-full rounded border border-slate-700 p-1 relative">
-                  <img
-                    src={activeRound.contractorGeologistSign}
-                    alt="Contractor Sign Preview"
-                    className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
-                  />
+                <div className="space-y-1">
+                  <div
+                    onClick={() => setCropEditorTarget('contractor_sign')}
+                    className="eswa-signature-fit-box h-9 w-full bg-white rounded p-1 relative cursor-pointer"
+                  >
+                    <img
+                      src={activeRound.contractorGeologistSign}
+                      alt="Contractor Sign Preview"
+                      className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateRound((r) => ({
+                          ...r,
+                          contractorGeologistSign: '',
+                          contractorSignRawDataUrl: '',
+                        }));
+                      }}
+                      title="Clear Contractor Signature"
+                      className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))}
-                    title="Clear Contractor Signature"
-                    className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                    onClick={() => setCropEditorTarget('contractor_sign')}
+                    className="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    ✕
+                    <Crop className="w-3 h-3" />
+                    <span>Adjust Contractor Sign</span>
                   </button>
                 </div>
               )}
@@ -3566,36 +3571,134 @@ export const FieldReportTemplateEditorPanel: React.FC<{
                     const file = e.target.files?.[0];
                     if (!file) return;
                     const reader = new FileReader();
-                    reader.onload = () => {
+                    reader.onload = async () => {
+                      const rawUrl = String(reader.result || '');
+                      const trimmed = await detectAutoTrimCropPercentages(rawUrl);
+                      const cfg = { ...DEFAULT_LOGO_CROP_CONFIG, ...trimmed };
+                      const fitted = await renderCroppedLogoOrSignatureDataUrl(rawUrl, cfg, 420, 120);
                       onUpdateRound((r) => ({
                         ...r,
-                        clientGeologistSign: String(reader.result || ''),
+                        clientGeologistSign: fitted || rawUrl,
+                        clientSignRawDataUrl: rawUrl,
+                        clientSignCropConfig: cfg,
                       }));
+                      setCropEditorTarget('client_sign');
                     };
                     reader.readAsDataURL(file);
                   }}
                 />
               </label>
               {activeRound.clientGeologistSign?.startsWith('data:image/') && (
-                <div className="eswa-signature-fit-box h-9 w-full rounded border border-slate-700 p-1 relative">
-                  <img
-                    src={activeRound.clientGeologistSign}
-                    alt="Client Sign Preview"
-                    className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
-                  />
+                <div className="space-y-1">
+                  <div
+                    onClick={() => setCropEditorTarget('client_sign')}
+                    className="eswa-signature-fit-box h-9 w-full bg-white rounded p-1 relative cursor-pointer"
+                  >
+                    <img
+                      src={activeRound.clientGeologistSign}
+                      alt="Client Sign Preview"
+                      className="max-h-full max-w-full w-auto h-auto object-contain mx-auto"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateRound((r) => ({
+                          ...r,
+                          clientGeologistSign: '',
+                          clientSignRawDataUrl: '',
+                        }));
+                      }}
+                      title="Clear Client Signature"
+                      className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))}
-                    title="Clear Client Signature"
-                    className="absolute top-0.5 right-1 text-[10px] font-black text-rose-600 hover:text-rose-800 cursor-pointer"
+                    onClick={() => setCropEditorTarget('client_sign')}
+                    className="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    ✕
+                    <Crop className="w-3 h-3" />
+                    <span>Adjust Client Sign</span>
                   </button>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Universal Crop & Fit Modal for Template Editor */}
+        {cropEditorTarget && (
+          <UniversalImageCropAndFitModal
+            isOpen={true}
+            title={
+              cropEditorTarget === 'left_logo'
+                ? 'Left Header Logo — Crop & Fit to Box'
+                : cropEditorTarget === 'right_logo'
+                ? 'Right Header Logo — Crop & Fit to Box'
+                : cropEditorTarget === 'contractor_sign'
+                ? 'Contractor Geologist Signature — Crop & Adjust PNG'
+                : 'Client Geologist Signature — Crop & Adjust PNG'
+            }
+            mode={
+              cropEditorTarget === 'left_logo' || cropEditorTarget === 'right_logo'
+                ? 'logo'
+                : 'signature'
+            }
+            initialRawDataUrl={
+              cropEditorTarget === 'left_logo'
+                ? activeProject.leftLogoRawDataUrl || activeProject.leftLogoDataUrl || ''
+                : cropEditorTarget === 'right_logo'
+                ? activeProject.rightLogoRawDataUrl || activeProject.rightLogoDataUrl || ''
+                : cropEditorTarget === 'contractor_sign'
+                ? activeRound.contractorSignRawDataUrl || activeRound.contractorGeologistSign || ''
+                : activeRound.clientSignRawDataUrl || activeRound.clientGeologistSign || ''
+            }
+            initialCropConfig={
+              cropEditorTarget === 'left_logo'
+                ? activeProject.leftLogoCropConfig
+                : cropEditorTarget === 'right_logo'
+                ? activeProject.rightLogoCropConfig
+                : cropEditorTarget === 'contractor_sign'
+                ? activeRound.contractorSignCropConfig
+                : activeRound.clientSignCropConfig
+            }
+            onApply={(croppedUrl, rawUrl, cfg) => {
+              if (cropEditorTarget === 'left_logo') {
+                onUpdateProject((p) => ({
+                  ...p,
+                  leftLogoDataUrl: croppedUrl,
+                  leftLogoRawDataUrl: rawUrl,
+                  leftLogoCropConfig: cfg,
+                }));
+              } else if (cropEditorTarget === 'right_logo') {
+                onUpdateProject((p) => ({
+                  ...p,
+                  rightLogoDataUrl: croppedUrl,
+                  rightLogoRawDataUrl: rawUrl,
+                  rightLogoCropConfig: cfg,
+                }));
+              } else if (cropEditorTarget === 'contractor_sign') {
+                onUpdateRound((r) => ({
+                  ...r,
+                  contractorGeologistSign: croppedUrl,
+                  contractorSignRawDataUrl: rawUrl,
+                  contractorSignCropConfig: cfg,
+                }));
+              } else if (cropEditorTarget === 'client_sign') {
+                onUpdateRound((r) => ({
+                  ...r,
+                  clientGeologistSign: croppedUrl,
+                  clientSignRawDataUrl: rawUrl,
+                  clientSignCropConfig: cfg,
+                }));
+              }
+            }}
+            onClose={() => setCropEditorTarget(null)}
+          />
+        )}
       </div>
 
       {/* 2. Add Missing Data Tick-Box Row to Page 2 */}
@@ -3720,6 +3823,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
   qRes: any;
   rmrRes: any;
   smrResult: any;
+  onUpdateProject?: (updater: (prev: FieldProjectItem) => FieldProjectItem) => void;
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   handleToggleTickOption: (groupId: string, optionIdx: number) => void;
   handleDeleteTickGroup: (groupId: string) => void;
@@ -3734,6 +3838,7 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
   qRes,
   rmrRes,
   smrResult,
+  onUpdateProject,
   onUpdateRound,
   handleToggleTickOption,
   handleDeleteTickGroup,
@@ -3760,160 +3865,62 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
       activeRound.discontinuitySets[setId]?.manualOrientationOverride
   );
 
-  const renderCompactSignBlock = (pageLabel = '') => (
+  const renderCompactSignBlock = (_pageLabel = '') => (
     <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
       <tbody>
         <tr>
           <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="font-black uppercase shrink-0">Contractor Geologist:</span>
-              <input
-                type="text"
-                value={
-                  activeRound.contractorGeologistName ??
-                  activeRound.contractorRepName ??
-                  activeRound.geologistName ??
-                  ''
-                }
-                onChange={(e) =>
-                  onUpdateRound((r) => ({
-                    ...r,
-                    contractorGeologistName: e.target.value,
-                    geologistName: e.target.value,
-                  }))
-                }
-                placeholder="Name"
-                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-              />
-              <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-              {activeRound.contractorGeologistSign?.startsWith('data:image/') ? (
-                <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                  <img
-                    src={activeRound.contractorGeologistSign}
-                    alt="Contractor Signature"
-                    className="max-h-full max-w-full w-auto h-auto object-contain"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))}
-                    title="Clear Signature"
-                    className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  value={activeRound.contractorGeologistSign ?? ''}
-                  onChange={(e) =>
-                    onUpdateRound((r) => ({
-                      ...r,
-                      contractorGeologistSign: e.target.value,
-                    }))
-                  }
-                  placeholder="Sign"
-                  className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                />
-              )}
-              <label
-                title="Upload Contractor Signature PNG"
-                className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-              >
-                PNG
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      onUpdateRound((r) => ({
-                        ...r,
-                        contractorGeologistSign: String(reader.result || ''),
-                      }));
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-              </label>
-            </div>
+            <ReportBorderlessGeologistSignRow
+              roleLabel="Contractor Geologist:"
+              nameValue={
+                activeRound.contractorGeologistName ??
+                activeRound.contractorRepName ??
+                activeRound.geologistName ??
+                ''
+              }
+              signValue={activeRound.contractorGeologistSign ?? ''}
+              rawSignDataUrl={activeRound.contractorSignRawDataUrl}
+              signCropConfig={activeRound.contractorSignCropConfig}
+              onNameChange={(val) =>
+                onUpdateRound((r) => ({
+                  ...r,
+                  contractorGeologistName: val,
+                  geologistName: val,
+                }))
+              }
+              onSignChange={(val, rawUrl, cfg) =>
+                onUpdateRound((r) => ({
+                  ...r,
+                  contractorGeologistSign: val,
+                  ...(rawUrl !== undefined ? { contractorSignRawDataUrl: rawUrl } : {}),
+                  ...(cfg !== undefined ? { contractorSignCropConfig: cfg } : {}),
+                }))
+              }
+            />
           </td>
           <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="font-black uppercase shrink-0">Client Geologist:</span>
-              <input
-                type="text"
-                value={
-                  activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''
-                }
-                onChange={(e) =>
-                  onUpdateRound((r) => ({
-                    ...r,
-                    clientGeologistName: e.target.value,
-                    clientRepName: e.target.value,
-                  }))
-                }
-                placeholder="Name"
-                className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-              />
-              <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-              {activeRound.clientGeologistSign?.startsWith('data:image/') ? (
-                <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                  <img
-                    src={activeRound.clientGeologistSign}
-                    alt="Client Signature"
-                    className="max-h-full max-w-full w-auto h-auto object-contain"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))}
-                    title="Clear Signature"
-                    className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  value={activeRound.clientGeologistSign ?? ''}
-                  onChange={(e) =>
-                    onUpdateRound((r) => ({
-                      ...r,
-                      clientGeologistSign: e.target.value,
-                    }))
-                  }
-                  placeholder="Sign"
-                  className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                />
-              )}
-              <label
-                title="Upload Client Signature PNG"
-                className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-              >
-                PNG
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      onUpdateRound((r) => ({
-                        ...r,
-                        clientGeologistSign: String(reader.result || ''),
-                      }));
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-              </label>
-            </div>
+            <ReportBorderlessGeologistSignRow
+              roleLabel="Client Geologist:"
+              nameValue={activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''}
+              signValue={activeRound.clientGeologistSign ?? ''}
+              rawSignDataUrl={activeRound.clientSignRawDataUrl}
+              signCropConfig={activeRound.clientSignCropConfig}
+              onNameChange={(val) =>
+                onUpdateRound((r) => ({
+                  ...r,
+                  clientGeologistName: val,
+                  clientRepName: val,
+                }))
+              }
+              onSignChange={(val, rawUrl, cfg) =>
+                onUpdateRound((r) => ({
+                  ...r,
+                  clientGeologistSign: val,
+                  ...(rawUrl !== undefined ? { clientSignRawDataUrl: rawUrl } : {}),
+                  ...(cfg !== undefined ? { clientSignCropConfig: cfg } : {}),
+                }))
+              }
+            />
           </td>
         </tr>
       </tbody>
@@ -3934,19 +3941,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
           <tbody>
             <tr>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.leftLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.leftLogoDataUrl}
-                      alt="Client Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-[9px] font-bold text-slate-950 leading-tight">
-                    {activeProject.clientName || 'CLIENT'}
-                  </div>
-                )}
+                <ReportHeaderLogoBox
+                  side="left"
+                  logoDataUrl={activeProject.leftLogoDataUrl}
+                  rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                  cropConfig={activeProject.leftLogoCropConfig}
+                  fallbackTitle={activeProject.clientName || 'CLIENT'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: croppedUrl,
+                            leftLogoRawDataUrl: rawUrl,
+                            leftLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: '',
+                            leftLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
@@ -3959,19 +3981,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 </div>
               </td>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.rightLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.rightLogoDataUrl}
-                      alt="Contractor Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-[9px] font-bold text-slate-950 leading-tight">
-                    {activeProject.contractorName || 'CONTRACTOR'}
-                  </div>
-                )}
+                <ReportHeaderLogoBox
+                  side="right"
+                  logoDataUrl={activeProject.rightLogoDataUrl}
+                  rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                  cropConfig={activeProject.rightLogoCropConfig}
+                  fallbackTitle={activeProject.contractorName || 'CONTRACTOR'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: croppedUrl,
+                            rightLogoRawDataUrl: rawUrl,
+                            rightLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: '',
+                            rightLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
             </tr>
             <tr>
@@ -4368,19 +4405,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
           <tbody>
             <tr>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.leftLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.leftLogoDataUrl}
-                      alt="Client Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-[9px] font-bold">
-                    {activeProject.clientName || 'CLIENT'}
-                  </span>
-                )}
+                <ReportHeaderLogoBox
+                  side="left"
+                  logoDataUrl={activeProject.leftLogoDataUrl}
+                  rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                  cropConfig={activeProject.leftLogoCropConfig}
+                  fallbackTitle={activeProject.clientName || 'CLIENT'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: croppedUrl,
+                            leftLogoRawDataUrl: rawUrl,
+                            leftLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: '',
+                            leftLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black uppercase leading-tight">
@@ -4393,19 +4445,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 </div>
               </td>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.rightLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.rightLogoDataUrl}
-                      alt="Contractor Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-[9px] font-bold">
-                    {activeProject.contractorName || 'CONTRACTOR'}
-                  </span>
-                )}
+                <ReportHeaderLogoBox
+                  side="right"
+                  logoDataUrl={activeProject.rightLogoDataUrl}
+                  rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                  cropConfig={activeProject.rightLogoCropConfig}
+                  fallbackTitle={activeProject.contractorName || 'CONTRACTOR'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: croppedUrl,
+                            rightLogoRawDataUrl: rawUrl,
+                            rightLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: '',
+                            rightLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
             </tr>
             <tr>
@@ -4777,19 +4844,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
           <tbody>
             <tr>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.leftLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.leftLogoDataUrl}
-                      alt="Client Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-[9px] font-bold">
-                    {activeProject.clientName || 'CLIENT'}
-                  </span>
-                )}
+                <ReportHeaderLogoBox
+                  side="left"
+                  logoDataUrl={activeProject.leftLogoDataUrl}
+                  rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                  cropConfig={activeProject.leftLogoCropConfig}
+                  fallbackTitle={activeProject.clientName || 'CLIENT'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: croppedUrl,
+                            leftLogoRawDataUrl: rawUrl,
+                            leftLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            leftLogoDataUrl: '',
+                            leftLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
               <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                 <div className="text-[11px] font-black uppercase leading-tight">
@@ -4802,19 +4884,34 @@ export const FieldSurfaceMappingThreePageReport: React.FC<{
                 </div>
               </td>
               <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                {activeProject.rightLogoDataUrl ? (
-                  <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                    <img
-                      src={activeProject.rightLogoDataUrl}
-                      alt="Contractor Logo"
-                      className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-[9px] font-bold">
-                    {activeProject.contractorName || 'CONTRACTOR'}
-                  </span>
-                )}
+                <ReportHeaderLogoBox
+                  side="right"
+                  logoDataUrl={activeProject.rightLogoDataUrl}
+                  rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                  cropConfig={activeProject.rightLogoCropConfig}
+                  fallbackTitle={activeProject.contractorName || 'CONTRACTOR'}
+                  onUpdateLogo={
+                    onUpdateProject
+                      ? (croppedUrl, rawUrl, cfg) =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: croppedUrl,
+                            rightLogoRawDataUrl: rawUrl,
+                            rightLogoCropConfig: cfg,
+                          }))
+                      : undefined
+                  }
+                  onClearLogo={
+                    onUpdateProject
+                      ? () =>
+                          onUpdateProject((p) => ({
+                            ...p,
+                            rightLogoDataUrl: '',
+                            rightLogoRawDataUrl: '',
+                          }))
+                      : undefined
+                  }
+                />
               </td>
             </tr>
             <tr>
@@ -5625,6 +5722,7 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               qRes={qRes}
               rmrRes={rmrRes}
               smrResult={smrResult}
+              onUpdateProject={onUpdateProject}
               onUpdateRound={onUpdateRound}
               handleToggleTickOption={handleToggleTickOption}
               handleDeleteTickGroup={handleDeleteTickGroup}
@@ -5641,19 +5739,28 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               <tbody>
                 <tr>
                   <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                    {activeProject.leftLogoDataUrl ? (
-                      <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                        <img
-                          src={activeProject.leftLogoDataUrl}
-                          alt="Client Logo"
-                          className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <div className="text-[9px] font-bold text-slate-950 leading-tight">
-                        {activeProject.clientName || 'CLIENT'}
-                      </div>
-                    )}
+                    <ReportHeaderLogoBox
+                      side="left"
+                      logoDataUrl={activeProject.leftLogoDataUrl}
+                      rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                      cropConfig={activeProject.leftLogoCropConfig}
+                      fallbackTitle={activeProject.clientName || 'CLIENT'}
+                      onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          leftLogoDataUrl: croppedUrl,
+                          leftLogoRawDataUrl: rawUrl,
+                          leftLogoCropConfig: cfg,
+                        }))
+                      }
+                      onClearLogo={() =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          leftLogoDataUrl: '',
+                          leftLogoRawDataUrl: '',
+                        }))
+                      }
+                    />
                   </td>
                   <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                     <div className="text-[11px] font-black tracking-wide uppercase text-slate-950 leading-tight">
@@ -5664,19 +5771,28 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     </div>
                   </td>
                   <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                    {activeProject.rightLogoDataUrl ? (
-                      <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                        <img
-                          src={activeProject.rightLogoDataUrl}
-                          alt="Contractor Logo"
-                          className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <div className="text-[9px] font-bold text-slate-950 leading-tight">
-                        {activeProject.contractorName || 'CONTRACTOR'}
-                      </div>
-                    )}
+                    <ReportHeaderLogoBox
+                      side="right"
+                      logoDataUrl={activeProject.rightLogoDataUrl}
+                      rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                      cropConfig={activeProject.rightLogoCropConfig}
+                      fallbackTitle={activeProject.contractorName || 'CONTRACTOR'}
+                      onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          rightLogoDataUrl: croppedUrl,
+                          rightLogoRawDataUrl: rawUrl,
+                          rightLogoCropConfig: cfg,
+                        }))
+                      }
+                      onClearLogo={() =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          rightLogoDataUrl: '',
+                          rightLogoRawDataUrl: '',
+                        }))
+                      }
+                    />
                   </td>
                 </tr>
                 <tr>
@@ -5793,160 +5909,62 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               </table>
             </div>
 
-            {/* BOTTOM: Compact Single-Row Geologist Sign Block (Small in size, zero wasted space) */}
+            {/* BOTTOM: Compact Single-Row Geologist Sign Block (Borderless Name & Adjustable PNG Sign) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
                 <tr>
                   <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-black uppercase shrink-0">Contractor Geologist:</span>
-                      <input
-                        type="text"
-                        value={
-                          activeRound.contractorGeologistName ??
-                          activeRound.contractorRepName ??
-                          activeRound.geologistName ??
-                          ''
-                        }
-                        onChange={(e) =>
-                          onUpdateRound((r) => ({
-                            ...r,
-                            contractorGeologistName: e.target.value,
-                            geologistName: e.target.value,
-                          }))
-                        }
-                        placeholder="Name"
-                        className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-                      />
-                      <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-                      {activeRound.contractorGeologistSign?.startsWith('data:image/') ? (
-                        <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                          <img
-                            src={activeRound.contractorGeologistSign}
-                            alt="Contractor Signature"
-                            className="max-h-full max-w-full w-auto h-auto object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))}
-                            title="Clear Signature"
-                            className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={activeRound.contractorGeologistSign ?? ''}
-                          onChange={(e) =>
-                            onUpdateRound((r) => ({
-                              ...r,
-                              contractorGeologistSign: e.target.value,
-                            }))
-                          }
-                          placeholder="Sign"
-                          className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                        />
-                      )}
-                      <label
-                        title="Upload Contractor Signature PNG"
-                        className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-                      >
-                        PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              onUpdateRound((r) => ({
-                                ...r,
-                                contractorGeologistSign: String(reader.result || ''),
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    </div>
+                    <ReportBorderlessGeologistSignRow
+                      roleLabel="Contractor Geologist:"
+                      nameValue={
+                        activeRound.contractorGeologistName ??
+                        activeRound.contractorRepName ??
+                        activeRound.geologistName ??
+                        ''
+                      }
+                      signValue={activeRound.contractorGeologistSign ?? ''}
+                      rawSignDataUrl={activeRound.contractorSignRawDataUrl}
+                      signCropConfig={activeRound.contractorSignCropConfig}
+                      onNameChange={(val) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          contractorGeologistName: val,
+                          geologistName: val,
+                        }))
+                      }
+                      onSignChange={(val, rawUrl, cfg) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          contractorGeologistSign: val,
+                          ...(rawUrl !== undefined ? { contractorSignRawDataUrl: rawUrl } : {}),
+                          ...(cfg !== undefined ? { contractorSignCropConfig: cfg } : {}),
+                        }))
+                      }
+                    />
                   </td>
                   <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-black uppercase shrink-0">Client Geologist:</span>
-                      <input
-                        type="text"
-                        value={
-                          activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''
-                        }
-                        onChange={(e) =>
-                          onUpdateRound((r) => ({
-                            ...r,
-                            clientGeologistName: e.target.value,
-                            clientRepName: e.target.value,
-                          }))
-                        }
-                        placeholder="Name"
-                        className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-                      />
-                      <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-                      {activeRound.clientGeologistSign?.startsWith('data:image/') ? (
-                        <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                          <img
-                            src={activeRound.clientGeologistSign}
-                            alt="Client Signature"
-                            className="max-h-full max-w-full w-auto h-auto object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))}
-                            title="Clear Signature"
-                            className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={activeRound.clientGeologistSign ?? ''}
-                          onChange={(e) =>
-                            onUpdateRound((r) => ({
-                              ...r,
-                              clientGeologistSign: e.target.value,
-                            }))
-                          }
-                          placeholder="Sign"
-                          className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                        />
-                      )}
-                      <label
-                        title="Upload Client Signature PNG"
-                        className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-                      >
-                        PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              onUpdateRound((r) => ({
-                                ...r,
-                                clientGeologistSign: String(reader.result || ''),
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    </div>
+                    <ReportBorderlessGeologistSignRow
+                      roleLabel="Client Geologist:"
+                      nameValue={activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''}
+                      signValue={activeRound.clientGeologistSign ?? ''}
+                      rawSignDataUrl={activeRound.clientSignRawDataUrl}
+                      signCropConfig={activeRound.clientSignCropConfig}
+                      onNameChange={(val) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          clientGeologistName: val,
+                          clientRepName: val,
+                        }))
+                      }
+                      onSignChange={(val, rawUrl, cfg) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          clientGeologistSign: val,
+                          ...(rawUrl !== undefined ? { clientSignRawDataUrl: rawUrl } : {}),
+                          ...(cfg !== undefined ? { clientSignCropConfig: cfg } : {}),
+                        }))
+                      }
+                    />
                   </td>
                 </tr>
               </tbody>
@@ -5963,19 +5981,28 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               <tbody>
                 <tr>
                   <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                    {activeProject.leftLogoDataUrl ? (
-                      <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                        <img
-                          src={activeProject.leftLogoDataUrl}
-                          alt="Client Logo"
-                          className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-[9px] font-bold">
-                        {activeProject.clientName || 'CLIENT'}
-                      </span>
-                    )}
+                    <ReportHeaderLogoBox
+                      side="left"
+                      logoDataUrl={activeProject.leftLogoDataUrl}
+                      rawLogoDataUrl={activeProject.leftLogoRawDataUrl}
+                      cropConfig={activeProject.leftLogoCropConfig}
+                      fallbackTitle={activeProject.clientName || 'CLIENT'}
+                      onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          leftLogoDataUrl: croppedUrl,
+                          leftLogoRawDataUrl: rawUrl,
+                          leftLogoCropConfig: cfg,
+                        }))
+                      }
+                      onClearLogo={() =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          leftLogoDataUrl: '',
+                          leftLogoRawDataUrl: '',
+                        }))
+                      }
+                    />
                   </td>
                   <td colSpan={4} className="w-[70%] border border-slate-900 px-2 py-0.5 text-center bg-white">
                     <div className="text-[11px] font-black uppercase leading-tight">
@@ -5986,19 +6013,28 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                     </div>
                   </td>
                   <td rowSpan={2} className="w-[15%] border border-slate-900 px-1.5 py-1 text-center align-middle bg-white">
-                    {activeProject.rightLogoDataUrl ? (
-                      <div className="eswa-logo-fit-box w-full max-w-[110px] h-[30px] mx-auto">
-                        <img
-                          src={activeProject.rightLogoDataUrl}
-                          alt="Contractor Logo"
-                          className="max-h-full max-w-full w-auto h-auto mx-auto object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-[9px] font-bold">
-                        {activeProject.contractorName || 'CONTRACTOR'}
-                      </span>
-                    )}
+                    <ReportHeaderLogoBox
+                      side="right"
+                      logoDataUrl={activeProject.rightLogoDataUrl}
+                      rawLogoDataUrl={activeProject.rightLogoRawDataUrl}
+                      cropConfig={activeProject.rightLogoCropConfig}
+                      fallbackTitle={activeProject.contractorName || 'CONTRACTOR'}
+                      onUpdateLogo={(croppedUrl, rawUrl, cfg) =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          rightLogoDataUrl: croppedUrl,
+                          rightLogoRawDataUrl: rawUrl,
+                          rightLogoCropConfig: cfg,
+                        }))
+                      }
+                      onClearLogo={() =>
+                        onUpdateProject((p) => ({
+                          ...p,
+                          rightLogoDataUrl: '',
+                          rightLogoRawDataUrl: '',
+                        }))
+                      }
+                    />
                   </td>
                 </tr>
                 <tr>
@@ -6037,6 +6073,38 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
                   </tr>
                 </thead>
                 <tbody>
+                  <tr>
+                    <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[28%]">
+                      Excavation Dimensions &amp; Scope
+                    </th>
+                    <td className="border border-slate-900 bg-white px-2 py-1 font-semibold text-slate-900">
+                      {isVerticalShaftLocation(activeLocation) ? (
+                        <span>
+                          Circular Shaft Ø = {activeLocation.widthM} m | 4-Quadrant Arc ={' '}
+                          {((Math.PI * (activeLocation.widthM || 8)) / 4).toFixed(2)} m | Total Unfolded Perimeter ={' '}
+                          {(Math.PI * (activeLocation.widthM || 8)).toFixed(2)} m | Cross-Section Area ={' '}
+                          {(Math.PI * Math.pow((activeLocation.widthM || 8) / 2, 2)).toFixed(2)} m² | Sinking Pull ={' '}
+                          {activeRound.pullLengthMeters} m
+                        </span>
+                      ) : (
+                        <span>
+                          Shape: {activeLocation.shape.replace(/_/g, ' ').toUpperCase()} | Span W = {activeLocation.widthM} m × Height H = {activeLocation.heightM} m (Wall SPL ={' '}
+                          {(
+                            activeLocation.wallHeightM ||
+                            Math.max(1.5, (activeLocation.heightM || 6) - (activeLocation.widthM || 8) * 0.35)
+                          ).toFixed(2)}{' '}
+                          m, Crown Arc = {((activeLocation.widthM || 8) * 1.15).toFixed(2)} m) | Unfolded Perimeter ={' '}
+                          {(
+                            (activeLocation.wallHeightM ||
+                              Math.max(1.5, (activeLocation.heightM || 6) - (activeLocation.widthM || 8) * 0.35)) *
+                              2 +
+                            (activeLocation.widthM || 8) * 1.15
+                          ).toFixed(2)}{' '}
+                          m | Pull Advance = {activeRound.pullLengthMeters} m
+                        </span>
+                      )}
+                    </td>
+                  </tr>
                   <tr>
                     <th className="border border-slate-900 bg-white px-2 py-1 text-left w-[28%]">
                       Weathering Index (WI – WVI)
@@ -6447,160 +6515,62 @@ export const FieldTwoPageReportAndTemplateStage: React.FC<{
               )}
             </div>
 
-            {/* BOTTOM: Compact Single-Row Geologist Sign Block (Small in size, zero wasted space) */}
+            {/* BOTTOM: Compact Single-Row Geologist Sign Block (Borderless Name & Adjustable PNG Sign) */}
             <table className="w-full border-collapse border border-slate-900 text-[9.5px] bg-white shrink-0">
               <tbody>
                 <tr>
                   <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-black uppercase shrink-0">Contractor Geologist:</span>
-                      <input
-                        type="text"
-                        value={
-                          activeRound.contractorGeologistName ??
-                          activeRound.contractorRepName ??
-                          activeRound.geologistName ??
-                          ''
-                        }
-                        onChange={(e) =>
-                          onUpdateRound((r) => ({
-                            ...r,
-                            contractorGeologistName: e.target.value,
-                            geologistName: e.target.value,
-                          }))
-                        }
-                        placeholder="Name"
-                        className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-                      />
-                      <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-                      {activeRound.contractorGeologistSign?.startsWith('data:image/') ? (
-                        <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                          <img
-                            src={activeRound.contractorGeologistSign}
-                            alt="Contractor Signature"
-                            className="max-h-full max-w-full w-auto h-auto object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => onUpdateRound((r) => ({ ...r, contractorGeologistSign: '' }))}
-                            title="Clear Signature"
-                            className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={activeRound.contractorGeologistSign ?? ''}
-                          onChange={(e) =>
-                            onUpdateRound((r) => ({
-                              ...r,
-                              contractorGeologistSign: e.target.value,
-                            }))
-                          }
-                          placeholder="Sign"
-                          className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                        />
-                      )}
-                      <label
-                        title="Upload Contractor Signature PNG"
-                        className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-                      >
-                        PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              onUpdateRound((r) => ({
-                                ...r,
-                                contractorGeologistSign: String(reader.result || ''),
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    </div>
+                    <ReportBorderlessGeologistSignRow
+                      roleLabel="Contractor Geologist:"
+                      nameValue={
+                        activeRound.contractorGeologistName ??
+                        activeRound.contractorRepName ??
+                        activeRound.geologistName ??
+                        ''
+                      }
+                      signValue={activeRound.contractorGeologistSign ?? ''}
+                      rawSignDataUrl={activeRound.contractorSignRawDataUrl}
+                      signCropConfig={activeRound.contractorSignCropConfig}
+                      onNameChange={(val) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          contractorGeologistName: val,
+                          geologistName: val,
+                        }))
+                      }
+                      onSignChange={(val, rawUrl, cfg) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          contractorGeologistSign: val,
+                          ...(rawUrl !== undefined ? { contractorSignRawDataUrl: rawUrl } : {}),
+                          ...(cfg !== undefined ? { contractorSignCropConfig: cfg } : {}),
+                        }))
+                      }
+                    />
                   </td>
                   <td className="border border-slate-900 bg-white px-2 py-1 w-1/2">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-black uppercase shrink-0">Client Geologist:</span>
-                      <input
-                        type="text"
-                        value={
-                          activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''
-                        }
-                        onChange={(e) =>
-                          onUpdateRound((r) => ({
-                            ...r,
-                            clientGeologistName: e.target.value,
-                            clientRepName: e.target.value,
-                          }))
-                        }
-                        placeholder="Name"
-                        className="border-b border-slate-400 px-1 py-0 font-bold text-slate-900 w-[32%] min-w-0 focus:outline-none"
-                      />
-                      <span className="font-bold text-slate-900 shrink-0">Sign:</span>
-                      {activeRound.clientGeologistSign?.startsWith('data:image/') ? (
-                        <div className="eswa-signature-fit-box h-7 w-24 border border-slate-300 px-1 relative shrink-0">
-                          <img
-                            src={activeRound.clientGeologistSign}
-                            alt="Client Signature"
-                            className="max-h-full max-w-full w-auto h-auto object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => onUpdateRound((r) => ({ ...r, clientGeologistSign: '' }))}
-                            title="Clear Signature"
-                            className="absolute top-0 right-0.5 text-[8px] font-black text-rose-600 print:hidden cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={activeRound.clientGeologistSign ?? ''}
-                          onChange={(e) =>
-                            onUpdateRound((r) => ({
-                              ...r,
-                              clientGeologistSign: e.target.value,
-                            }))
-                          }
-                          placeholder="Sign"
-                          className="border-b border-slate-400 px-1 py-0 italic font-semibold text-slate-900 w-[22%] min-w-0 focus:outline-none"
-                        />
-                      )}
-                      <label
-                        title="Upload Client Signature PNG"
-                        className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0 print:hidden"
-                      >
-                        PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              onUpdateRound((r) => ({
-                                ...r,
-                                clientGeologistSign: String(reader.result || ''),
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    </div>
+                    <ReportBorderlessGeologistSignRow
+                      roleLabel="Client Geologist:"
+                      nameValue={activeRound.clientGeologistName ?? activeRound.clientRepName ?? ''}
+                      signValue={activeRound.clientGeologistSign ?? ''}
+                      rawSignDataUrl={activeRound.clientSignRawDataUrl}
+                      signCropConfig={activeRound.clientSignCropConfig}
+                      onNameChange={(val) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          clientGeologistName: val,
+                          clientRepName: val,
+                        }))
+                      }
+                      onSignChange={(val, rawUrl, cfg) =>
+                        onUpdateRound((r) => ({
+                          ...r,
+                          clientGeologistSign: val,
+                          ...(rawUrl !== undefined ? { clientSignRawDataUrl: rawUrl } : {}),
+                          ...(cfg !== undefined ? { clientSignCropConfig: cfg } : {}),
+                        }))
+                      }
+                    />
                   </td>
                 </tr>
               </tbody>

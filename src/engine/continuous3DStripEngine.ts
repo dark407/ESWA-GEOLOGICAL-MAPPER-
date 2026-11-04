@@ -31,6 +31,7 @@ import {
   FieldExcavationRound,
   FieldJointTrace,
 } from './fieldMappingEngine';
+import { matchLithologyReference } from './femDemAnalysisEngine';
 
 export type { Point2D };
 
@@ -4203,11 +4204,61 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
       label: `${mappedWaterCond} (${pullSeepageStr})`,
     });
 
-    // Unfold FieldExcavationRound traces (Left Wall, Crown, Right Wall, and Shaft 4th quadrant `shaft_sn`)
+    // Unfold FieldExcavationRound traces, lithology strokes, structural features, dip planes & water marks
     if (rItem.fieldRound && locationItem.fieldLocation) {
       const fRound = rItem.fieldRound;
       const fLoc = locationItem.fieldLocation;
-      const panelTraces = (fRound.jointTraces || []).filter((tr) => tr.panel !== 'face');
+
+      // Helper to map a panel point (normalized [0..1] or metric) into unfolded strip (xChainage, yPerim)
+      const mapPanelMetricPointToStrip = (
+        mp: { x: number; y: number },
+        panel: 'face' | 'left_wall' | 'crown' | 'right_wall' | 'shaft_sn'
+      ): Point2D => {
+        if (panel === 'face') {
+          // Project face trace across the round chainage interval and crown/wall arc
+          const normX = Math.max(0, Math.min(1, mp.x / Math.max(0.5, spanDiameterM)));
+          const normY = Math.max(0, Math.min(1, mp.y / Math.max(0.5, wallHeightM)));
+          const xChainage = clipFromRd + normY * roundLen;
+          const yPerim = isShaft
+            ? normX * shaftTotalPerimM
+            : leftWallArcM + normX * crownArcM;
+          return {
+            x: Number(Math.max(clipFromRd, Math.min(clipToRd, xChainage)).toFixed(3)),
+            y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, yPerim)).toFixed(3)),
+          };
+        }
+        const localPullX = panel === 'crown' && !isShaft ? mp.y : mp.x;
+        const localPerimY = panel === 'crown' && !isShaft ? mp.x : mp.y;
+
+        const xChainage = Math.max(
+          clipFromRd,
+          Math.min(clipToRd, clipFromRd + Math.max(0, Math.min(roundLen, localPullX)))
+        );
+        let yPerim = 0;
+        if (isShaft) {
+          const localY = Math.max(0, Math.min(shaftQuadArcM, localPerimY));
+          if (panel === 'left_wall') yPerim = localY;
+          else if (panel === 'crown') yPerim = shaftQuadArcM + localY;
+          else if (panel === 'right_wall') yPerim = shaftQuadArcM * 2 + localY;
+          else if (panel === 'shaft_sn') yPerim = shaftQuadArcM * 3 + localY;
+        } else {
+          if (panel === 'left_wall') {
+            yPerim = Math.max(0, Math.min(leftWallArcM, localPerimY));
+          } else if (panel === 'crown') {
+            yPerim = leftWallArcM + Math.max(0, Math.min(crownArcM, localPerimY));
+          } else if (panel === 'right_wall') {
+            yPerim = leftWallArcM + crownArcM + Math.max(0, Math.min(rightWallArcM, localPerimY));
+          }
+        }
+        return {
+          x: Number(xChainage.toFixed(3)),
+          y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, yPerim)).toFixed(3)),
+        };
+      };
+
+      const nonFaceTraces = (fRound.jointTraces || []).filter((tr) => tr.panel !== 'face');
+      const panelTraces =
+        nonFaceTraces.length > 0 ? nonFaceTraces : fRound.jointTraces || [];
 
       for (const tr of panelTraces) {
         if (!tr.points || tr.points.length < 2) continue;
@@ -4215,39 +4266,9 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
           tr.metricPoints && tr.metricPoints.length === tr.points.length
             ? tr.metricPoints
             : computePhysicalMetricPoints(tr.points, tr.panel, fLoc, fRound);
-        const stripPts: Point2D[] = metricPts.map((mp) => {
-          // For left_wall / right_wall / shaft_sn: mp.x is pull [0..roundLen], mp.y is wall/arc height
-          // For crown: mp.x is lateral arc [0..crownArcM], mp.y is pull [0..roundLen]
-          const localPullX = tr.panel === 'crown' && !isShaft ? mp.y : mp.x;
-          const localPerimY = tr.panel === 'crown' && !isShaft ? mp.x : mp.y;
-
-          const xChainage = Math.max(
-            clipFromRd,
-            Math.min(clipToRd, clipFromRd + Math.max(0, Math.min(roundLen, localPullX)))
-          );
-          let yPerim = 0;
-          if (isShaft) {
-            // 4 quadrants: left_wall (0..Q), crown (Q..2Q), right_wall (2Q..3Q), shaft_sn (3Q..4Q)
-            const localY = Math.max(0, Math.min(shaftQuadArcM, localPerimY));
-            if (tr.panel === 'left_wall') yPerim = localY;
-            else if (tr.panel === 'crown') yPerim = shaftQuadArcM + localY;
-            else if (tr.panel === 'right_wall') yPerim = shaftQuadArcM * 2 + localY;
-            else if (tr.panel === 'shaft_sn') yPerim = shaftQuadArcM * 3 + localY;
-          } else {
-            // Tunnel 3 zones: left_wall (0..leftWallArcM), crown (leftWallArcM..+crownArcM), right_wall (+rightWallArcM)
-            if (tr.panel === 'left_wall') {
-              yPerim = Math.max(0, Math.min(leftWallArcM, localPerimY));
-            } else if (tr.panel === 'crown') {
-              yPerim = leftWallArcM + Math.max(0, Math.min(crownArcM, localPerimY));
-            } else if (tr.panel === 'right_wall') {
-              yPerim = leftWallArcM + crownArcM + Math.max(0, Math.min(rightWallArcM, localPerimY));
-            }
-          }
-          return {
-            x: Number(xChainage.toFixed(3)),
-            y: Number(Math.max(0.05, Math.min(totalPerimM - 0.05, yPerim)).toFixed(3)),
-          };
-        });
+        const stripPts: Point2D[] = metricPts.map((mp) =>
+          mapPanelMetricPointToStrip(mp, tr.panel)
+        );
 
         const setKey = tr.setId && tr.setId !== 'unassigned' ? tr.setId : 'J1';
         const setRec = (fRound.discontinuitySets as any)?.[setKey];
@@ -4264,7 +4285,7 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
         const sourceSurf: ContinuousStripTrace['sourceSurface'] =
           tr.panel === 'left_wall'
             ? 'leftWall'
-            : tr.panel === 'crown'
+            : tr.panel === 'crown' || tr.panel === 'face'
             ? 'crown'
             : tr.panel === 'right_wall'
             ? 'rightWall'
@@ -4293,6 +4314,172 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
           apertureMm: setRec?.aperture || '1.0mm',
           waterCondition: setRec?.groundwater || 'Dry',
           customLabel: tr.label || setKey,
+        });
+      }
+
+      // Unfold user-drawn structuralFeatures (faults, shears, folds, dykes, contact boundaries)
+      for (const sf of fRound.structuralFeatures || []) {
+        if (!sf.points || sf.points.length < 2) continue;
+        const metricPts = computePhysicalMetricPoints(sf.points, sf.panel, fLoc, fRound);
+        const stripPts = metricPts.map((mp) => mapPanelMetricPointToStrip(mp, sf.panel));
+        const dipDir = Math.round(sf.dipDirection || 135);
+        const dipAng = Math.round(sf.dipAmount || 65);
+        const structType: StripStructureTypeId =
+          sf.featureType === 'fault' || sf.featureType === 'thrust_fault'
+            ? 'Main Fault'
+            : sf.featureType === 'shear_zone'
+            ? 'Shear'
+            : sf.featureType === 'fold_axis'
+            ? 'JS1 - Foliation'
+            : 'Lithological Contact';
+        traces.push({
+          id: `tr-sf-${fRound.id}-${sf.id}`,
+          structureType: structType,
+          setId:
+            sf.featureType === 'fault' ||
+            sf.featureType === 'thrust_fault' ||
+            sf.featureType === 'shear_zone'
+              ? 'Shear/Fault'
+              : 'J1',
+          orientationLabel: `${String(dipDir).padStart(3, '0')}/${String(dipAng).padStart(2, '0')}`,
+          dipDirectionDeg: dipDir,
+          dipDeg: dipAng,
+          dipTickSide: dipDir >= 180 ? 'left' : 'right',
+          fillingThickness: sf.thicknessCm && sf.thicknessCm >= 5 ? 'Thick' : 'Thin',
+          points: stripPts,
+          rawPoints: stripPts.map((p) => ({ ...p })),
+          sourceSurface:
+            sf.panel === 'left_wall'
+              ? 'leftWall'
+              : sf.panel === 'right_wall'
+              ? 'rightWall'
+              : sf.panel === 'shaft_sn'
+              ? 'shaft_sn'
+              : 'crown',
+          colorHex:
+            sf.featureType === 'fault' || sf.featureType === 'thrust_fault'
+              ? '#dc2626'
+              : '#d97706',
+          roughness: 'Slickensided / Planar',
+          jrc: 6,
+          jcsMpa: Number((rItem.intactUcsMpa * 0.5).toFixed(1)),
+          infilling: 'Clay / Gouge',
+          apertureMm: `${Math.max(1, (sf.thicknessCm || 2) * 10)}mm`,
+          customLabel: sf.label || sf.featureType.toUpperCase(),
+        });
+      }
+
+      // Unfold user-drawn dipPlaneSurfaces
+      for (const dp of fRound.dipPlaneSurfaces || []) {
+        const dpPts = dp.outlinePolygon && dp.outlinePolygon.length >= 2 ? dp.outlinePolygon : dp.points;
+        if (!dpPts || dpPts.length < 2) continue;
+        const metricPts = computePhysicalMetricPoints(dpPts, dp.panel, fLoc, fRound);
+        const stripPts = metricPts.map((mp) => mapPanelMetricPointToStrip(mp, dp.panel));
+        const dipDir = Math.round(dp.dipDirection || 110);
+        const dipAng = Math.round(dp.dipAmount || 55);
+        traces.push({
+          id: `tr-dp-${fRound.id}-${dp.id}`,
+          structureType: 'JS2 - Main Joint',
+          setId: dp.setId && dp.setId !== 'unassigned' ? dp.setId : 'J1',
+          orientationLabel: `${String(dipDir).padStart(3, '0')}/${String(dipAng).padStart(2, '0')}`,
+          dipDirectionDeg: dipDir,
+          dipDeg: dipAng,
+          dipTickSide: dipDir >= 180 ? 'left' : 'right',
+          fillingThickness: 'Thin',
+          points: stripPts,
+          rawPoints: stripPts.map((p) => ({ ...p })),
+          sourceSurface:
+            dp.panel === 'left_wall'
+              ? 'leftWall'
+              : dp.panel === 'right_wall'
+              ? 'rightWall'
+              : dp.panel === 'shaft_sn'
+              ? 'shaft_sn'
+              : 'crown',
+          colorHex: '#0284c7',
+          roughness: 'Rough',
+          jrc: 12,
+          jcsMpa: Number((rItem.intactUcsMpa * 0.75).toFixed(1)),
+          infilling: 'Clean',
+          apertureMm: '1.0mm',
+          customLabel: dp.label || `${dp.setId} Plane`,
+        });
+      }
+
+      // Unfold user-drawn lithologyStrokes (region_fill polygons/brushes, vein_band, foliation_plane)
+      for (const ls of fRound.lithologyStrokes || []) {
+        if (ls.mode === 'lithology_erase') continue;
+        const lsPts = ls.polygon && ls.polygon.length >= 3 ? ls.polygon : ls.points;
+        if (!lsPts || lsPts.length < 2) continue;
+        const metricPts = computePhysicalMetricPoints(lsPts, ls.panel, fLoc, fRound);
+        const stripPts = metricPts.map((mp) => mapPanelMetricPointToStrip(mp, ls.panel));
+        const rockLabel = ls.rockName || ls.rockType || rItem.rockType;
+        const lMeta = mapRockNameToStripCode(rockLabel);
+
+        if (ls.mode === 'vein_band' || ls.mode === 'foliation_plane') {
+          traces.push({
+            id: `tr-lith-${fRound.id}-${ls.id}`,
+            structureType:
+              ls.mode === 'vein_band' ? 'Lithological Contact' : 'JS1 - Foliation',
+            setId: ls.mode === 'vein_band' ? 'Vein' : 'Foliation',
+            orientationLabel: ls.foliationDipAmount
+              ? `${String(Math.round(ls.foliationDipDirection || 90)).padStart(3, '0')}/${String(Math.round(ls.foliationDipAmount)).padStart(2, '0')}`
+              : '090/60',
+            dipDirectionDeg: Math.round(ls.foliationDipDirection || 90),
+            dipDeg: Math.round(ls.foliationDipAmount || 60),
+            dipTickSide: 'right',
+            fillingThickness: ls.mode === 'vein_band' ? 'Thick' : 'Thin',
+            points: stripPts,
+            rawPoints: stripPts.map((p) => ({ ...p })),
+            sourceSurface:
+              ls.panel === 'left_wall'
+                ? 'leftWall'
+                : ls.panel === 'right_wall'
+                ? 'rightWall'
+                : ls.panel === 'shaft_sn'
+                ? 'shaft_sn'
+                : 'crown',
+            colorHex: ls.customColor || ls.color || ls.fillColor || '#10b981',
+            roughness: 'Planar',
+            jrc: 8,
+            jcsMpa: Number((rItem.intactUcsMpa * 0.8).toFixed(1)),
+            infilling: rockLabel || 'Quartz Vein',
+            apertureMm: `${Math.max(2, Math.round((ls.bandThicknessPx || 12) * 2))}mm`,
+            customLabel: rockLabel || (ls.mode === 'vein_band' ? 'Vein Band' : 'Foliation'),
+          });
+        } else if (stripPts.length >= 3) {
+          lithologyZones.push({
+            id: `lith-stroke-${fRound.id}-${ls.id}`,
+            rockType: lMeta.rockType,
+            codeSymbol: ls.rockCode || lMeta.codeSymbol,
+            label: `${ls.rockCode || lMeta.codeSymbol} - ${rockLabel}`,
+            polygon: stripPts,
+          });
+        }
+      }
+
+      // Unfold user-drawn waterMarks at exact physical coordinates
+      for (const wm of fRound.waterMarks || []) {
+        if (!wm.points || wm.points.length === 0) continue;
+        const [metricPt] = computePhysicalMetricPoints([wm.points[0]], wm.panel, fLoc, fRound);
+        if (!metricPt) continue;
+        const stripPos = mapPanelMetricPointToStrip(metricPt, wm.panel);
+        const condLower = (wm.condition || '').toLowerCase();
+        const wCond: StripGroundwaterId =
+          condLower.includes('flow') || condLower.includes('pressure')
+            ? 'Flowing'
+            : condLower.includes('drip')
+            ? 'Dripping'
+            : condLower.includes('wet')
+            ? 'Wet'
+            : condLower.includes('damp')
+            ? 'Moist/Damp'
+            : 'Dry';
+        waterSymbols.push({
+          id: `water-mark-${fRound.id}-${wm.id}`,
+          condition: wCond,
+          position: stripPos,
+          label: wm.inflowLMin ? `${wCond} (${wm.inflowLMin} L/min)` : `${wCond} (${wm.condition})`,
         });
       }
     } else if (rItem.savedRecord) {
@@ -4346,17 +4533,27 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
     }
   }
 
-  // Preserve custom user-added lithologyZones and waterSymbols from existingDataset
+  // Preserve custom user-added CAD traces, lithologyZones, and waterSymbols from existingDataset
+  if (existingDataset?.traces) {
+    for (const et of existingDataset.traces) {
+      if (
+        !et.id.startsWith('tr-') &&
+        !traces.some((t) => t.id === et.id)
+      ) {
+        traces.push(et);
+      }
+    }
+  }
   if (existingDataset?.lithologyZones) {
     for (const lz of existingDataset.lithologyZones) {
-      if (!lz.id.startsWith('lith-pull-')) {
+      if (!lz.id.startsWith('lith-pull-') && !lz.id.startsWith('lith-stroke-')) {
         lithologyZones.push(lz);
       }
     }
   }
   if (existingDataset?.waterSymbols) {
     for (const ws of existingDataset.waterSymbols) {
-      if (!ws.id.startsWith('water-pull-')) {
+      if (!ws.id.startsWith('water-pull-') && !ws.id.startsWith('water-mark-')) {
         waterSymbols.push(ws);
       }
     }
@@ -4717,24 +4914,70 @@ export function computeContinuousStripFemDemProfile(
     const qVal = Math.max(0.05, p.qValue ?? 4.0);
     const rmrVal = Math.max(15, p.rmrValue ?? 55);
     const gsiVal = Math.max(15, p.gsiValue ?? rmrVal - 5);
-    const ucsMpa = Math.max(10, p.intactUcsMpa ?? 65);
+
+    const pullLithoName =
+      p.rockType ||
+      dataset.lithologyZones?.[0]?.rockType ||
+      dataset.lithologyZones?.[0]?.label ||
+      'Granite';
+    const lithoRef = matchLithologyReference(pullLithoName);
+
+    const wRaw = (p.weatheringCondition || '').toUpperCase();
+    const wUcsFactor = wRaw.includes('WVI')
+      ? 0.08
+      : wRaw.includes('WV')
+      ? 0.16
+      : wRaw.includes('WIV') || wRaw.includes('HIGHLY')
+      ? 0.35
+      : wRaw.includes('WIII') || wRaw.includes('MODERATE')
+      ? 0.60
+      : wRaw.includes('WI ') || wRaw === 'WI' || wRaw.includes('FRESH')
+      ? 1.0
+      : 0.84;
+
+    const parseUcsRangeMidpoint = (rawRange?: string): number | null => {
+      if (!rawRange) return null;
+      const nums = (rawRange.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => !isNaN(n));
+      if (nums.length >= 2) return (nums[0] + nums[1]) / 2;
+      if (nums.length === 1) return nums[0];
+      return null;
+    };
+
+    const parsedRangeUcs = parseUcsRangeMidpoint(p.ucsRangeMpa);
+    const ucsMpa = Math.max(
+      2.5,
+      p.intactUcsMpa !== undefined && p.intactUcsMpa > 0
+        ? p.intactUcsMpa
+        : parsedRangeUcs !== null && parsedRangeUcs > 0
+        ? Number((parsedRangeUcs * 0.6 + lithoRef.ucsMpa * wUcsFactor * 0.4).toFixed(1))
+        : Number((lithoRef.ucsMpa * wUcsFactor).toFixed(1))
+    );
+
     // In Vertical Shaft mode, effective depth increases with round depth
     const baseOverburden = p.overburdenDepthM || dataset.overburdenDepthM || 110;
     const effectiveDepthM = isShaft ? Math.max(25, midRd > 10 ? midRd : baseOverburden) : baseOverburden;
 
-    const unitWeightMNm3 = 0.027;
-    // Shaft horizontal stress is governed by K0 * sigma_v; Tunnel is governed by vertical/horizontal stress
-    const k0 = isShaft ? 1.25 : 1.1;
-    const p0Mpa = Number((unitWeightMNm3 * effectiveDepthM * (isShaft ? k0 : 1.0)).toFixed(2));
+    const unitWeightMNm3 = Number((lithoRef.unitWeightKnM3 / 1000).toFixed(4));
+    const mrRatio = Math.max(220, Math.min(550, (lithoRef.eiGpa * 1000) / Math.max(5, lithoRef.ucsMpa)));
+    const eiGpa = Math.max(0.8, (ucsMpa * mrRatio) / 1000);
+    // Sheorey (1994) horizontal stress ratio K0 = 0.25 + 7 * Eh * (0.001 + 1/z)
+    const k0 = Number(
+      Math.max(
+        0.55,
+        Math.min(2.6, 0.25 + 7 * Math.min(45, eiGpa * 0.55) * (0.001 + 1 / Math.max(15, effectiveDepthM)))
+      ).toFixed(2)
+    );
+    const p0Mpa = Number((unitWeightMNm3 * effectiveDepthM * (isShaft ? k0 : (1 + k0) / 2)).toFixed(2));
 
-    // Hoek-Brown generalized parameters
-    const mi = 12;
+    // Hoek-Brown generalized parameters from logged lithology mi
+    const mi = lithoRef.mi;
     const dFactor = 0.2;
     const mb = mi * Math.exp((gsiVal - 100) / (28 - 14 * dFactor));
     const s = Math.exp((gsiVal - 100) / (9 - 3 * dFactor));
     const a = 0.5 + (1 / 6) * (Math.exp(-gsiVal / 15) - Math.exp(-20 / 3));
     const sigmaCmMpa = ucsMpa * ((mb + 4 * s - a * (mb - 8 * s)) * Math.pow(mb / 4 + s, a - 1)) / (2 * (1 + a) * (2 + a));
-    const ermGpa = Math.max(1.2, 10 * Math.pow(10, (rmrVal - 10) / 40) * 0.45);
+    const ermSigmoid = (1 - dFactor / 2) / (1 + Math.exp((75 + 25 * dFactor - gsiVal) / 11));
+    const ermGpa = Math.max(0.4, Number((eiGpa * Math.max(0.03, ermSigmoid)).toFixed(2)));
     const ermMpa = ermGpa * 1000;
 
     // Half-circle shaft open median increases shape concentration factor

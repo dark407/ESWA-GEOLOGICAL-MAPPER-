@@ -40,25 +40,96 @@ export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DRecons
   heightH: propHeightH,
   initialFaceLogs = [],
 }) => {
-  const tunnelWidth = propSpanW ?? propTunnelWidth ?? geometry?.width ?? 8.4;
-  const tunnelHeight = propHeightH ?? propTunnelHeight ?? geometry?.height ?? 7.2;
-  const [faceLogs, setFaceLogs] = useState<SequentialFaceLog[]>(initialFaceLogs);
+  const defaultWidth = propSpanW ?? propTunnelWidth ?? geometry?.width ?? 8.4;
+  const defaultHeight = propHeightH ?? propTunnelHeight ?? geometry?.height ?? 7.2;
+  const [tunnelWidth, setTunnelWidth] = useState<number>(defaultWidth);
+  const [tunnelHeight, setTunnelHeight] = useState<number>(defaultHeight);
+
+  useEffect(() => {
+    setTunnelWidth(propSpanW ?? propTunnelWidth ?? geometry?.width ?? 8.4);
+    setTunnelHeight(propHeightH ?? propTunnelHeight ?? geometry?.height ?? 7.2);
+  }, [propSpanW, propTunnelWidth, propHeightH, propTunnelHeight, geometry?.width, geometry?.height]);
+
+  const buildDefaultStations = (w: number, h: number): SequentialFaceLog[] => [
+    {
+      id: 'st-100',
+      chainageMeters: 100.0,
+      faceChainageStr: 'RD 100.0m',
+      meanRmr: 58,
+      meanQ: 4.5,
+      meanGsi: 53,
+      contacts: [
+        {
+          id: 'c1',
+          lithologyName: 'Upper Quartzite / Schist Contact',
+          polyline: [
+            { x: -w * 0.45, y: h * 0.68 },
+            { x: 0, y: h * 0.62 },
+            { x: w * 0.45, y: h * 0.56 },
+          ],
+        },
+        {
+          id: 'c2',
+          lithologyName: 'Lower Shear / Footwall Contact',
+          polyline: [
+            { x: -w * 0.45, y: h * 0.35 },
+            { x: 0, y: h * 0.30 },
+            { x: w * 0.45, y: h * 0.25 },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'st-105',
+      chainageMeters: 105.0,
+      faceChainageStr: 'RD 105.0m',
+      meanRmr: 46,
+      meanQ: 1.8,
+      meanGsi: 41,
+      contacts: [
+        {
+          id: 'c1',
+          lithologyName: 'Upper Quartzite / Schist Contact',
+          polyline: [
+            { x: -w * 0.45, y: h * 0.58 },
+            { x: 0, y: h * 0.52 },
+            { x: w * 0.45, y: h * 0.46 },
+          ],
+        },
+        {
+          id: 'c2',
+          lithologyName: 'Lower Shear / Footwall Contact',
+          polyline: [
+            { x: -w * 0.45, y: h * 0.28 },
+            { x: 0, y: h * 0.22 },
+            { x: w * 0.45, y: h * 0.18 },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const [faceLogs, setFaceLogs] = useState<SequentialFaceLog[]>(() =>
+    initialFaceLogs.length > 0 ? initialFaceLogs : buildDefaultStations(defaultWidth, defaultHeight)
+  );
   const [probeChainage, setProbeChainage] = useState<number>(
-    initialFaceLogs.length > 0 ? initialFaceLogs[0].chainageMeters + 1.5 : 101.5
+    initialFaceLogs.length > 0 ? initialFaceLogs[0].chainageMeters + 1.5 : 102.5
   );
   const [idwPowerP, setIdwPowerP] = useState<number>(2);
   const [showWireframe, setShowWireframe] = useState<boolean>(true);
   const [ribbonOpacity, setRibbonOpacity] = useState<number>(0.68);
 
   useEffect(() => {
-    setFaceLogs(initialFaceLogs);
-    if (initialFaceLogs.length >= 2) {
-      const sorted = [...initialFaceLogs].sort((a, b) => a.chainageMeters - b.chainageMeters);
-      const mid =
-        (sorted[0].chainageMeters + sorted[sorted.length - 1].chainageMeters) * 0.5;
-      setProbeChainage(Number(mid.toFixed(1)));
-    } else if (initialFaceLogs.length === 1) {
-      setProbeChainage(Number((initialFaceLogs[0].chainageMeters + 1.5).toFixed(1)));
+    if (initialFaceLogs.length > 0) {
+      setFaceLogs(initialFaceLogs);
+      if (initialFaceLogs.length >= 2) {
+        const sorted = [...initialFaceLogs].sort((a, b) => a.chainageMeters - b.chainageMeters);
+        const mid =
+          (sorted[0].chainageMeters + sorted[sorted.length - 1].chainageMeters) * 0.5;
+        setProbeChainage(Number(mid.toFixed(1)));
+      } else if (initialFaceLogs.length === 1) {
+        setProbeChainage(Number((initialFaceLogs[0].chainageMeters + 1.5).toFixed(1)));
+      }
     }
   }, [initialFaceLogs]);
 
@@ -79,6 +150,77 @@ export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DRecons
     }
     return base;
   }, [faceLogs]);
+
+  const handleAddStationRound = () => {
+    const last = sortedLogs[sortedLogs.length - 1];
+    const nextCh = Number(((last?.chainageMeters ?? 100) + 3.5).toFixed(1));
+    const newStation: SequentialFaceLog = {
+      id: `st-${Date.now().toString(36)}`,
+      chainageMeters: nextCh,
+      faceChainageStr: `RD ${nextCh.toFixed(1)}m`,
+      meanRmr: Math.max(20, Math.min(85, (last?.meanRmr ?? 55) - 4)),
+      meanQ: Number(Math.max(0.1, (last?.meanQ ?? 3.5) * 0.85).toFixed(2)),
+      meanGsi: Math.max(15, Math.min(85, (last?.meanGsi ?? 50) - 4)),
+      contacts:
+        last && last.contacts.length > 0
+          ? last.contacts.map((c) => ({
+              ...c,
+              polyline: c.polyline.map((pt) => ({
+                x: pt.x,
+                y: Math.max(0.25, Math.min(tunnelHeight - 0.25, pt.y - 0.35)),
+              })),
+            }))
+          : buildDefaultStations(tunnelWidth, tunnelHeight)[0].contacts,
+    };
+    setFaceLogs([...sortedLogs, newStation]);
+    setProbeChainage(nextCh);
+  };
+
+  const handleUpdateStationField = (
+    id: string,
+    field: 'chainageMeters' | 'meanRmr' | 'meanQ' | 'contactShiftY',
+    value: number
+  ) => {
+    setFaceLogs((prev) => {
+      const base = prev.length === 1 ? sortedLogs : prev;
+      return base.map((st) => {
+        if (st.id !== id) return st;
+        if (field === 'chainageMeters') {
+          return {
+            ...st,
+            chainageMeters: value,
+            faceChainageStr: `RD ${value.toFixed(1)}m`,
+          };
+        }
+        if (field === 'meanRmr') {
+          const rmr = Math.max(5, Math.min(100, value));
+          return { ...st, meanRmr: rmr, meanGsi: Math.max(10, rmr - 5) };
+        }
+        if (field === 'meanQ') {
+          return { ...st, meanQ: Math.max(0.01, value) };
+        }
+        if (field === 'contactShiftY') {
+          return {
+            ...st,
+            contacts: st.contacts.map((c, idx) => ({
+              ...c,
+              polyline: c.polyline.map((pt, pIdx) => ({
+                x: pt.x,
+                y: Math.max(
+                  0.2,
+                  Math.min(
+                    tunnelHeight - 0.2,
+                    value - idx * (tunnelHeight * 0.25) - (pIdx - 1) * 0.25
+                  )
+                ),
+              })),
+            })),
+          };
+        }
+        return st;
+      });
+    });
+  };
 
   const minChainage = sortedLogs[0]?.chainageMeters ?? 100;
   const maxChainage = sortedLogs[sortedLogs.length - 1]?.chainageMeters ?? 110;
@@ -520,6 +662,33 @@ export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DRecons
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1">Span Width W (m)</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={30}
+                  step={0.2}
+                  value={tunnelWidth}
+                  onChange={(e) => setTunnelWidth(Math.max(2, Number(e.target.value) || 8))}
+                  className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1">Height H (m)</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={30}
+                  step={0.2}
+                  value={tunnelHeight}
+                  onChange={(e) => setTunnelHeight(Math.max(2, Number(e.target.value) || 7))}
+                  className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-white"
+                />
+              </div>
+            </div>
+
             {/* Interpolated Values Box */}
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-2">
               <div className="text-[10px] text-slate-400 uppercase tracking-wider">
@@ -546,34 +715,96 @@ export const SequentialFace3DReconstructionView: React.FC<SequentialFace3DRecons
             </div>
           </div>
 
-          {/* Sequential Logged Faces List */}
-          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex-1 font-mono text-xs space-y-2 overflow-y-auto max-h-60">
+          {/* Interactive Sequential Logged Faces List & Editor */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 flex-1 font-mono text-xs space-y-2.5 overflow-y-auto max-h-80">
             <div className="text-slate-300 font-bold uppercase tracking-wider border-b border-slate-800 pb-1.5 flex items-center justify-between">
-              <span>Sequential Face Stations ({sortedLogs.length})</span>
-              <Activity className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-            {sortedLogs.map((log) => (
-              <div
-                key={log.id}
-                onClick={() => setProbeChainage(log.chainageMeters)}
-                className={`p-2 rounded-lg border transition cursor-pointer flex items-center justify-between ${
-                  Math.abs(probeChainage - log.chainageMeters) < 0.3
-                    ? 'bg-cyan-950/50 border-cyan-500/50 text-white'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800/60'
-                }`}
+              <span>Sequential Stations ({sortedLogs.length})</span>
+              <button
+                type="button"
+                onClick={handleAddStationRound}
+                className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold cursor-pointer"
               >
-                <div>
-                  <div className="font-bold text-cyan-300">{log.faceChainageStr}</div>
-                  <div className="text-[10px] text-slate-400">
-                    {log.contacts.map((c) => c.lithologyName).join(' / ') || 'Mapped Station'}
+                + Add Station
+              </button>
+            </div>
+            {sortedLogs.map((log) => {
+              const topContactY = log.contacts[0]?.polyline[1]?.y ?? tunnelHeight * 0.6;
+              return (
+                <div
+                  key={log.id}
+                  onClick={() => setProbeChainage(log.chainageMeters)}
+                  className={`p-2.5 rounded-lg border transition cursor-pointer space-y-2 ${
+                    Math.abs(probeChainage - log.chainageMeters) < 0.3
+                      ? 'bg-cyan-950/40 border-cyan-500/50 text-white'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-cyan-300">{log.faceChainageStr}</span>
+                    <span className="text-[10px] text-emerald-400 font-bold">
+                      RMR {log.meanRmr} • Q {log.meanQ}
+                    </span>
+                  </div>
+                  <div
+                    className="grid grid-cols-4 gap-1.5 text-[10px]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div>
+                      <label className="text-slate-500 block">RD (m)</label>
+                      <input
+                        type="number"
+                        step={0.5}
+                        value={log.chainageMeters}
+                        onChange={(e) =>
+                          handleUpdateStationField(log.id, 'chainageMeters', Number(e.target.value) || 0)
+                        }
+                        className="w-full px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-500 block">RMR₈₉</label>
+                      <input
+                        type="number"
+                        min={5}
+                        max={100}
+                        value={log.meanRmr}
+                        onChange={(e) =>
+                          handleUpdateStationField(log.id, 'meanRmr', Number(e.target.value) || 50)
+                        }
+                        className="w-full px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-emerald-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-500 block">Q-Val</label>
+                      <input
+                        type="number"
+                        step={0.2}
+                        min={0.01}
+                        value={log.meanQ}
+                        onChange={(e) =>
+                          handleUpdateStationField(log.id, 'meanQ', Number(e.target.value) || 1)
+                        }
+                        className="w-full px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-cyan-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-500 block">Horiz Y</label>
+                      <input
+                        type="number"
+                        step={0.2}
+                        min={0.3}
+                        max={tunnelHeight - 0.3}
+                        value={Number(topContactY.toFixed(1))}
+                        onChange={(e) =>
+                          handleUpdateStationField(log.id, 'contactShiftY', Number(e.target.value) || 3)
+                        }
+                        className="w-full px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-amber-300"
+                      />
+                    </div>
                   </div>
                 </div>
-                <div className="text-right text-[11px]">
-                  <div className="text-emerald-400 font-bold">RMR: {log.meanRmr}</div>
-                  <div className="text-slate-400">Q: {log.meanQ}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

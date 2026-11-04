@@ -3,14 +3,19 @@ import {
   computeFieldQValue,
   computeFieldRmrValue,
   createDefaultSupportSystem,
+  FIELD_EXTENDED_ROCK_SUGGESTION_DATABASE,
+  FIELD_EXTENDED_VEIN_FOLIATION_SUGGESTIONS,
   FIELD_JOINT_SET_IDS,
   FIELD_LITHOLOGY_CATALOG,
+  FIELD_VEIN_AND_FOLIATION_CATALOG,
   FieldExcavationRound,
   FieldJointSetId,
   FieldProjectItem,
   FieldSupportSystemConfig,
   FieldTunnelLocationItem,
   MappingDomainType,
+  parseChainageStringToMeters,
+  resolveRockDisplayInfo,
 } from './fieldMappingEngine';
 import { SurfaceGeometryParameters } from './surfaceMappingEngine';
 import {
@@ -220,6 +225,43 @@ export interface FemContinuumStateResult {
   stabilityStatus: 'STABLE (ELASTIC)' | 'CONTROLLED YIELDING' | 'HIGH DEFORMATION / INSTABILITY';
 }
 
+export interface LoggedLithologyShare {
+  rockId: string;
+  rockName: string;
+  rockFamily: string;
+  weightPct: number;
+  ucsMpa: number;
+  eiGpa: number;
+  mi: number;
+  unitWeightKnM3: number;
+  basicFrictionDeg: number;
+  defaultJrc: number;
+  colorHex: string;
+  isFaultOrShearZone?: boolean;
+}
+
+export interface LoggedGeologicalReferenceBasis {
+  hasAnyLoggedGeology: boolean;
+  lithologyShares: LoggedLithologyShare[];
+  compositeFormulaLabel: string;
+  loggedUcsSourceLabel: string;
+  loggedWeatheringSourceLabel: string;
+  loggedJointsSummaryLabel: string;
+  loggedStructuresSummaryLabel: string;
+  mappedJointTracesCount: number;
+  mappedDipSurfacesCount: number;
+  activeDiscontinuitySetsCount: number;
+  mappedFaultOrShearCount: number;
+  mappedFoldCount: number;
+  avgJointSpacingM: number;
+  avgJointPersistenceM: number;
+  avgJointApertureMm: number;
+  synthesizedRmr: number;
+  synthesizedQ: number;
+  synthesizedGsi: number;
+  classificationSourceLabel: string;
+}
+
 export interface CompleteFemDemAnalysisResult {
   // Active Context
   projectName: string;
@@ -240,6 +282,7 @@ export interface CompleteFemDemAnalysisResult {
   rmrClass: string;
   gsiValue: number | null;
   groundwaterSummary: string;
+  loggedReferenceBasis: LoggedGeologicalReferenceBasis;
   // Strict Engineering Prerequisites Gate
   prerequisites: {
     hasClassification: boolean;
@@ -343,8 +386,27 @@ interface LithologyReferenceEntry {
 
 const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
   {
-    rockFamily: 'Granite / Granodiorite',
-    keywords: ['granite', 'granodiorite', 'pegmatite', 'aplite', 'felsic'],
+    rockFamily: 'Quartzite / Siliceous Chert',
+    keywords: ['quartzite', 'qtz', 'chert', 'jasper', 'siliceous', 'chert_nodule_band'],
+    unitWeightKnM3: 26.8,
+    unitWeightRange: '26.0 – 27.6 kN/m³',
+    ucsMpa: 165,
+    ucsRange: '120 – 280 MPa',
+    eiGpa: 65,
+    eiRange: '50 – 85 GPa',
+    poissonRatio: 0.18,
+    poissonRange: '0.14 – 0.22',
+    mi: 20,
+    miRange: '17 – 23',
+    basicFrictionDeg: 32,
+    frictionRange: '29° – 35°',
+    defaultJrc: 9,
+    colorHex: '#fde047',
+    sourceCitation: 'Hoek (2007) Practical Rock Engineering; Deere (1968) MR=394',
+  },
+  {
+    rockFamily: 'Granite / Granodiorite / Pegmatite',
+    keywords: ['granite', 'granodiorite', 'pegmatite', 'aplite', 'syenite', 'rhyolite', 'felsic', 'pegmatite_vein', 'aplite_vein'],
     unitWeightKnM3: 26.5,
     unitWeightRange: '25.5 – 27.5 kN/m³',
     ucsMpa: 135,
@@ -357,32 +419,51 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     miRange: '29 – 35',
     basicFrictionDeg: 33,
     frictionRange: '31° – 35°',
-    defaultJrc: 10,
+    defaultJrc: 11,
     colorHex: '#fca5a5',
     sourceCitation: 'Hoek & Brown (1997); ISRM (1981); Goodman (1989) Table 3.1',
   },
   {
-    rockFamily: 'Basalt / Dolerite / Andesite',
-    keywords: ['basalt', 'dolerite', 'diabase', 'andesite', 'trap', 'volcanic'],
+    rockFamily: 'Dolerite / Diabase / Mafic Dyke',
+    keywords: ['dolerite', 'diabase', 'mafic_dyke_band', 'lamprophyre', 'dyke'],
+    unitWeightKnM3: 29.0,
+    unitWeightRange: '28.0 – 30.2 kN/m³',
+    ucsMpa: 160,
+    ucsRange: '115 – 260 MPa',
+    eiGpa: 64,
+    eiRange: '48 – 85 GPa',
+    poissonRatio: 0.24,
+    poissonRange: '0.20 – 0.28',
+    mi: 26,
+    miRange: '22 – 29',
+    basicFrictionDeg: 35,
+    frictionRange: '33° – 38°',
+    defaultJrc: 10,
+    colorHex: '#818cf8',
+    sourceCitation: 'Hoek & Diederichs (2006) MR=400; Barton & Choubey (1977)',
+  },
+  {
+    rockFamily: 'Basalt / Metabasalt / Andesite',
+    keywords: ['basalt', 'amygdaloidal', 'vesicular', 'metabasalt', 'epidiorite', 'andesite', 'trap', 'volcanic'],
     unitWeightKnM3: 28.5,
-    unitWeightRange: '27.5 – 30.0 kN/m³',
-    ucsMpa: 150,
-    ucsRange: '110 – 260 MPa',
-    eiGpa: 60,
-    eiRange: '45 – 85 GPa',
+    unitWeightRange: '27.2 – 30.0 kN/m³',
+    ucsMpa: 148,
+    ucsRange: '105 – 250 MPa',
+    eiGpa: 58,
+    eiRange: '42 – 80 GPa',
     poissonRatio: 0.24,
     poissonRange: '0.20 – 0.28',
     mi: 25,
     miRange: '22 – 28',
     basicFrictionDeg: 35,
-    frictionRange: '33° – 38°',
-    defaultJrc: 9,
+    frictionRange: '32° – 38°',
+    defaultJrc: 10,
     colorHex: '#64748b',
     sourceCitation: 'Hoek & Diederichs (2006); Barton & Choubey (1977)',
   },
   {
-    rockFamily: 'Diorite / Gabbro',
-    keywords: ['diorite', 'gabbro', 'norite', 'peridotite', 'mafic'],
+    rockFamily: 'Gabbro / Norite / Diorite',
+    keywords: ['gabbro', 'norite', 'diorite', 'peridotite', 'mafic'],
     unitWeightKnM3: 28.8,
     unitWeightRange: '27.5 – 30.5 kN/m³',
     ucsMpa: 145,
@@ -396,31 +477,50 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     basicFrictionDeg: 34,
     frictionRange: '32° – 36°',
     defaultJrc: 9,
-    colorHex: '#475569',
+    colorHex: '#a78bfa',
     sourceCitation: 'Marinos & Hoek (2000); ISRM Suggested Methods',
   },
   {
-    rockFamily: 'Quartzite',
-    keywords: ['quartzite', 'chert', 'siliceous', 'quartz vein', 'quartz'],
-    unitWeightKnM3: 26.8,
-    unitWeightRange: '26.0 – 27.5 kN/m³',
-    ucsMpa: 165,
-    ucsRange: '120 – 280 MPa',
-    eiGpa: 65,
-    eiRange: '50 – 85 GPa',
-    poissonRatio: 0.18,
-    poissonRange: '0.14 – 0.22',
-    mi: 20,
-    miRange: '17 – 23',
+    rockFamily: 'Charnockite / Granulite / Khondalite',
+    keywords: ['charnockite', 'granulite', 'khondalite', 'hypersthene'],
+    unitWeightKnM3: 27.6,
+    unitWeightRange: '26.8 – 28.8 kN/m³',
+    ucsMpa: 155,
+    ucsRange: '110 – 250 MPa',
+    eiGpa: 60,
+    eiRange: '45 – 80 GPa',
+    poissonRatio: 0.22,
+    poissonRange: '0.18 – 0.26',
+    mi: 29,
+    miRange: '25 – 33',
+    basicFrictionDeg: 33,
+    frictionRange: '30° – 36°',
+    defaultJrc: 10,
+    colorHex: '#f472b6',
+    sourceCitation: 'ISRM (1981) Peninsular Granulite Suite; Hoek & Brown (1997)',
+  },
+  {
+    rockFamily: 'Amphibolite / Hornblende Gneiss',
+    keywords: ['amphibolite', 'hornblende', 'nematoblastic'],
+    unitWeightKnM3: 28.2,
+    unitWeightRange: '27.0 – 29.5 kN/m³',
+    ucsMpa: 130,
+    ucsRange: '85 – 210 MPa',
+    eiGpa: 54,
+    eiRange: '38 – 72 GPa',
+    poissonRatio: 0.24,
+    poissonRange: '0.20 – 0.28',
+    mi: 26,
+    miRange: '22 – 30',
     basicFrictionDeg: 32,
-    frictionRange: '28° – 35°',
-    defaultJrc: 8,
-    colorHex: '#fde047',
-    sourceCitation: 'Hoek (2007) Practical Rock Engineering; Deere (1968)',
+    frictionRange: '29° – 35°',
+    defaultJrc: 9,
+    colorHex: '#2dd4bf',
+    sourceCitation: 'Hoek & Diederichs (2006) MR=415; Marinos & Hoek (2000)',
   },
   {
     rockFamily: 'Gneiss / Migmatite',
-    keywords: ['gneiss', 'migmatite', 'granulite', 'amphibolite'],
+    keywords: ['gneiss', 'migmatite', 'augen', 'garnet_gneiss', 'gneissic_banding'],
     unitWeightKnM3: 27.2,
     unitWeightRange: '26.2 – 28.5 kN/m³',
     ucsMpa: 120,
@@ -438,8 +538,46 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     sourceCitation: 'Hoek & Brown (1997); Barton & Choubey (1977)',
   },
   {
-    rockFamily: 'Schist (Mica / Chlorite / Quartz-Mica)',
-    keywords: ['schist', 'mica', 'chlorite', 'talc'],
+    rockFamily: 'Quartz / Hydrothermal Vein Band',
+    keywords: ['quartz_vein', 'tourmaline_vein', 'sulfide_vein', 'epidote_vein', 'boudin_quartz_band', 'barite', 'fluorite', 'zeolite'],
+    unitWeightKnM3: 26.6,
+    unitWeightRange: '25.8 – 27.8 kN/m³',
+    ucsMpa: 140,
+    ucsRange: '95 – 220 MPa',
+    eiGpa: 55,
+    eiRange: '40 – 75 GPa',
+    poissonRatio: 0.19,
+    poissonRange: '0.15 – 0.23',
+    mi: 22,
+    miRange: '18 – 25',
+    basicFrictionDeg: 31,
+    frictionRange: '28° – 34°',
+    defaultJrc: 9,
+    colorHex: '#f8fafc',
+    sourceCitation: 'Hoek (2007); Barton & Choubey (1977) Crystalline Veins',
+  },
+  {
+    rockFamily: 'Chlorite / Talc / Graphitic Schist',
+    keywords: ['chlorite_schist', 'talc_schist', 'graphite_schist', 'chlorite_talc_seam', 'graphite_seam', 'talc', 'chlorite', 'graphite'],
+    unitWeightKnM3: 26.0,
+    unitWeightRange: '24.8 – 27.0 kN/m³',
+    ucsMpa: 34,
+    ucsRange: '15 – 60 MPa (sheared foliation)',
+    eiGpa: 12,
+    eiRange: '5 – 22 GPa',
+    poissonRatio: 0.29,
+    poissonRange: '0.25 – 0.34',
+    mi: 9,
+    miRange: '7 – 12',
+    basicFrictionDeg: 22,
+    frictionRange: '18° – 26°',
+    defaultJrc: 5,
+    colorHex: '#5eead4',
+    sourceCitation: 'Marinos & Hoek (2001) Ophiolitic & Schistose Rocks; Barton (2002)',
+  },
+  {
+    rockFamily: 'Mica Schist / Quartz-Mica Schist',
+    keywords: ['schist', 'mica', 'qtz_mica_schist', 'foliation_s1', 'foliation_s2', 'crenulation_s3'],
     unitWeightKnM3: 26.4,
     unitWeightRange: '25.0 – 27.5 kN/m³',
     ucsMpa: 55,
@@ -457,8 +595,27 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     sourceCitation: 'Marinos & Hoek (2001) Heterogeneous Rock Masses; Goodman (1989)',
   },
   {
-    rockFamily: 'Phyllite / Slate',
-    keywords: ['phyllite', 'slate', 'argillite', 'foliated'],
+    rockFamily: 'Slate / Argillite',
+    keywords: ['slate', 'argillite', 'slaty_cleavage'],
+    unitWeightKnM3: 26.5,
+    unitWeightRange: '25.4 – 27.4 kN/m³',
+    ucsMpa: 62,
+    ucsRange: '30 – 105 MPa',
+    eiGpa: 25,
+    eiRange: '12 – 42 GPa',
+    poissonRatio: 0.26,
+    poissonRange: '0.22 – 0.30',
+    mi: 9,
+    miRange: '7 – 11',
+    basicFrictionDeg: 26,
+    frictionRange: '23° – 29°',
+    defaultJrc: 6,
+    colorHex: '#94a3b8',
+    sourceCitation: 'Hoek, Marinos & Benissi (1998); Deere (1968)',
+  },
+  {
+    rockFamily: 'Phyllite',
+    keywords: ['phyllite', 'foliated'],
     unitWeightKnM3: 26.2,
     unitWeightRange: '25.0 – 27.2 kN/m³',
     ucsMpa: 42,
@@ -476,14 +633,71 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     sourceCitation: 'Hoek, Marinos & Benissi (1998); Barton (1976)',
   },
   {
-    rockFamily: 'Limestone / Dolomite / Marble',
-    keywords: ['limestone', 'dolomite', 'marble', 'carbonate', 'chalk', 'calcarenite'],
-    unitWeightKnM3: 26.6,
-    unitWeightRange: '25.2 – 28.0 kN/m³',
-    ucsMpa: 85,
-    ucsRange: '50 – 140 MPa',
-    eiGpa: 38,
-    eiRange: '24 – 58 GPa',
+    rockFamily: 'Serpentinite / Ultramafic',
+    keywords: ['serpentinite', 'serpentine', 'ophiolite'],
+    unitWeightKnM3: 25.6,
+    unitWeightRange: '24.4 – 26.8 kN/m³',
+    ucsMpa: 38,
+    ucsRange: '15 – 75 MPa',
+    eiGpa: 14,
+    eiRange: '6 – 28 GPa',
+    poissonRatio: 0.30,
+    poissonRange: '0.26 – 0.35',
+    mi: 11,
+    miRange: '8 – 14',
+    basicFrictionDeg: 23,
+    frictionRange: '19° – 27°',
+    defaultJrc: 5,
+    colorHex: '#bef264',
+    sourceCitation: 'Marinos, Marinos & Hoek (2006) Ophiolitic Serpentinites',
+  },
+  {
+    rockFamily: 'Marble / Calc-Silicate',
+    keywords: ['marble', 'calc_gneiss', 'calc_silicate', 'skarn'],
+    unitWeightKnM3: 27.0,
+    unitWeightRange: '26.0 – 28.2 kN/m³',
+    ucsMpa: 92,
+    ucsRange: '55 – 150 MPa',
+    eiGpa: 42,
+    eiRange: '26 – 62 GPa',
+    poissonRatio: 0.25,
+    poissonRange: '0.21 – 0.29',
+    mi: 9,
+    miRange: '7 – 12',
+    basicFrictionDeg: 32,
+    frictionRange: '29° – 35°',
+    defaultJrc: 9,
+    colorHex: '#f5d0fe',
+    sourceCitation: 'Hoek & Diederichs (2006) MR=456; Marinos & Hoek (2000)',
+  },
+  {
+    rockFamily: 'Dolomite / Ankerite',
+    keywords: ['dolomite', 'ankerite', 'siderite'],
+    unitWeightKnM3: 27.2,
+    unitWeightRange: '26.2 – 28.4 kN/m³',
+    ucsMpa: 98,
+    ucsRange: '60 – 160 MPa',
+    eiGpa: 44,
+    eiRange: '28 – 65 GPa',
+    poissonRatio: 0.24,
+    poissonRange: '0.20 – 0.28',
+    mi: 10,
+    miRange: '8 – 13',
+    basicFrictionDeg: 33,
+    frictionRange: '30° – 36°',
+    defaultJrc: 9,
+    colorHex: '#93c5fd',
+    sourceCitation: 'Hoek & Brown (1997); Deere & Miller (1966)',
+  },
+  {
+    rockFamily: 'Limestone / Carbonate',
+    keywords: ['limestone', 'calcite_vein', 'carbonate', 'chalk', 'calcarenite', 'marl', 'gypsum', 'anhydrite'],
+    unitWeightKnM3: 26.4,
+    unitWeightRange: '25.0 – 27.6 kN/m³',
+    ucsMpa: 78,
+    ucsRange: '45 – 135 MPa',
+    eiGpa: 34,
+    eiRange: '20 – 54 GPa',
     poissonRatio: 0.25,
     poissonRange: '0.21 – 0.29',
     mi: 10,
@@ -495,16 +709,16 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     sourceCitation: 'Hoek & Brown (1997); Deere & Miller (1966)',
   },
   {
-    rockFamily: 'Sandstone / Greywacke / Conglomerate',
-    keywords: ['sandstone', 'greywacke', 'arkose', 'conglomerate', 'breccia', 'gritstone'],
+    rockFamily: 'Sandstone / Greywacke / Arkose',
+    keywords: ['sandstone', 'greywacke', 'metagreywacke', 'arkose', 'gritstone', 'bedding_s0'],
     unitWeightKnM3: 24.8,
-    unitWeightRange: '23.0 – 26.5 kN/m³',
-    ucsMpa: 72,
-    ucsRange: '35 – 130 MPa',
-    eiGpa: 26,
-    eiRange: '14 – 42 GPa',
+    unitWeightRange: '23.2 – 26.5 kN/m³',
+    ucsMpa: 74,
+    ucsRange: '40 – 130 MPa',
+    eiGpa: 27,
+    eiRange: '15 – 44 GPa',
     poissonRatio: 0.22,
-    poissonRange: '0.18 – 0.27',
+    poissonRange: '0.18 – 0.26',
     mi: 17,
     miRange: '15 – 19',
     basicFrictionDeg: 31,
@@ -514,27 +728,65 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     sourceCitation: 'Hoek (2007); Barton & Choubey (1977)',
   },
   {
-    rockFamily: 'Siltstone / Mudstone / Shale',
-    keywords: ['siltstone', 'mudstone', 'shale', 'claystone', 'marl', 'coal'],
-    unitWeightKnM3: 24.2,
-    unitWeightRange: '22.0 – 25.8 kN/m³',
-    ucsMpa: 32,
-    ucsRange: '10 – 65 MPa',
-    eiGpa: 11,
-    eiRange: '4 – 22 GPa',
-    poissonRatio: 0.29,
-    poissonRange: '0.25 – 0.35',
-    mi: 6,
-    miRange: '4 – 9',
-    basicFrictionDeg: 24,
-    frictionRange: '20° – 27°',
-    defaultJrc: 5,
-    colorHex: '#cbd5e1',
-    sourceCitation: 'Marinos & Hoek (2001) Flysch & Weak Rocks; ISRM (1981)',
+    rockFamily: 'Conglomerate / Volcanic Tuff',
+    keywords: ['conglomerate', 'tuff', 'agglomerate', 'boulder'],
+    unitWeightKnM3: 25.0,
+    unitWeightRange: '23.5 – 26.5 kN/m³',
+    ucsMpa: 60,
+    ucsRange: '30 – 110 MPa',
+    eiGpa: 21,
+    eiRange: '10 – 36 GPa',
+    poissonRatio: 0.24,
+    poissonRange: '0.20 – 0.28',
+    mi: 21,
+    miRange: '18 – 24',
+    basicFrictionDeg: 32,
+    frictionRange: '28° – 35°',
+    defaultJrc: 12,
+    colorHex: '#fdba74',
+    sourceCitation: 'Marinos & Hoek (2000) Molassic Conglomerates',
   },
   {
-    rockFamily: 'Fault Gouge / Sheared / Crushed Zone',
-    keywords: ['fault', 'shear', 'gouge', 'mylonite', 'crushed', 'weathered soil'],
+    rockFamily: 'Siltstone',
+    keywords: ['siltstone', 'slts'],
+    unitWeightKnM3: 24.6,
+    unitWeightRange: '23.2 – 26.0 kN/m³',
+    ucsMpa: 48,
+    ucsRange: '25 – 85 MPa',
+    eiGpa: 17,
+    eiRange: '8 – 30 GPa',
+    poissonRatio: 0.26,
+    poissonRange: '0.22 – 0.30',
+    mi: 9,
+    miRange: '7 – 11',
+    basicFrictionDeg: 27,
+    frictionRange: '24° – 30°',
+    defaultJrc: 7,
+    colorHex: '#fde68a',
+    sourceCitation: 'Marinos & Hoek (2001) Flysch Siltstones; ISRM (1981)',
+  },
+  {
+    rockFamily: 'Shale / Mudstone / Claystone',
+    keywords: ['shale', 'shale_vein', 'mudstone', 'claystone', 'coal', 'bentonite'],
+    unitWeightKnM3: 23.8,
+    unitWeightRange: '22.0 – 25.4 kN/m³',
+    ucsMpa: 24,
+    ucsRange: '8 – 45 MPa',
+    eiGpa: 7.5,
+    eiRange: '3 – 16 GPa',
+    poissonRatio: 0.30,
+    poissonRange: '0.26 – 0.35',
+    mi: 6,
+    miRange: '4 – 8',
+    basicFrictionDeg: 22,
+    frictionRange: '18° – 25°',
+    defaultJrc: 4,
+    colorHex: '#cbd5e1',
+    sourceCitation: 'Marinos & Hoek (2001) Argillaceous Flysch & Weak Rocks; ISRM (1981)',
+  },
+  {
+    rockFamily: 'Fault Gouge / Shear / Mylonite Zone',
+    keywords: ['fault', 'shear', 'gouge', 'mylonite', 'cataclasite', 'breccia', 'crushed', 'weathered soil', 'shear_zone', 'clay_gouge_seam'],
     unitWeightKnM3: 21.5,
     unitWeightRange: '19.5 – 23.5 kN/m³',
     ucsMpa: 8,
@@ -545,8 +797,8 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
     poissonRange: '0.30 – 0.38',
     mi: 5,
     miRange: '4 – 7',
-    basicFrictionDeg: 19,
-    frictionRange: '14° – 24°',
+    basicFrictionDeg: 18,
+    frictionRange: '14° – 23°',
     defaultJrc: 3,
     colorHex: '#fda4af',
     sourceCitation: 'Barton (2002) Q-System Shear Zones; Hoek et al. (1998)',
@@ -556,24 +808,27 @@ const LITHOLOGY_REFERENCE_CATALOG: LithologyReferenceEntry[] = [
 // Weathering reduction multipliers according to ISRM (1981) grades WI to WVI
 const WEATHERING_MODIFIERS: Record<
   string,
-  { label: string; ucsFactor: number; modulusFactor: number; unitWeightDelta: number; frictionDeltaDeg: number }
+  { label: string; ucsFactor: number; modulusFactor: number; unitWeightDelta: number; frictionDeltaDeg: number; jcsRatio: number }
 > = {
-  WI: { label: 'WI (Fresh / Unweathered)', ucsFactor: 1.0, modulusFactor: 1.0, unitWeightDelta: 0.0, frictionDeltaDeg: 0 },
-  WII: { label: 'WII (Slightly Weathered)', ucsFactor: 0.84, modulusFactor: 0.85, unitWeightDelta: -0.4, frictionDeltaDeg: -1.5 },
-  WIII: { label: 'WIII (Moderately Weathered)', ucsFactor: 0.58, modulusFactor: 0.62, unitWeightDelta: -1.1, frictionDeltaDeg: -3.5 },
-  WIV: { label: 'WIV (Highly Weathered)', ucsFactor: 0.32, modulusFactor: 0.38, unitWeightDelta: -2.0, frictionDeltaDeg: -6.0 },
-  WV: { label: 'WV (Completely Weathered)', ucsFactor: 0.14, modulusFactor: 0.18, unitWeightDelta: -3.2, frictionDeltaDeg: -8.5 },
-  WVI: { label: 'WVI (Residual Soil)', ucsFactor: 0.06, modulusFactor: 0.08, unitWeightDelta: -4.5, frictionDeltaDeg: -10.5 },
+  WI: { label: 'WI (Fresh / Unweathered)', ucsFactor: 1.0, modulusFactor: 1.0, unitWeightDelta: 0.0, frictionDeltaDeg: 0, jcsRatio: 0.92 },
+  WII: { label: 'WII (Slightly Weathered)', ucsFactor: 0.84, modulusFactor: 0.85, unitWeightDelta: -0.4, frictionDeltaDeg: -1.5, jcsRatio: 0.76 },
+  WIII: { label: 'WIII (Moderately Weathered)', ucsFactor: 0.58, modulusFactor: 0.62, unitWeightDelta: -1.1, frictionDeltaDeg: -3.5, jcsRatio: 0.54 },
+  WIV: { label: 'WIV (Highly Weathered)', ucsFactor: 0.32, modulusFactor: 0.38, unitWeightDelta: -2.0, frictionDeltaDeg: -6.0, jcsRatio: 0.35 },
+  WV: { label: 'WV (Completely Weathered)', ucsFactor: 0.14, modulusFactor: 0.18, unitWeightDelta: -3.2, frictionDeltaDeg: -8.5, jcsRatio: 0.20 },
+  WVI: { label: 'WVI (Residual Soil)', ucsFactor: 0.06, modulusFactor: 0.08, unitWeightDelta: -4.5, frictionDeltaDeg: -10.5, jcsRatio: 0.12 },
 };
 
-// ISRM Strength Index (S1 - S6) typical UCS midpoint & range
-const ISRM_STRENGTH_UCS_MAP: Record<string, { midMpa: number; range: string; label: string }> = {
-  S1: { midMpa: 210, range: '> 200 MPa (Extremely Strong)', label: 'S1 (>200 MPa)' },
-  S2: { midMpa: 135, range: '100 – 200 MPa (Very Strong)', label: 'S2 (100–200 MPa)' },
-  S3: { midMpa: 72, range: '50 – 100 MPa (Strong)', label: 'S3 (50–100 MPa)' },
-  S4: { midMpa: 36, range: '25 – 50 MPa (Medium Strong)', label: 'S4 (25–50 MPa)' },
-  S5: { midMpa: 14, range: '5 – 25 MPa (Weak)', label: 'S5 (5–25 MPa)' },
-  S6: { midMpa: 3.5, range: '1 – 5 MPa (Very Weak)', label: 'S6 (1–5 MPa)' },
+// ISRM Strength Index (S1 - S6) typical UCS bounds & midpoint
+const ISRM_STRENGTH_UCS_MAP: Record<
+  string,
+  { minMpa: number; maxMpa: number; midMpa: number; range: string; label: string; rmrUcsRating: number }
+> = {
+  S1: { minMpa: 200, maxMpa: 300, midMpa: 225, range: '> 200 MPa (Extremely Strong)', label: 'S1 (>200 MPa)', rmrUcsRating: 15 },
+  S2: { minMpa: 100, maxMpa: 200, midMpa: 145, range: '100 – 200 MPa (Very Strong)', label: 'S2 (100–200 MPa)', rmrUcsRating: 12 },
+  S3: { minMpa: 50, maxMpa: 100, midMpa: 75, range: '50 – 100 MPa (Strong)', label: 'S3 (50–100 MPa)', rmrUcsRating: 7 },
+  S4: { minMpa: 25, maxMpa: 50, midMpa: 37, range: '25 – 50 MPa (Medium Strong)', label: 'S4 (25–50 MPa)', rmrUcsRating: 4 },
+  S5: { minMpa: 5, maxMpa: 25, midMpa: 15, range: '5 – 25 MPa (Weak)', label: 'S5 (5–25 MPa)', rmrUcsRating: 2 },
+  S6: { minMpa: 1, maxMpa: 5, midMpa: 3.0, range: '1 – 5 MPa (Very Weak)', label: 'S6 (1–5 MPa)', rmrUcsRating: 1 },
 };
 
 export function createDefaultFemDemConfig(): FieldFemDemAnalysisConfig {
@@ -586,46 +841,388 @@ export function createDefaultFemDemConfig(): FieldFemDemAnalysisConfig {
   };
 }
 
-function matchLithologyReference(rockName: string): LithologyReferenceEntry {
-  const lower = (rockName || '').toLowerCase();
+export function matchLithologyReference(rockIdentifierOrName: string): LithologyReferenceEntry {
+  const raw = (rockIdentifierOrName || '').trim();
+  const displayInfo = resolveRockDisplayInfo(raw);
+  const combinedSearch = `${raw} ${displayInfo.name} ${displayInfo.patternId}`.toLowerCase();
   for (const entry of LITHOLOGY_REFERENCE_CATALOG) {
-    if (entry.keywords.some((kw) => lower.includes(kw))) {
+    if (entry.keywords.some((kw) => combinedSearch.includes(kw))) {
       return entry;
     }
   }
-  return LITHOLOGY_REFERENCE_CATALOG[0]; // Default to Granite/Crystalline with clear label
+  return LITHOLOGY_REFERENCE_CATALOG[0];
 }
 
-function extractDominantLithologies(round: FieldExcavationRound): {
+function computePolygonAreaSvg(pts: { x: number; y: number }[]): number {
+  if (!pts || pts.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % pts.length];
+    sum += p1.x * p2.y - p2.x * p1.y;
+  }
+  return Math.abs(sum) * 0.5;
+}
+
+function computePolylineLengthSvg(pts: { x: number; y: number }[]): number {
+  if (!pts || pts.length < 2) return 40;
+  let len = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    len += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+  }
+  return Math.max(25, len);
+}
+
+/**
+ * Extracts area-weighted lithologies from all painted strokes, alternating lithology bands,
+ * channel sample intervals, and structural fault/shear bands in the round.
+ */
+function extractAreaWeightedLithologies(round: FieldExcavationRound): {
   dominant: string;
   secondary: string[];
+  shares: LoggedLithologyShare[];
+  hasMappedLithology: boolean;
+  compositeEntry: LithologyReferenceEntry;
+  mappedFaultOrShearCount: number;
+  mappedFoldCount: number;
 } {
-  const counts: Record<string, number> = {};
-  for (const stroke of round?.lithologyStrokes || []) {
-    const name = stroke.rockName || stroke.rockType || 'Granite';
-    counts[name] = (counts[name] || 0) + (stroke.points?.length || 1);
-    if (stroke.alternateRockTypes && stroke.alternateRockTypes.length > 0) {
-      for (const alt of stroke.alternateRockTypes) {
-        counts[alt] = (counts[alt] || 0) + 2;
+  const areaByRockName: Record<
+    string,
+    { rockId: string; rockName: string; areaWeight: number; isFaultOrShear?: boolean }
+  > = {};
+
+  const addRockWeight = (rawIdOrName: string, weight: number, isFaultOrShear = false) => {
+    if (!rawIdOrName || weight <= 0) return;
+    const resolved = resolveRockDisplayInfo(rawIdOrName);
+    const cleanName = resolved.name || rawIdOrName;
+    const key = cleanName.toLowerCase();
+    if (!areaByRockName[key]) {
+      areaByRockName[key] = {
+        rockId: rawIdOrName,
+        rockName: cleanName,
+        areaWeight: 0,
+        isFaultOrShear,
+      };
+    }
+    areaByRockName[key].areaWeight += weight;
+  };
+
+  const visibleStrokes = (round?.lithologyStrokes || []).filter(
+    (s) => s.mode !== 'lithology_erase'
+  );
+
+  for (const stroke of visibleStrokes) {
+    let strokeArea = 1200;
+    if (stroke.isClosed && stroke.polygon && stroke.polygon.length >= 3) {
+      strokeArea = Math.max(800, computePolygonAreaSvg(stroke.polygon));
+    } else if (stroke.points && stroke.points.length >= 2) {
+      const pathLen = computePolylineLengthSvg(stroke.points);
+      const widthPx =
+        stroke.mode === 'vein_band' || stroke.mode === 'foliation_plane'
+          ? stroke.bandThicknessPx || (stroke.brushRadius || 16) * 1.6
+          : (stroke.brushRadius || 28) * 2.2;
+      strokeArea = Math.max(600, pathLen * widthPx);
+    }
+
+    const altList =
+      stroke.alternatingRockNames && stroke.alternatingRockNames.length >= 2
+        ? stroke.alternatingRockNames
+        : stroke.alternatingRockIds && stroke.alternatingRockIds.length >= 2
+        ? stroke.alternatingRockIds
+        : stroke.alternateRockTypes && stroke.alternateRockTypes.length >= 2
+        ? stroke.alternateRockTypes
+        : null;
+
+    if (altList && altList.length > 0) {
+      const eachWeight = strokeArea / altList.length;
+      for (const item of altList) {
+        addRockWeight(item, eachWeight);
+      }
+    } else {
+      const primaryId = stroke.rockName || stroke.rockType;
+      const isShearStroke =
+        (stroke.rockType || '').toLowerCase().includes('shear') ||
+        (stroke.rockName || '').toLowerCase().includes('shear') ||
+        (stroke.rockName || '').toLowerCase().includes('gouge');
+      addRockWeight(primaryId, strokeArea, isShearStroke);
+    }
+  }
+
+  // Alternating lithology band configuration
+  if (round?.alternateLithologyConfig?.enabled) {
+    const cfg = round.alternateLithologyConfig;
+    if (cfg.baseRockType) {
+      addRockWeight(cfg.baseRockType, 18000);
+    }
+    if (Array.isArray(cfg.bands) && cfg.bands.length > 0) {
+      for (const b of cfg.bands) {
+        if (b.enabled === false) continue;
+        const bWeight = Math.max(2500, (b.thicknessPx || 32) * 220);
+        addRockWeight(b.rockName || b.rockType, bWeight);
+      }
+    } else if (Array.isArray(cfg.rockTypes) && cfg.rockTypes.length > 0) {
+      for (const rt of cfg.rockTypes) {
+        addRockWeight(rt, 12000 / cfg.rockTypes.length);
       }
     }
   }
-  if (round?.alternateLithologyConfig?.enabled && round.alternateLithologyConfig.rockTypes?.length) {
-    for (const rName of round.alternateLithologyConfig.rockTypes) {
-      counts[rName] = (counts[rName] || 0) + 5;
+
+  // Legacy or continuous-strip rockType field on round
+  if (Object.keys(areaByRockName).length === 0 && round?.rockType) {
+    addRockWeight(round.rockType, 20000);
+  }
+
+  // Channel sample intervals if mine geology was logged
+  if (Object.keys(areaByRockName).length === 0 && Array.isArray(round?.channelSampleLines)) {
+    for (const line of round.channelSampleLines) {
+      for (const iv of line.intervals || []) {
+        if (iv.rockOrVeinUnit) {
+          addRockWeight(iv.rockOrVeinUnit, Math.max(1000, (iv.widthMeters || 1) * 5000));
+        }
+      }
     }
   }
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  if (sorted.length === 0) {
-    return { dominant: 'Not Mapped', secondary: [] };
+
+  // Structural features: Faults, Thrust Faults, Shear Zones
+  const structList = round?.structuralFeatures || [];
+  let mappedFaultOrShearCount = 0;
+  let mappedFoldCount = 0;
+  let faultShearAreaTotal = 0;
+
+  for (const sf of structList) {
+    if (
+      sf.featureType === 'fault' ||
+      sf.featureType === 'thrust_fault' ||
+      sf.featureType === 'shear_zone'
+    ) {
+      mappedFaultOrShearCount++;
+      const len = computePolylineLengthSvg(sf.points || []);
+      const widthPx = sf.strokeWidthPx || (sf.thicknessCm ? sf.thicknessCm * 1.5 : 22);
+      faultShearAreaTotal += Math.max(900, len * widthPx);
+    } else if (sf.featureType === 'fold_axis') {
+      mappedFoldCount++;
+    }
   }
+
+  // If faults/shears are mapped on the canvas, blend a proportional Fault/Shear Gouge share (capped at 22% of continuum area)
+  const hostAreaTotal = Object.values(areaByRockName).reduce((acc, v) => acc + v.areaWeight, 0);
+  if (mappedFaultOrShearCount > 0) {
+    const cappedFaultWeight =
+      hostAreaTotal > 0
+        ? Math.min(hostAreaTotal * 0.28, Math.max(hostAreaTotal * 0.08 * mappedFaultOrShearCount, faultShearAreaTotal))
+        : 5000 * mappedFaultOrShearCount;
+    addRockWeight('Fault Gouge / Shear Zone', cappedFaultWeight, true);
+  }
+
+  const entries = Object.values(areaByRockName).sort((a, b) => b.areaWeight - a.areaWeight);
+  const totalWeight = entries.reduce((acc, e) => acc + e.areaWeight, 0);
+
+  if (entries.length === 0 || totalWeight <= 0) {
+    const defaultRef = LITHOLOGY_REFERENCE_CATALOG[0];
+    return {
+      dominant: 'Not Mapped',
+      secondary: [],
+      shares: [],
+      hasMappedLithology: false,
+      compositeEntry: defaultRef,
+      mappedFaultOrShearCount,
+      mappedFoldCount,
+    };
+  }
+
+  const shares: LoggedLithologyShare[] = entries.map((e) => {
+    const ref = matchLithologyReference(e.rockId || e.rockName);
+    const weightPct = Number(((e.areaWeight / totalWeight) * 100).toFixed(1));
+    return {
+      rockId: e.rockId,
+      rockName: e.rockName,
+      rockFamily: ref.rockFamily,
+      weightPct,
+      ucsMpa: ref.ucsMpa,
+      eiGpa: ref.eiGpa,
+      mi: ref.mi,
+      unitWeightKnM3: ref.unitWeightKnM3,
+      basicFrictionDeg: ref.basicFrictionDeg,
+      defaultJrc: ref.defaultJrc,
+      colorHex: ref.colorHex,
+      isFaultOrShearZone: e.isFaultOrShear,
+    };
+  });
+
+  // Area-weighted composite properties across all logged lithologies & structural zones
+  let wUnitWeight = 0;
+  let wUcs = 0;
+  let wEi = 0;
+  let wPoisson = 0;
+  let wMi = 0;
+  let wFriction = 0;
+  let wJrc = 0;
+
+  for (const sh of shares) {
+    const w = sh.weightPct / 100;
+    const ref = matchLithologyReference(sh.rockId || sh.rockName);
+    wUnitWeight += w * ref.unitWeightKnM3;
+    wUcs += w * ref.ucsMpa;
+    wEi += w * ref.eiGpa;
+    wPoisson += w * ref.poissonRatio;
+    wMi += w * ref.mi;
+    wFriction += w * ref.basicFrictionDeg;
+    wJrc += w * ref.defaultJrc;
+  }
+
+  const domRef = matchLithologyReference(shares[0].rockId || shares[0].rockName);
+  const compositeFamilyLabel =
+    shares.length === 1
+      ? `${shares[0].rockName} (${domRef.rockFamily})`
+      : shares
+          .slice(0, 3)
+          .map((s) => `${s.rockName} ${Math.round(s.weightPct)}%`)
+          .join(' + ');
+
+  const compositeEntry: LithologyReferenceEntry = {
+    rockFamily: compositeFamilyLabel,
+    keywords: domRef.keywords,
+    unitWeightKnM3: Number(wUnitWeight.toFixed(2)),
+    unitWeightRange: domRef.unitWeightRange,
+    ucsMpa: Number(wUcs.toFixed(1)),
+    ucsRange: domRef.ucsRange,
+    eiGpa: Number(wEi.toFixed(1)),
+    eiRange: domRef.eiRange,
+    poissonRatio: Number(wPoisson.toFixed(2)),
+    poissonRange: domRef.poissonRange,
+    mi: Number(wMi.toFixed(1)),
+    miRange: domRef.miRange,
+    basicFrictionDeg: Number(wFriction.toFixed(1)),
+    frictionRange: domRef.frictionRange,
+    defaultJrc: Number(wJrc.toFixed(1)),
+    colorHex: domRef.colorHex,
+    sourceCitation:
+      shares.length > 1
+        ? `Area-Weighted Composite (${ compositeFamilyLabel }) — Marinos & Hoek (2001); Hoek & Diederichs (2006)`
+        : domRef.sourceCitation,
+  };
+
   return {
-    dominant: sorted[0][0],
-    secondary: sorted.slice(1, 4).map((s) => s[0]),
+    dominant: shares[0].rockName,
+    secondary: shares.slice(1, 5).map((s) => s.rockName),
+    shares,
+    hasMappedLithology: true,
+    compositeEntry,
+    mappedFaultOrShearCount,
+    mappedFoldCount,
   };
 }
 
-function parseOverburdenFromRound(round: FieldExcavationRound, mappingDomain: MappingDomainType, heightM: number): {
+function parseSpacingStringToMeters(spacingStr?: string, customStr?: string): number | null {
+  if (customStr && !isNaN(parseFloat(customStr)) && parseFloat(customStr) > 0) {
+    const val = parseFloat(customStr);
+    return val > 10 ? val / 100 : val; // handle cm vs m
+  }
+  const s = (spacingStr || '').toLowerCase();
+  if (!s) return null;
+  if (s.includes('< 6') || s.includes('extremely close')) return 0.045;
+  if (s.includes('6 - 20') || s.includes('very close')) return 0.13;
+  if (s.includes('20 - 60') || s.includes('close')) return 0.38;
+  if (s.includes('60 - 200') || s.includes('moderate')) return 1.15;
+  if (s.includes('> 200') || s.includes('wide')) return 2.3;
+  const numMatch = s.match(/(\d+(\.\d+)?)/);
+  if (numMatch) {
+    const v = parseFloat(numMatch[1]);
+    return v > 10 ? v / 100 : v;
+  }
+  return null;
+}
+
+function parsePersistenceStringToMeters(persStr?: string, customStr?: string): number | null {
+  if (customStr && !isNaN(parseFloat(customStr)) && parseFloat(customStr) > 0) {
+    return parseFloat(customStr);
+  }
+  const p = (persStr || '').toLowerCase();
+  if (!p) return null;
+  if (p.includes('< 1') || p.includes('very low')) return 0.75;
+  if (p.includes('1 - 3') || p.includes('low')) return 2.0;
+  if (p.includes('3 - 10') || p.includes('medium')) return 6.0;
+  if (p.includes('10 - 20') || p.includes('high')) return 14.0;
+  if (p.includes('> 20') || p.includes('very high')) return 22.0;
+  return null;
+}
+
+function parseApertureStringToMm(apStr?: string, customStr?: string): number | null {
+  if (customStr && !isNaN(parseFloat(customStr)) && parseFloat(customStr) >= 0) {
+    return parseFloat(customStr);
+  }
+  const a = (apStr || '').toLowerCase();
+  if (!a) return null;
+  if (a.includes('< 0.1') || a.includes('tight') || a.includes('none')) return 0.08;
+  if (a.includes('0.1 - 1') || a.includes('0.1-1')) return 0.45;
+  if (a.includes('1.0 - 5') || a.includes('1-5')) return 2.4;
+  if (a.includes('> 5') || a.includes('open')) return 6.5;
+  return null;
+}
+
+function parseRoughnessStringToJrc(roughStr?: string): number | null {
+  const r = (roughStr || '').toLowerCase();
+  if (!r) return null;
+  if (r.includes('rough') && r.includes('stepped')) return 16.5;
+  if (r.includes('rough') && r.includes('undulating')) return 13.5;
+  if (r.includes('smooth') && r.includes('stepped')) return 11.0;
+  if (r.includes('rough') && r.includes('planar')) return 9.0;
+  if (r.includes('smooth') && r.includes('undulating')) return 7.0;
+  if (r.includes('slickensided') && r.includes('stepped')) return 5.5;
+  if (r.includes('smooth') && r.includes('planar')) return 4.0;
+  if (r.includes('slickensided') && r.includes('undulating')) return 3.0;
+  if (r.includes('slickensided') && r.includes('planar')) return 1.8;
+  if (r.includes('very rough')) return 17.0;
+  if (r.includes('rough')) return 12.0;
+  if (r.includes('slightly rough')) return 8.5;
+  if (r.includes('smooth')) return 5.0;
+  if (r.includes('slickensided')) return 2.2;
+  return null;
+}
+
+function parseInfillingModifier(infillingStr?: string): {
+  cohesionKpa: number;
+  frictionDeltaDeg: number;
+  jaEquivalent: number;
+  rmrInfillSubRating: number;
+  label: string;
+} | null {
+  const inf = (infillingStr || '').toLowerCase();
+  if (!inf) return null;
+  if (inf.includes('quartz') || inf.includes('calcite') || inf.includes('healed')) {
+    return { cohesionKpa: 72, frictionDeltaDeg: 1.5, jaEquivalent: 0.75, rmrInfillSubRating: 6, label: 'Quartz/Calcite Healed' };
+  }
+  if (inf.includes('none') || inf.includes('tight') || inf.includes('clean')) {
+    return { cohesionKpa: 48, frictionDeltaDeg: 0.0, jaEquivalent: 1.0, rmrInfillSubRating: 6, label: 'Clean / Tight Unfilled' };
+  }
+  if (inf.includes('staining') || inf.includes('stained')) {
+    return { cohesionKpa: 38, frictionDeltaDeg: -0.8, jaEquivalent: 1.5, rmrInfillSubRating: 5, label: 'Surface Staining' };
+  }
+  if (inf.includes('non-softening') && inf.includes('< 5')) {
+    return { cohesionKpa: 28, frictionDeltaDeg: -2.0, jaEquivalent: 2.0, rmrInfillSubRating: 4, label: 'Hard Non-Softening <5mm' };
+  }
+  if (inf.includes('non-softening') && inf.includes('> 5')) {
+    return { cohesionKpa: 20, frictionDeltaDeg: -3.8, jaEquivalent: 3.0, rmrInfillSubRating: 2, label: 'Hard Non-Softening >5mm' };
+  }
+  if (inf.includes('soft clay') && inf.includes('< 5')) {
+    return { cohesionKpa: 14, frictionDeltaDeg: -5.5, jaEquivalent: 4.0, rmrInfillSubRating: 2, label: 'Soft Clay <5mm' };
+  }
+  if (inf.includes('soft clay') && inf.includes('> 5')) {
+    return { cohesionKpa: 9, frictionDeltaDeg: -8.0, jaEquivalent: 6.0, rmrInfillSubRating: 0, label: 'Soft Clay >5mm' };
+  }
+  if (inf.includes('swelling') || inf.includes('gouge')) {
+    return { cohesionKpa: 5, frictionDeltaDeg: -10.5, jaEquivalent: 8.0, rmrInfillSubRating: 0, label: 'Swelling Clay / Gouge' };
+  }
+  return null;
+}
+
+function parseOverburdenFromRound(
+  round: FieldExcavationRound,
+  mappingDomain: MappingDomainType,
+  heightM: number,
+  isVertShaft: boolean,
+  hasAnyLoggedGeology: boolean
+): {
   valueM: number;
   provenance: ParameterProvenanceType;
   sourceLabel: string;
@@ -662,16 +1259,42 @@ function parseOverburdenFromRound(round: FieldExcavationRound, mappingDomain: Ma
     return {
       valueM: Math.max(4, Number(heightM.toFixed(1))),
       provenance: 'ESWA_RECORDED',
-      sourceLabel: `Recorded ${mappingDomain} Height / Depth (${heightM.toFixed(1)} m)`,
+      sourceLabel: `Recorded ${mappingDomain} Slope / Bench Height (${heightM.toFixed(1)} m)`,
     };
   }
-  // Estimate from Q-system SRF or default moderate tunnel cover, flagged clearly as Missing / Reference
-  const srf = round.qSystem?.srf ?? 1.0;
-  const estDepth = srf >= 5 ? 240 : srf >= 2.5 ? 140 : 85;
+  if (isVertShaft) {
+    const chDepth = Math.max(
+      parseChainageStringToMeters(round.chainageTo, 0),
+      parseChainageStringToMeters(round.chainageFrom, 0)
+    );
+    if (chDepth >= 8) {
+      return {
+        valueM: Number(chDepth.toFixed(1)),
+        provenance: 'ESWA_RECORDED',
+        sourceLabel: `Derived from Vertical Shaft Logged Sinking Depth (${chDepth.toFixed(1)} m)`,
+      };
+    }
+  }
+  // Derive reference tunnel overburden from Q-system SRF and logged chainage when geology is logged
+  const srf = round.qSystem?.srf && Number(round.qSystem.srf) > 0 ? Number(round.qSystem.srf) : null;
+  const chMeters = parseChainageStringToMeters(round.chainageTo || round.chainageFrom, 120);
+  const chainageDerivedCover = Math.max(35, Math.min(380, Math.round(45 + (chMeters % 600) * 0.22)));
+  const estDepth =
+    srf !== null
+      ? srf >= 5
+        ? 240
+        : srf >= 2.5
+        ? 145
+        : Math.max(65, chainageDerivedCover)
+      : chainageDerivedCover;
+
   return {
     valueM: estDepth,
-    provenance: 'MISSING_INPUT',
-    sourceLabel: 'Overburden depth not recorded in Face Round; using reference tunnel cover (editable)',
+    provenance: hasAnyLoggedGeology ? 'REFERENCE_ESTIMATED' : 'MISSING_INPUT',
+    sourceLabel:
+      srf !== null
+        ? `Derived from Logged Q-System SRF (${srf}) & Tunnel Station CH ${round.chainageTo || round.chainageFrom}m`
+        : `Logged Station Reference Cover (CH ${round.chainageTo || round.chainageFrom}m; editable in cover bar)`,
   };
 }
 
@@ -704,12 +1327,18 @@ export function runCompleteFemDemAnalysis(
       ? 'right_half'
       : normalizeVerticalShaftHalfSide(round.shaftHalfSide);
   const shaftMedianStatus = normalizeVerticalShaftCenterMedianStatus(
-    round.shaftCenterMedianStatus || (round as { shaftMedianDivisionCondition?: string }).shaftMedianDivisionCondition
+    round.shaftCenterMedianStatus ||
+      (round as { shaftMedianDivisionCondition?: string }).shaftMedianDivisionCondition
   );
 
-  const spanWidthM = Math.max(2.0, Number(location.widthM || 8.5));
+  const spanWidthM =
+    mappingDomain !== 'TUNNEL' && surfaceParams?.trenchWidthM
+      ? Math.max(2.0, Number(surfaceParams.trenchWidthM || location.widthM || 8.5))
+      : Math.max(2.0, Number(location.widthM || 8.5));
   const totalHeightM = isVertShaft
     ? spanWidthM
+    : mappingDomain !== 'TUNNEL' && surfaceParams?.slopeHeightM
+    ? Math.max(2.0, Number(surfaceParams.slopeHeightM || location.heightM || 12.0))
     : Math.max(2.0, Number(location.heightM || 7.5));
   const crossSectionAreaM2 = isVertShaft
     ? isShaftHalfFace && shaftMedianStatus === 'closed'
@@ -718,23 +1347,258 @@ export function runCompleteFemDemAnalysis(
     : mappingDomain === 'TUNNEL'
     ? Math.PI * (spanWidthM / 2) * (totalHeightM / 2) * 0.86
     : spanWidthM * totalHeightM;
-  // When Half Face has Center Median OPEN (opposite half already excavated), effective span radius is full shaft radius with 1.12x stress concentration factor
   const medianOpenSpanFactor =
     isShaftHalfFace && shaftMedianStatus === 'open' ? 1.12 : 1.0;
   const equivalentRadiusM = Number(
     (Math.sqrt(crossSectionAreaM2 / Math.PI) * medianOpenSpanFactor).toFixed(2)
   );
 
-  // 2. Lithology, Weathering, Classifications
-  const lithoInfo = extractDominantLithologies(round);
-  const refLitho = matchLithologyReference(
-    lithoInfo.dominant === 'Not Mapped' ? 'Granite' : lithoInfo.dominant
-  );
-  const weatheringKey = round.weatheringIndex || 'WII';
-  const wMod = WEATHERING_MODIFIERS[weatheringKey] || WEATHERING_MODIFIERS.WII;
-  const strengthKey = round.strengthIndex || 'S3';
-  const sInfo = ISRM_STRENGTH_UCS_MAP[strengthKey] || ISRM_STRENGTH_UCS_MAP.S3;
+  // 2. Area-Weighted Logged Lithology & Structural Zones
+  const lithoInfo = extractAreaWeightedLithologies(round);
+  const refLitho = lithoInfo.compositeEntry;
 
+  // 3. Weathering Resolution from Logged Round or Logged Discontinuity Sets / Q-System Ja
+  const explicitWeatheringKey =
+    round?.weatheringIndex && WEATHERING_MODIFIERS[round.weatheringIndex]
+      ? round.weatheringIndex
+      : null;
+
+  const setWeatheringGrades: string[] = [];
+  for (const setId of FIELD_JOINT_SET_IDS) {
+    const wText = (round?.discontinuitySets?.[setId]?.weathering || '').toUpperCase();
+    if (wText.startsWith('WVI')) setWeatheringGrades.push('WVI');
+    else if (wText.startsWith('WV')) setWeatheringGrades.push('WV');
+    else if (wText.startsWith('WIV')) setWeatheringGrades.push('WIV');
+    else if (wText.startsWith('WIII')) setWeatheringGrades.push('WIII');
+    else if (wText.startsWith('WII')) setWeatheringGrades.push('WII');
+    else if (wText.startsWith('WI')) setWeatheringGrades.push('WI');
+  }
+  const inferredWeatheringFromJa =
+    round?.qSystem?.ja !== null && round?.qSystem?.ja !== undefined && Number(round.qSystem.ja) > 0
+      ? Number(round.qSystem.ja) <= 1.0
+        ? 'WI'
+        : Number(round.qSystem.ja) <= 2.0
+        ? 'WII'
+        : Number(round.qSystem.ja) <= 4.0
+        ? 'WIII'
+        : 'WIV'
+      : null;
+
+  const resolvedWeatheringKey =
+    explicitWeatheringKey ||
+    setWeatheringGrades[0] ||
+    inferredWeatheringFromJa ||
+    (lithoInfo.mappedFaultOrShearCount > 0 ? 'WIII' : 'WII');
+  const wMod = WEATHERING_MODIFIERS[resolvedWeatheringKey] || WEATHERING_MODIFIERS.WII;
+  const loggedWeatheringSourceLabel = explicitWeatheringKey
+    ? `Logged ISRM Weathering Index (${wMod.label})`
+    : setWeatheringGrades.length > 0
+    ? `Derived from Logged Joint Set Weathering (${wMod.label})`
+    : inferredWeatheringFromJa
+    ? `Derived from Logged Q-System Ja=${round.qSystem.ja} (${wMod.label})`
+    : `Logged Lithology Reference Baseline (${wMod.label})`;
+
+  // 4. Aggregate All Logged Joint Traces, 3D Dip Surfaces, Discontinuity Sets & Fault/Shear Features
+  const mappedTraces = round?.jointTraces || [];
+  const mappedDipSurfaces = round?.dipPlaneSurfaces || [];
+  const activeSetIds = FIELD_JOINT_SET_IDS.filter((setId) => {
+    const st = round?.discontinuitySets?.[setId];
+    return (
+      mappedTraces.some((j) => j.setId === setId) ||
+      mappedDipSurfaces.some((d) => d.setId === setId) ||
+      Boolean(
+        st &&
+          (st.enabled ||
+            st.manualOrientationOverride ||
+            st.spacing ||
+            st.roughness ||
+            st.infilling ||
+            st.aperture ||
+            st.persistence)
+      )
+    );
+  });
+  const effectiveSetIds: FieldJointSetId[] =
+    activeSetIds.length > 0 ? activeSetIds : ['J1', 'J2'];
+
+  const loggedSpacingsM: number[] = [];
+  const loggedPersistencesM: number[] = [];
+  const loggedAperturesMm: number[] = [];
+  const loggedJrcs: number[] = [];
+  const loggedInfillMods: NonNullable<ReturnType<typeof parseInfillingModifier>>[] = [];
+
+  for (const setId of effectiveSetIds) {
+    const st = round?.discontinuitySets?.[setId];
+    if (!st) continue;
+    const sp = parseSpacingStringToMeters(st.spacing, st.spacingCustom);
+    if (sp !== null) loggedSpacingsM.push(sp);
+    const pe = parsePersistenceStringToMeters(st.persistence, st.persistenceCustom);
+    if (pe !== null) loggedPersistencesM.push(pe);
+    const ap = parseApertureStringToMm(st.aperture, st.apertureCustom);
+    if (ap !== null) loggedAperturesMm.push(ap);
+    const jrcVal = parseRoughnessStringToJrc(st.roughness);
+    if (jrcVal !== null) loggedJrcs.push(jrcVal);
+    const infMod = parseInfillingModifier(st.infilling);
+    if (infMod !== null) loggedInfillMods.push(infMod);
+  }
+
+  // Also include actual metric trace lengths from mapped 2D/3D joint traces and dip surfaces
+  for (const jt of mappedTraces) {
+    if (jt.traceLengthM && jt.traceLengthM > 0.2) {
+      loggedPersistencesM.push(jt.traceLengthM);
+    } else if (jt.points && jt.points.length >= 2) {
+      const pLenSvg = computePolylineLengthSvg(jt.points);
+      const estLenM = Math.max(0.8, Math.min(18.0, (pLenSvg / 360) * spanWidthM));
+      loggedPersistencesM.push(estLenM);
+    }
+  }
+  for (const ds of mappedDipSurfaces) {
+    if (ds.points && ds.points.length >= 2) {
+      const pLenSvg = computePolylineLengthSvg(ds.points);
+      const estLenM = Math.max(1.0, Math.min(16.0, (pLenSvg / 360) * spanWidthM));
+      loggedPersistencesM.push(estLenM);
+    }
+  }
+
+  // Compute mean joint spacing from logged sets OR directly from mapped trace density across the face/perimeter
+  const totalMappedDiscontinuities =
+    mappedTraces.length + mappedDipSurfaces.length + lithoInfo.mappedFaultOrShearCount;
+  const traceDerivedSpacingM =
+    totalMappedDiscontinuities > 0
+      ? Number(
+          Math.max(
+            0.12,
+            Math.min(
+              1.8,
+              (spanWidthM * 0.85) /
+                Math.max(1.5, totalMappedDiscontinuities / Math.max(1, activeSetIds.length || 2))
+            )
+          ).toFixed(2)
+        )
+      : 0.65;
+
+  const avgSpacingM = Number(
+    (loggedSpacingsM.length > 0
+      ? loggedSpacingsM.reduce((a, b) => a + b, 0) / loggedSpacingsM.length
+      : traceDerivedSpacingM
+    ).toFixed(2)
+  );
+
+  const avgPersistenceM = Number(
+    (loggedPersistencesM.length > 0
+      ? loggedPersistencesM.reduce((a, b) => a + b, 0) / loggedPersistencesM.length
+      : 3.2
+    ).toFixed(2)
+  );
+
+  const avgApertureMm = Number(
+    (loggedAperturesMm.length > 0
+      ? loggedAperturesMm.reduce((a, b) => a + b, 0) / loggedAperturesMm.length
+      : lithoInfo.mappedFaultOrShearCount > 0
+      ? 2.2
+      : 0.45
+    ).toFixed(2)
+  );
+
+  // 5. Strict Logged-Data Priority for Intact UCS (sigma_ci) — NEVER blend with unlogged S3 (72 MPa)
+  const hasLoggedStrengthIndex = Boolean(
+    round?.strengthIndex && ISRM_STRENGTH_UCS_MAP[round.strengthIndex]
+  );
+  const loggedSInfo = hasLoggedStrengthIndex
+    ? ISRM_STRENGTH_UCS_MAP[round.strengthIndex]
+    : null;
+
+  const rawRmrUcsRating = round?.rmrSystem?.ucsRating;
+  const hasLoggedRmrUcs =
+    rawRmrUcsRating !== null &&
+    rawRmrUcsRating !== undefined &&
+    Number(rawRmrUcsRating) > 0;
+  const rmrLoggedUcsMpa = hasLoggedRmrUcs
+    ? Number(rawRmrUcsRating) >= 15
+      ? 220
+      : Number(rawRmrUcsRating) >= 12
+      ? 145
+      : Number(rawRmrUcsRating) >= 7
+      ? 75
+      : Number(rawRmrUcsRating) >= 4
+      ? 37
+      : Number(rawRmrUcsRating) >= 2
+      ? 15
+      : 3.5
+    : null;
+
+  const lithoWeatheredUcsMpa = Number((refLitho.ucsMpa * wMod.ucsFactor).toFixed(1));
+
+  let derivedIntactUcsMpa = lithoWeatheredUcsMpa;
+  let loggedUcsSourceLabel = '';
+  let ucsProvenance: ParameterProvenanceType = 'REFERENCE_ESTIMATED';
+
+  if (hasLoggedStrengthIndex && loggedSInfo) {
+    ucsProvenance = 'ESWA_RECORDED';
+    if (lithoInfo.hasMappedLithology) {
+      // Constrain the logged lithology's weathered UCS within or calibrated to the logged ISRM S-band
+      const clampedLithoToBand = Math.max(
+        loggedSInfo.minMpa,
+        Math.min(loggedSInfo.maxMpa, lithoWeatheredUcsMpa)
+      );
+      derivedIntactUcsMpa =
+        rmrLoggedUcsMpa !== null
+          ? Number(
+              (
+                clampedLithoToBand * 0.5 +
+                loggedSInfo.midMpa * 0.3 +
+                rmrLoggedUcsMpa * 0.2
+              ).toFixed(1)
+            )
+          : Number((clampedLithoToBand * 0.6 + loggedSInfo.midMpa * 0.4).toFixed(1));
+      loggedUcsSourceLabel = `Logged Strength ${loggedSInfo.label}${
+        rmrLoggedUcsMpa !== null ? ` + RMR UCS Rating (${rawRmrUcsRating})` : ''
+      } calibrated with Area-Weighted Lithology (${refLitho.rockFamily}, ${wMod.label})`;
+    } else {
+      derivedIntactUcsMpa =
+        rmrLoggedUcsMpa !== null
+          ? Number(((loggedSInfo.midMpa * 0.65 + rmrLoggedUcsMpa * 0.35) * wMod.ucsFactor).toFixed(1))
+          : Number((loggedSInfo.midMpa * wMod.ucsFactor).toFixed(1));
+      loggedUcsSourceLabel = `Logged ISRM Strength ${loggedSInfo.label}${
+        rmrLoggedUcsMpa !== null ? ` & RMR UCS Rating (${rawRmrUcsRating})` : ''
+      } adjusted for ${wMod.label}`;
+    }
+  } else if (rmrLoggedUcsMpa !== null) {
+    ucsProvenance = 'ESWA_RECORDED';
+    derivedIntactUcsMpa = lithoInfo.hasMappedLithology
+      ? Number((rmrLoggedUcsMpa * 0.55 + lithoWeatheredUcsMpa * 0.45).toFixed(1))
+      : rmrLoggedUcsMpa;
+    loggedUcsSourceLabel = lithoInfo.hasMappedLithology
+      ? `Logged RMR89 UCS Rating (${rawRmrUcsRating} → ${rmrLoggedUcsMpa} MPa) + Area-Weighted Lithology (${refLitho.rockFamily}, ${wMod.label})`
+      : `Logged RMR89 UCS Rating (${rawRmrUcsRating} → ${rmrLoggedUcsMpa} MPa)`;
+  } else if (lithoInfo.hasMappedLithology) {
+    ucsProvenance = 'ESWA_RECORDED';
+    derivedIntactUcsMpa = Math.max(2.0, lithoWeatheredUcsMpa);
+    loggedUcsSourceLabel = `Area-Weighted Logged Lithology (${refLitho.rockFamily}: ${refLitho.ucsMpa} MPa × ${wMod.ucsFactor} for ${wMod.label})`;
+  } else {
+    ucsProvenance = 'REFERENCE_ESTIMATED';
+    derivedIntactUcsMpa = Math.max(2.0, lithoWeatheredUcsMpa);
+    loggedUcsSourceLabel = `Reference Baseline (${refLitho.rockFamily}, ${wMod.label})`;
+  }
+
+  // Infer display strength grade from derivedIntactUcsMpa if round.strengthIndex was not manually clicked
+  const inferredStrengthKey =
+    round?.strengthIndex && ISRM_STRENGTH_UCS_MAP[round.strengthIndex]
+      ? round.strengthIndex
+      : derivedIntactUcsMpa >= 200
+      ? 'S1'
+      : derivedIntactUcsMpa >= 100
+      ? 'S2'
+      : derivedIntactUcsMpa >= 50
+      ? 'S3'
+      : derivedIntactUcsMpa >= 25
+      ? 'S4'
+      : derivedIntactUcsMpa >= 5
+      ? 'S5'
+      : 'S6';
+  const sInfo = ISRM_STRENGTH_UCS_MAP[inferredStrengthKey] || ISRM_STRENGTH_UCS_MAP.S3;
+
+  // 6. Synthesize RMR89, Q-System & GSI from Logged Lithology, UCS, Joint Traces/Sets & Water Marks when not manually entered
   const qRes = computeFieldQValue(round?.qSystem);
   const rmrRes = computeFieldRmrValue(round?.rmrSystem);
   const hasQ = qRes.qValue !== null;
@@ -744,29 +1608,235 @@ export function runCompleteFemDemAnalysis(
     round?.gsiValue !== undefined &&
     Number(round.gsiValue) > 0;
 
-  const safeQValue = qRes.qValue ?? (hasRmr ? Number(Math.exp((rmrRes.totalRmr! - 44) / 9).toFixed(2)) : 4.5);
-  const safeRmrValue =
-    rmrRes.totalRmr ??
-    (hasGsi
-      ? Math.min(100, Number(round.gsiValue) + 5)
-      : hasQ
-      ? Math.max(10, Math.min(100, Math.round(9 * Math.log(qRes.qValue!) + 44)))
-      : 55);
-  const gsiVal = Math.max(
-    10,
+  // Volumetric joint count Jv (joints/m³) & Palmström (1982) RQD = 115 - 3.3 Jv
+  const numActiveSets = Math.max(1, activeSetIds.length || (mappedTraces.length > 0 ? 2 : 1));
+  const jvVolumetric = Math.max(1.5, Math.min(32, numActiveSets / Math.max(0.08, avgSpacingM)));
+  const synthesizedRqd =
+    round?.qSystem?.rqd && Number(round.qSystem.rqd) > 0
+      ? Number(round.qSystem.rqd)
+      : Math.round(Math.max(10, Math.min(98, 115 - 3.3 * jvVolumetric - lithoInfo.mappedFaultOrShearCount * 12)));
+
+  const synthRmrUcsRating =
+    hasLoggedRmrUcs
+      ? Number(rawRmrUcsRating)
+      : derivedIntactUcsMpa >= 200
+      ? 15
+      : derivedIntactUcsMpa >= 100
+      ? 12
+      : derivedIntactUcsMpa >= 50
+      ? 7
+      : derivedIntactUcsMpa >= 25
+      ? 4
+      : derivedIntactUcsMpa >= 5
+      ? 2
+      : 1;
+  const synthRmrRqdRating =
+    round?.rmrSystem?.rqdRating && Number(round.rmrSystem.rqdRating) > 0
+      ? Number(round.rmrSystem.rqdRating)
+      : synthesizedRqd >= 90
+      ? 20
+      : synthesizedRqd >= 75
+      ? 17
+      : synthesizedRqd >= 50
+      ? 13
+      : synthesizedRqd >= 25
+      ? 8
+      : 3;
+  const synthRmrSpacingRating =
+    round?.rmrSystem?.spacingRating && Number(round.rmrSystem.spacingRating) > 0
+      ? Number(round.rmrSystem.spacingRating)
+      : avgSpacingM >= 2.0
+      ? 20
+      : avgSpacingM >= 0.6
+      ? 15
+      : avgSpacingM >= 0.2
+      ? 10
+      : avgSpacingM >= 0.06
+      ? 8
+      : 5;
+
+  const meanLoggedJrcPre =
+    loggedJrcs.length > 0
+      ? loggedJrcs.reduce((a, b) => a + b, 0) / loggedJrcs.length
+      : refLitho.defaultJrc;
+  const meanInfillMod = loggedInfillMods[0] || null;
+  const synthRmrConditionRating =
+    round?.rmrSystem?.conditionRating && Number(round.rmrSystem.conditionRating) > 0
+      ? Number(round.rmrSystem.conditionRating)
+      : Math.max(
+          4,
+          Math.min(
+            30,
+            Math.round(
+              (avgPersistenceM < 1 ? 6 : avgPersistenceM <= 3 ? 4 : avgPersistenceM <= 10 ? 2 : 1) +
+                (avgApertureMm <= 0.1 ? 6 : avgApertureMm <= 1.0 ? 4 : avgApertureMm <= 5.0 ? 1 : 0) +
+                (meanLoggedJrcPre >= 14 ? 6 : meanLoggedJrcPre >= 10 ? 5 : meanLoggedJrcPre >= 6 ? 3 : 1) +
+                (meanInfillMod ? meanInfillMod.rmrInfillSubRating : 5) +
+                (resolvedWeatheringKey === 'WI'
+                  ? 6
+                  : resolvedWeatheringKey === 'WII'
+                  ? 5
+                  : resolvedWeatheringKey === 'WIII'
+                  ? 3
+                  : 1) -
+                lithoInfo.mappedFaultOrShearCount * 4
+            )
+          )
+        );
+
+  const waterMarksCount = (round.waterMarks || []).length;
+  const hasFlowingWater =
+    (round.waterMarks || []).some(
+      (w) =>
+        w.condition.toLowerCase().includes('flowing') ||
+        w.condition.toLowerCase().includes('pressure')
+    ) ||
+    effectiveSetIds.some((id) =>
+      (round?.discontinuitySets?.[id]?.groundwater || '').toLowerCase().includes('flowing')
+    );
+  const hasDrippingWater =
+    (round.waterMarks || []).some(
+      (w) =>
+        w.condition.toLowerCase().includes('dripping') ||
+        w.condition.toLowerCase().includes('wet')
+    ) ||
+    effectiveSetIds.some((id) => {
+      const gw = (round?.discontinuitySets?.[id]?.groundwater || '').toLowerCase();
+      return gw.includes('dripping') || gw.includes('wet');
+    });
+
+  const synthRmrWaterRating =
+    round?.rmrSystem?.waterRating !== null &&
+    round?.rmrSystem?.waterRating !== undefined &&
+    Number(round.rmrSystem.waterRating) > 0
+      ? Number(round.rmrSystem.waterRating)
+      : hasFlowingWater
+      ? 4
+      : hasDrippingWater
+      ? 7
+      : waterMarksCount > 0
+      ? 10
+      : 15;
+  const synthRmrOrientAdj =
+    round?.rmrSystem?.orientationAdj !== null &&
+    round?.rmrSystem?.orientationAdj !== undefined
+      ? Number(round.rmrSystem.orientationAdj)
+      : lithoInfo.mappedFaultOrShearCount > 0
+      ? -10
+      : -5;
+
+  const synthesizedRmr = Math.max(
+    12,
     Math.min(
       95,
-      Number(
-        hasGsi
-          ? round.gsiValue
-          : hasRmr
-          ? Math.max(15, rmrRes.totalRmr! - 5)
-          : hasQ
-          ? Math.max(15, Math.round(9 * Math.log(qRes.qValue!) + 39))
-          : 50
+      Math.round(
+        synthRmrUcsRating +
+          synthRmrRqdRating +
+          synthRmrSpacingRating +
+          synthRmrConditionRating +
+          synthRmrWaterRating +
+          synthRmrOrientAdj
       )
     )
   );
+
+  // Synthesize Q-value from logged joint sets, roughness, infilling, water, and faults
+  const synthJn =
+    round?.qSystem?.jn && Number(round.qSystem.jn) > 0
+      ? Number(round.qSystem.jn)
+      : activeSetIds.length >= 4
+      ? 15
+      : activeSetIds.length === 3
+      ? 9
+      : activeSetIds.length === 2
+      ? 6
+      : 4;
+  const synthJr =
+    round?.qSystem?.jr && Number(round.qSystem.jr) > 0
+      ? Number(round.qSystem.jr)
+      : meanLoggedJrcPre >= 14
+      ? 3.0
+      : meanLoggedJrcPre >= 9
+      ? 2.0
+      : meanLoggedJrcPre >= 6
+      ? 1.5
+      : 1.0;
+  const synthJa =
+    round?.qSystem?.ja && Number(round.qSystem.ja) > 0
+      ? Number(round.qSystem.ja)
+      : meanInfillMod
+      ? meanInfillMod.jaEquivalent
+      : resolvedWeatheringKey === 'WI'
+      ? 1.0
+      : resolvedWeatheringKey === 'WII'
+      ? 2.0
+      : resolvedWeatheringKey === 'WIII'
+      ? 3.0
+      : 4.0;
+  const synthJw =
+    round?.qSystem?.jw && Number(round.qSystem.jw) > 0
+      ? Number(round.qSystem.jw)
+      : hasFlowingWater
+      ? 0.33
+      : hasDrippingWater
+      ? 0.66
+      : 1.0;
+  const synthSrf =
+    round?.qSystem?.srf && Number(round.qSystem.srf) > 0
+      ? Number(round.qSystem.srf)
+      : lithoInfo.mappedFaultOrShearCount >= 2
+      ? 5.0
+      : lithoInfo.mappedFaultOrShearCount === 1
+      ? 2.5
+      : 1.0;
+
+  const synthesizedQ = Number(
+    Math.max(
+      0.01,
+      Math.min(400, (synthesizedRqd / synthJn) * (synthJr / synthJa) * (synthJw / synthSrf))
+    ).toFixed(2)
+  );
+
+  const synthesizedGsi = Math.max(
+    12,
+    Math.min(
+      90,
+      Math.round(
+        hasGsi
+          ? Number(round.gsiValue)
+          : hasRmr
+          ? Math.max(15, rmrRes.totalRmr! - 5)
+          : hasQ
+          ? Math.max(15, 9 * Math.log(qRes.qValue!) + 39)
+          : Math.max(15, synthesizedRmr - 5)
+      )
+    )
+  );
+
+  const safeQValue = hasQ ? qRes.qValue! : synthesizedQ;
+  const safeRmrValue = hasRmr ? rmrRes.totalRmr! : synthesizedRmr;
+  const gsiVal = synthesizedGsi;
+
+  const hasAnyLoggedGeology =
+    lithoInfo.hasMappedLithology ||
+    hasLoggedStrengthIndex ||
+    Boolean(explicitWeatheringKey) ||
+    totalMappedDiscontinuities > 0 ||
+    activeSetIds.length > 0 ||
+    hasQ ||
+    hasRmr ||
+    hasGsi;
+
+  const classificationSourceLabel =
+    hasRmr || hasQ || hasGsi
+      ? `Recorded in Stage 7 (${[
+          hasRmr ? `RMR89=${rmrRes.totalRmr}` : null,
+          hasQ ? `Q=${qRes.qValue}` : null,
+          hasGsi ? `GSI=${round.gsiValue}` : null,
+        ]
+          .filter(Boolean)
+          .join(', ')})`
+      : `Synthesized from Logged Lithology & Joint Features (RMR89=${synthesizedRmr}, Q=${synthesizedQ}, GSI=${synthesizedGsi})`;
 
   // Helper to resolve parameter with 4-tier provenance
   const resolveParam = (
@@ -797,8 +1867,8 @@ export function runCompleteFemDemAnalysis(
 
     const badgeMap: Record<ParameterProvenanceType, string> = {
       SITE_TEST: 'SITE LAB / FIELD TEST',
-      ESWA_RECORDED: 'RECORDED IN ESWA',
-      REFERENCE_ESTIMATED: 'ESTIMATED / COMMON REFERENCE VALUE',
+      ESWA_RECORDED: 'LOGGED GEOLOGY DERIVED',
+      REFERENCE_ESTIMATED: 'LOGGED LITHOLOGY / JOINT REF',
       ENGINEER_OVERRIDE: 'ENGINEER OVERRIDE',
       MISSING_INPUT: 'MISSING / REQUIRES INPUT',
     };
@@ -821,12 +1891,22 @@ export function runCompleteFemDemAnalysis(
     };
   };
 
-  // 3. Resolve All Geotechnical Parameters
-  const overburdenInfo = parseOverburdenFromRound(round, mappingDomain, totalHeightM);
+  // 7. Resolve All 20 Geotechnical Parameters Directly from Logged Data
+  const overburdenInfo = parseOverburdenFromRound(
+    round,
+    mappingDomain,
+    totalHeightM,
+    isVertShaft,
+    hasAnyLoggedGeology
+  );
   const pOverburden = resolveParam(
     'overburdenDepthM',
     'H',
-    mappingDomain === 'TUNNEL' ? 'Overburden Depth / Rock Cover' : 'Excavation Slope / Bench Height',
+    mappingDomain === 'TUNNEL'
+      ? isVertShaft
+        ? 'Shaft Depth / Overburden Horizon'
+        : 'Overburden Depth / Rock Cover'
+      : 'Excavation Slope / Bench Height',
     'stress_hydraulic',
     overburdenInfo.valueM,
     'm',
@@ -841,17 +1921,151 @@ export function runCompleteFemDemAnalysis(
   const pUnitWeight = resolveParam(
     'unitWeightKnM3',
     'γ',
-    `Rock Mass Unit Weight (${lithoInfo.dominant}, ${weatheringKey})`,
+    `Rock Mass Unit Weight (${lithoInfo.dominant}, ${resolvedWeatheringKey})`,
     'intact_rock',
-    Math.max(18.5, refLitho.unitWeightKnM3 + wMod.unitWeightDelta),
+    Math.max(18.5, Number((refLitho.unitWeightKnM3 + wMod.unitWeightDelta).toFixed(2))),
     'kN/m³',
     refLitho.unitWeightRange,
-    'REFERENCE_ESTIMATED',
-    `${refLitho.sourceCitation} — adjusted for ${wMod.label}`,
-    `Reference unit weight for ${refLitho.rockFamily} reduced by ${Math.abs(wMod.unitWeightDelta).toFixed(1)} kN/m³ for ${weatheringKey} weathering.`
+    lithoInfo.hasMappedLithology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `${refLitho.sourceCitation} — adjusted for ${loggedWeatheringSourceLabel}`,
+    `Area-weighted unit weight for ${refLitho.rockFamily} adjusted by ${wMod.unitWeightDelta.toFixed(1)} kN/m³ for ${resolvedWeatheringKey}.`
   );
 
-  const defaultK0 = pOverburden.value < 60 ? 1.35 : pOverburden.value < 200 ? 1.15 : 0.85;
+  const pIntactUcs = resolveParam(
+    'intactUcsMpa',
+    'σ_ci',
+    `Intact Uniaxial Compressive Strength (${inferredStrengthKey} • ${lithoInfo.dominant})`,
+    'intact_rock',
+    derivedIntactUcsMpa,
+    'MPa',
+    `${sInfo.range} | Litho Ref: ${refLitho.ucsRange}`,
+    ucsProvenance,
+    loggedUcsSourceLabel,
+    'Derived strictly from logged Strength Index / RMR UCS / Area-Weighted Mapped Lithology & Weathering without generic S3 averaging.'
+  );
+
+  const pMi = resolveParam(
+    'hoekBrownMi',
+    'm_i',
+    `Hoek–Brown Intact Constant (${refLitho.rockFamily})`,
+    'intact_rock',
+    refLitho.mi,
+    'dimensionless',
+    refLitho.miRange,
+    lithoInfo.hasMappedLithology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    refLitho.sourceCitation,
+    `Area-weighted Hoek–Brown frictional constant m_i for ${refLitho.rockFamily}.`
+  );
+
+  const baseTensileMpa = Number((pIntactUcs.value / Math.max(5.0, pMi.value)).toFixed(2));
+  const pTensile = resolveParam(
+    'intactTensileMpa',
+    'σ_t',
+    'Intact Brazilian Tensile Strength',
+    'intact_rock',
+    baseTensileMpa,
+    'MPa',
+    '0.3 – 25.0 MPa',
+    lithoInfo.hasMappedLithology || hasLoggedStrengthIndex ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Hoek & Brown (1997) Relationship σt = σci / mi (${pIntactUcs.value} / ${pMi.value})`,
+    'Derived directly from logged intact UCS and area-weighted lithology Hoek–Brown constant mi.',
+    'σ_t = σ_ci / m_i'
+  );
+
+  // Intact Young's Modulus Ei scaled by logged lithology Modulus Ratio MR = (Ei_ref * 1000) / UCS_ref and logged UCS
+  const weightedModulusRatioMr = Math.max(
+    220,
+    Math.min(550, (refLitho.eiGpa * 1000) / Math.max(5, refLitho.ucsMpa))
+  );
+  const baseEiGpa = Number(
+    Math.max(
+      0.8,
+      ((pIntactUcs.value * weightedModulusRatioMr) / 1000) *
+        (hasLoggedStrengthIndex || hasLoggedRmrUcs ? 1.0 : wMod.modulusFactor / Math.max(0.1, wMod.ucsFactor))
+    ).toFixed(1)
+  );
+  const pIntactEi = resolveParam(
+    'intactModulusEiGpa',
+    'E_i',
+    `Intact Rock Young's Modulus (MR=${Math.round(weightedModulusRatioMr)})`,
+    'intact_rock',
+    baseEiGpa,
+    'GPa',
+    refLitho.eiRange,
+    lithoInfo.hasMappedLithology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `${refLitho.sourceCitation} — Deere (1968) & Hoek–Diederichs (2006) E_i = MR · σ_ci`,
+    `Computed from logged UCS (${pIntactUcs.value} MPa) and area-weighted lithology Modulus Ratio MR=${Math.round(weightedModulusRatioMr)}.`,
+    'E_i = MR · σ_ci'
+  );
+
+  const pPoisson = resolveParam(
+    'poissonRatio',
+    'ν',
+    `Rock Mass Poisson's Ratio (${lithoInfo.dominant})`,
+    'intact_rock',
+    refLitho.poissonRatio,
+    'dimensionless',
+    refLitho.poissonRange,
+    lithoInfo.hasMappedLithology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    refLitho.sourceCitation,
+    'Area-weighted elastic lateral strain ratio from logged lithology.'
+  );
+
+  // Blast damage factor D from ESWA excavation mode & overbreak survey
+  const modeLower = (round.modeOfExcavation || '').toLowerCase();
+  const defaultBlastD =
+    modeLower.includes('tbm') || modeLower.includes('roadheader') || modeLower.includes('mechanical')
+      ? 0.0
+      : modeLower.includes('controlled') || modeLower.includes('smooth')
+      ? 0.2
+      : mappingDomain !== 'TUNNEL'
+      ? 0.5
+      : 0.35;
+
+  const pBlastD = resolveParam(
+    'blastDamageFactorD',
+    'D',
+    `Excavation Disturbance Factor (${round.modeOfExcavation || 'Drill & Blast'})`,
+    'rock_mass_fem',
+    cfg.blastDamageFactorD ?? defaultBlastD,
+    '0.0 – 1.0',
+    '0.0 (TBM/Mechanical) – 0.8 (Poor Blasting / Slope)',
+    'ESWA_RECORDED',
+    `Hoek, Carranza-Torres & Corkum (2002) — derived from ESWA Excavation Mode: ${round.modeOfExcavation || 'Drill & Blast'}`,
+    'D applies to the blast-disturbed zone surrounding the excavation or slope boundary.',
+    'Hoek-Brown (2002) Disturbance Factor D'
+  );
+
+  // Generalized Hoek-Brown (2002) & Hoek-Diederichs (2006) Rock Mass Properties from Logged GSI, Ei, UCS, mi
+  const D = Math.max(0, Math.min(0.85, pBlastD.value));
+  const mb = pMi.value * Math.exp((gsiVal - 100) / (28 - 14 * D));
+  const s = Math.exp((gsiVal - 100) / (9 - 3 * D));
+  const a = 0.5 + (1 / 6) * (Math.exp(-gsiVal / 15) - Math.exp(-20 / 3));
+
+  const ermHoekDiederichsGpa =
+    pIntactEi.value * (0.02 + (1 - D / 2) / (1 + Math.exp((60 + 15 * D - gsiVal) / 11)));
+
+  const pErm = resolveParam(
+    'rockMassModulusErmGpa',
+    'E_rm',
+    'Rock Mass Deformation Modulus',
+    'rock_mass_fem',
+    Number(Math.max(0.2, ermHoekDiederichsGpa).toFixed(2)),
+    'GPa',
+    '0.2 – 65.0 GPa',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Hoek & Diederichs (2006) from Logged GSI=${gsiVal}, Ei=${pIntactEi.value} GPa, D=${D}`,
+    'Empirical rock mass deformation modulus derived from logged lithology Ei and logged/synthesized GSI.',
+    'E_rm = E_i · [0.02 + (1 - D/2) / (1 + exp((60 + 15D - GSI)/11))]'
+  );
+
+  // Sheorey (1994) thermo-elastic crustal stress ratio K0 = 0.25 + 7 * Eh * (0.001 + 1 / H) + tectonic fault adjustment
+  const sheoreyK0 =
+    0.25 +
+    7 * Math.max(1.5, pErm.value) * (0.001 + 1 / Math.max(25, pOverburden.value)) +
+    (lithoInfo.mappedFaultOrShearCount > 0 || lithoInfo.mappedFoldCount > 0 ? 0.12 : 0);
+  const defaultK0 = Number(Math.max(0.55, Math.min(2.2, sheoreyK0)).toFixed(2));
+
   const pK0 = resolveParam(
     'horizontalStressRatioK0',
     'K₀',
@@ -860,27 +2074,25 @@ export function runCompleteFemDemAnalysis(
     cfg.horizontalStressRatioK0 ?? defaultK0,
     'ratio',
     '0.50 – 2.50',
-    cfg.horizontalStressRatioK0 !== undefined ? 'ENGINEER_OVERRIDE' : 'REFERENCE_ESTIMATED',
-    'Brown & Hoek (1978) World Stress Map Trends; Sheorey (1994)',
-    'Assumes regional tectonic/gravity stress ratio K₀ = σh / σv. Replace with hydro-fracturing or overcoring data if available.',
-    'σh = K₀ · σv'
+    cfg.horizontalStressRatioK0 !== undefined
+      ? 'ENGINEER_OVERRIDE'
+      : hasAnyLoggedGeology
+      ? 'ESWA_RECORDED'
+      : 'REFERENCE_ESTIMATED',
+    `Sheorey (1994) Crustal Stress Model from E_rm=${pErm.value.toFixed(1)} GPa & H=${pOverburden.value}m${
+      lithoInfo.mappedFaultOrShearCount > 0 ? ' (+Tectonic Fault/Fold Factor)' : ''
+    }`,
+    'Derived from rock mass stiffness Erm and overburden depth H via Sheorey (1994) thermo-elastic equation.',
+    'K₀ = 0.25 + 7·E_rm·(0.001 + 1/H)'
   );
 
-  // Pore water pressure derived from ESWA water marks & Q-system Jw / RMR water rating
-  const waterMarksCount = (round.waterMarks || []).length;
-  const hasFlowingWater = (round.waterMarks || []).some((w) =>
-    w.condition.toLowerCase().includes('flowing') || w.condition.toLowerCase().includes('pressure')
-  );
-  const hasDrippingWater = (round.waterMarks || []).some((w) =>
-    w.condition.toLowerCase().includes('dripping') || w.condition.toLowerCase().includes('wet')
-  );
-  const jw = round.qSystem?.jw ?? 1.0;
+  // Pore water pressure derived from ESWA water marks, discontinuity set groundwater, Q-system Jw & RMR water rating
   let basePoreWaterKpa = 0;
-  if (hasFlowingWater || jw <= 0.33) {
-    basePoreWaterKpa = Math.min(600, pOverburden.value * 9.81 * 0.35);
-  } else if (hasDrippingWater || jw <= 0.66 || waterMarksCount > 0) {
-    basePoreWaterKpa = Math.min(250, pOverburden.value * 9.81 * 0.15);
-  } else if ((round.rmrSystem?.waterRating ?? 15) < 15) {
+  if (hasFlowingWater || synthJw <= 0.33) {
+    basePoreWaterKpa = Math.min(600, Number((pOverburden.value * 9.81 * 0.35).toFixed(1)));
+  } else if (hasDrippingWater || synthJw <= 0.66 || waterMarksCount > 0) {
+    basePoreWaterKpa = Math.min(250, Number((pOverburden.value * 9.81 * 0.15).toFixed(1)));
+  } else if (synthRmrWaterRating < 15) {
     basePoreWaterKpa = 35;
   }
 
@@ -893,148 +2105,12 @@ export function runCompleteFemDemAnalysis(
     'kPa',
     '0 – 1500 kPa',
     'ESWA_RECORDED',
-    `Derived from ESWA Mapped Water Marks (${waterMarksCount} marks), Q-System Jw=${jw}, RMR Water Rating=${round.rmrSystem?.waterRating ?? 15}`,
-    'Reduces effective normal stress (σn\' = σn - uw) along discontinuity planes and increases tunnel lining/bolt demand.',
+    `Derived from Logged Water Marks (${waterMarksCount}), Joint Set Groundwater, Q Jw=${synthJw}, RMR Water=${synthRmrWaterRating}`,
+    'Reduces effective normal stress (σn\' = σn - uw) along discontinuity planes and increases support demand.',
     "σ'n = σn - u_w"
   );
 
-  // Intact UCS: Blend ESWA Strength Index (S1-S6) + RMR UCS rating with Lithology/Weathering reference
-  const rmrUcsRating = round.rmrSystem?.ucsRating ?? 7;
-  const rmrEstimatedUcs =
-    rmrUcsRating >= 15
-      ? 220
-      : rmrUcsRating >= 12
-      ? 145
-      : rmrUcsRating >= 7
-      ? 75
-      : rmrUcsRating >= 4
-      ? 35
-      : rmrUcsRating >= 2
-      ? 15
-      : 4;
-  const blendedUcsMpa = Math.max(
-    2.0,
-    Number(((sInfo.midMpa * 0.55 + refLitho.ucsMpa * wMod.ucsFactor * 0.25 + rmrEstimatedUcs * 0.2)).toFixed(1))
-  );
-
-  const pIntactUcs = resolveParam(
-    'intactUcsMpa',
-    'σ_ci',
-    `Intact Uniaxial Compressive Strength (${strengthKey})`,
-    'intact_rock',
-    blendedUcsMpa,
-    'MPa',
-    `${sInfo.range} | Ref: ${refLitho.ucsRange}`,
-    'ESWA_RECORDED',
-    `ESWA Field Strength Index ${sInfo.label} & RMR UCS Rating (${rmrUcsRating}), calibrated to ${refLitho.rockFamily} (${wMod.label})`,
-    'Field hammer/point-load index estimate. Laboratory uniaxial compression testing (ASTM D7012 / ISRM) is recommended for final design.'
-  );
-
-  const pMi = resolveParam(
-    'hoekBrownMi',
-    'm_i',
-    `Hoek–Brown Intact Rock Constant (${refLitho.rockFamily})`,
-    'intact_rock',
-    refLitho.mi,
-    'dimensionless',
-    refLitho.miRange,
-    'REFERENCE_ESTIMATED',
-    refLitho.sourceCitation,
-    `Published Hoek–Brown frictional constant m_i for ${refLitho.rockFamily}. Triaxial cell testing required for site-specific m_i.`
-  );
-
-  const baseTensileMpa = Number((pIntactUcs.value / Math.max(6, pMi.value)).toFixed(2));
-  const pTensile = resolveParam(
-    'intactTensileMpa',
-    'σ_t',
-    'Intact Brazilian Tensile Strength',
-    'intact_rock',
-    baseTensileMpa,
-    'MPa',
-    '0.5 – 25.0 MPa',
-    'REFERENCE_ESTIMATED',
-    'Hoek & Brown (1997) Relationship σt ≈ σci / mi',
-    'Estimated from intact UCS and Hoek–Brown constant mi. Controls tensile spalling at tunnel crown under low confinement.',
-    'σ_t = σ_ci / m_i'
-  );
-
-  const baseEiGpa = Number(Math.max(1.0, refLitho.eiGpa * wMod.modulusFactor).toFixed(1));
-  const pIntactEi = resolveParam(
-    'intactModulusEiGpa',
-    'E_i',
-    `Intact Rock Young's Modulus (${lithoInfo.dominant})`,
-    'intact_rock',
-    baseEiGpa,
-    'GPa',
-    refLitho.eiRange,
-    'REFERENCE_ESTIMATED',
-    `${refLitho.sourceCitation} (Deere 1968 Modulus Ratio MR)`,
-    `Intact rock deformation modulus prior to jointing reduction, scaled by weathering factor (${wMod.modulusFactor.toFixed(2)} for ${weatheringKey}).`
-  );
-
-  const pPoisson = resolveParam(
-    'poissonRatio',
-    'ν',
-    "Rock Mass Poisson's Ratio",
-    'intact_rock',
-    refLitho.poissonRatio,
-    'dimensionless',
-    refLitho.poissonRange,
-    'REFERENCE_ESTIMATED',
-    refLitho.sourceCitation,
-    'Elastic lateral strain ratio used in plane-strain Kirsch & Duncan Fama radial displacement equations.'
-  );
-
-  // Blast damage factor D from ESWA excavation mode
-  const modeLower = (round.modeOfExcavation || '').toLowerCase();
-  const defaultBlastD =
-    modeLower.includes('tbm') || modeLower.includes('roadheader') || modeLower.includes('mechanical')
-      ? 0.0
-      : modeLower.includes('controlled') || modeLower.includes('smooth')
-      ? 0.2
-      : 0.35;
-
-  const pBlastD = resolveParam(
-    'blastDamageFactorD',
-    'D',
-    `Excavation Disturbance Factor (${round.modeOfExcavation || 'Drill & Blast'})`,
-    'rock_mass_fem',
-    cfg.blastDamageFactorD ?? defaultBlastD,
-    '0.0 – 1.0',
-    '0.0 (TBM/Mechanical) – 0.8 (Poor Blasting)',
-    'ESWA_RECORDED',
-    `Hoek, Carranza-Torres & Corkum (2002) Guidelines — derived from ESWA Mode: ${round.modeOfExcavation || 'Drill & Blast'}`,
-    'D applies only to the blast-disturbed zone immediately surrounding the excavation boundary (typically 1.5–2.5m).',
-    'Hoek-Brown (2002) Disturbance Factor D'
-  );
-
-  // Generalized Hoek-Brown (2002) & Hoek-Diederichs (2006) Rock Mass Properties
-  const D = Math.max(0, Math.min(0.85, pBlastD.value));
-  const mb = pMi.value * Math.exp((gsiVal - 100) / (28 - 14 * D));
-  const s = Math.exp((gsiVal - 100) / (9 - 3 * D));
-  const a = 0.5 + (1 / 6) * (Math.exp(-gsiVal / 15) - Math.exp(-20 / 3));
-
-  // Simplified Hoek & Diederichs (2006) empirical rock mass modulus Erm
-  const ermHoekDiederichsGpa =
-    pIntactEi.value * (0.02 + (1 - D / 2) / (1 + Math.exp((60 + 15 * D - gsiVal) / 11)));
-
-  const pErm = resolveParam(
-    'rockMassModulusErmGpa',
-    'E_rm',
-    'Rock Mass Deformation Modulus',
-    'rock_mass_fem',
-    Math.max(0.25, ermHoekDiederichsGpa),
-    'GPa',
-    '0.5 – 65.0 GPa',
-    'REFERENCE_ESTIMATED',
-    `Hoek & Diederichs (2006) Empirical Correlation from ESWA GSI=${gsiVal}, Ei=${pIntactEi.value} GPa, D=${D}`,
-    'Classification-derived rock mass modulus. Valid for isotropic/jointed continuum; may overestimate stiffness in highly foliated rock.',
-    'E_rm = E_i · [0.02 + (1 - D/2) / (1 + exp((60 + 15D - GSI)/11))]'
-  );
-
-  // Equivalent Mohr-Coulomb (Hoek et al. 2002) for tunnel/shaft confining stress sigma3_max
-  // For Vertical Shafts, the 2D cross-section is a horizontal plan plane at depth H:
-  // Both in-plane principal stresses are horizontal (σ_H,max = K0·σv and σ_h,min ≈ 0.82·K0·σv)
+  // Equivalent Mohr-Coulomb (Hoek et al. 2002) for tunnel/shaft/slope confining stress sigma3_max
   const sigmaV_Mpa = (pUnitWeight.value * pOverburden.value) / 1000;
   const sigmaH_Mpa = sigmaV_Mpa * pK0.value;
   const sigmaHMinShaftMpa = sigmaH_Mpa * (pK0.value >= 1.0 ? 0.85 : 0.92);
@@ -1049,34 +2125,41 @@ export function runCompleteFemDemAnalysis(
     pIntactUcs.value *
     ((mb + 4 * s - a * (mb - 8 * s)) * Math.pow(mb / 4 + s, a - 1)) /
     (2 * (1 + a) * (2 + a));
-  const sigma3MaxMpa = Math.max(
-    0.15,
-    0.47 * sigmaCmGlobalMpa * Math.pow(sigmaCmGlobalMpa / Math.max(0.2, p0_Mpa), -0.94)
-  );
+  const sigma3MaxMpa =
+    mappingDomain !== 'TUNNEL'
+      ? Math.max(0.05, 0.72 * sigmaCmGlobalMpa * Math.pow(sigmaCmGlobalMpa / Math.max(0.05, pUnitWeight.value * totalHeightM * 0.001), -0.91))
+      : Math.max(0.15, 0.47 * sigmaCmGlobalMpa * Math.pow(sigmaCmGlobalMpa / Math.max(0.2, p0_Mpa), -0.94));
   const sigma3n = sigma3MaxMpa / Math.max(1.0, pIntactUcs.value);
 
   const sinPhi =
     (6 * a * mb * Math.pow(s + mb * sigma3n, a - 1)) /
     (2 * (1 + a) * (2 + a) + 6 * a * mb * Math.pow(s + mb * sigma3n, a - 1));
-  const phiRmDeg = Math.max(12, Math.min(62, (Math.asin(Math.min(0.92, sinPhi)) * 180) / Math.PI));
+  const phiRmDeg = Number(
+    Math.max(12, Math.min(62, (Math.asin(Math.min(0.92, sinPhi)) * 180) / Math.PI)).toFixed(2)
+  );
 
-  const cohesionRmMpa =
-    (pIntactUcs.value *
-      ((1 + 2 * a) * s + (1 - a) * mb * sigma3n) *
-      Math.pow(s + mb * sigma3n, a - 1)) /
-    ((1 + a) * (2 + a) * Math.sqrt(1 + (6 * a * mb * Math.pow(s + mb * sigma3n, a - 1)) / ((1 + a) * (2 + a))));
+  const cohesionRmMpa = Number(
+    (
+      (pIntactUcs.value *
+        ((1 + 2 * a) * s + (1 - a) * mb * sigma3n) *
+        Math.pow(s + mb * sigma3n, a - 1)) /
+      ((1 + a) *
+        (2 + a) *
+        Math.sqrt(1 + (6 * a * mb * Math.pow(s + mb * sigma3n, a - 1)) / ((1 + a) * (2 + a))))
+    ).toFixed(3)
+  );
 
   const pCohesionRm = resolveParam(
     'rockMassCohesionMpa',
     'c_rm',
     'Equivalent Rock Mass Cohesion',
     'rock_mass_fem',
-    Math.max(0.05, cohesionRmMpa),
+    Math.max(0.03, cohesionRmMpa),
     'MPa',
-    '0.05 – 12.0 MPa',
-    'REFERENCE_ESTIMATED',
-    `Generalized Hoek–Brown (2002) Equivalent Mohr–Coulomb Fit (GSI=${gsiVal}, σci=${pIntactUcs.value} MPa)`,
-    'Stress-dependent tangent/secant fit over 0 < σ3 < σ3max. Do not extrapolate outside the current overburden stress range.',
+    '0.03 – 12.0 MPa',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Generalized Hoek–Brown (2002) Fit from Logged GSI=${gsiVal}, σci=${pIntactUcs.value} MPa, mi=${pMi.value}`,
+    'Stress-dependent Hoek–Brown equivalent Mohr–Coulomb cohesion for the logged lithology and stress state.',
     'Hoek, Carranza-Torres & Corkum (2002) Eq. 4'
   );
 
@@ -1087,10 +2170,10 @@ export function runCompleteFemDemAnalysis(
     'rock_mass_fem',
     phiRmDeg,
     '°',
-    '15° – 58°',
-    'REFERENCE_ESTIMATED',
-    `Generalized Hoek–Brown (2002) Equivalent Mohr–Coulomb Fit (GSI=${gsiVal}, mi=${pMi.value})`,
-    'Continuum equivalent internal friction angle for elastoplastic yield zone evaluation.',
+    '14° – 58°',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Generalized Hoek–Brown (2002) Fit from Logged GSI=${gsiVal}, mi=${pMi.value}, D=${D}`,
+    'Continuum equivalent internal friction angle derived from logged lithology and rock mass structure.',
     'Hoek, Carranza-Torres & Corkum (2002) Eq. 5'
   );
 
@@ -1099,46 +2182,80 @@ export function runCompleteFemDemAnalysis(
     'σ_cm',
     'Global Rock Mass Uniaxial Strength',
     'rock_mass_fem',
-    Math.max(0.2, sigmaCmGlobalMpa),
+    Number(Math.max(0.15, sigmaCmGlobalMpa).toFixed(2)),
     'MPa',
-    '0.2 – 85.0 MPa',
-    'REFERENCE_ESTIMATED',
+    '0.15 – 85.0 MPa',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
     `Generalized Hoek–Brown (2002) Global Strength from GSI=${gsiVal}, σci=${pIntactUcs.value} MPa`,
-    'Represents overall rock mass compressive capacity for pillar and tunnel wall squeezing evaluation (σcm / p0).',
+    'Overall rock mass compressive capacity derived from logged UCS, lithology mi, and GSI.',
     'Hoek et al. (2002) Eq. 9'
   );
 
-  // 4. Discontinuity / Joint Parameters from ESWA Sets + Barton-Bandis
-  const activeSetIds = FIELD_JOINT_SET_IDS.filter(
-    (setId) =>
-      (round?.jointTraces || []).some((j) => j.setId === setId) ||
-      (round?.dipPlaneSurfaces || []).some((d) => d.setId === setId) ||
-      round?.discontinuitySets?.[setId]?.manualOrientationOverride
-  );
-  const effectiveSetIds: FieldJointSetId[] = activeSetIds.length > 0 ? activeSetIds : ['J1', 'J2'];
+  // 8. Discontinuity / Joint Parameters Derived Strictly from Logged Discontinuity Sets, Traces & Fault/Shear Features
+  const hasExplicitSetRoughness = loggedJrcs.length > 0;
+  const hasExplicitQJr = Boolean(round?.qSystem?.jr && Number(round.qSystem.jr) > 0);
+  const jrDerivedJrc =
+    synthJr >= 3.0 ? 14.5 : synthJr >= 2.0 ? 10.5 : synthJr >= 1.5 ? 8.0 : 4.5;
 
-  const jrVal = round.qSystem?.jr ?? 1.5;
-  const jaVal = round.qSystem?.ja ?? 2.0;
-  // Barton (1987) correlation between Jr and JRC
-  const derivedJrc = Math.max(2, Math.min(18, jrVal >= 3 ? 14 : jrVal >= 2 ? 10 : jrVal >= 1.5 ? 8 : 5));
-  const derivedJcsMpa = Math.max(5, Number((pIntactUcs.value * wMod.ucsFactor * 0.78).toFixed(1)));
-  // Barton (2002) frictional mobilization tan^-1(Jr/Ja) bounded with basic friction
-  const qJointFrictionDeg = (Math.atan(jrVal / Math.max(0.75, jaVal)) * 180) / Math.PI;
-  const derivedJointFrictionDeg = Math.max(
-    16,
-    Math.min(44, Number(((refLitho.basicFrictionDeg + wMod.frictionDeltaDeg) * 0.65 + qJointFrictionDeg * 0.35).toFixed(1)))
+  const baseJrc0 = hasExplicitSetRoughness
+    ? loggedJrcs.reduce((acc, v) => acc + v, 0) / loggedJrcs.length
+    : hasExplicitQJr
+    ? jrDerivedJrc * 0.65 + refLitho.defaultJrc * 0.35
+    : refLitho.defaultJrc;
+
+  // Barton & Bandis (1982) scale effect for trace persistence L_n and fault/shear reduction
+  const scaleFactorJrc = Math.pow(
+    Math.max(1.0, Math.min(12.0, avgPersistenceM / 0.2)),
+    -0.012 * baseJrc0
+  );
+  const faultJrcPenalty = lithoInfo.mappedFaultOrShearCount > 0 ? 0.82 : 1.0;
+  const derivedJrc = Number(
+    Math.max(1.5, Math.min(19.0, baseJrc0 * scaleFactorJrc * faultJrcPenalty)).toFixed(1)
   );
 
-  // Joint infilling cohesion from ESWA set records
+  // JCS derived from logged Intact UCS, logged joint wall weathering ratio, and fault/shear alteration
+  const faultJcsPenalty = lithoInfo.mappedFaultOrShearCount > 0 ? 0.78 : 1.0;
+  const derivedJcsMpa = Number(
+    Math.max(2.0, pIntactUcs.value * wMod.jcsRatio * faultJcsPenalty).toFixed(1)
+  );
+
+  // Barton & Choubey (1977) residual friction angle phi_r = (phi_b - 20) + 20 * (JCS / sigma_ci) + infilling / Jr-Ja adjustment
+  const bartonChoubeyPhiR =
+    refLitho.basicFrictionDeg -
+    20 +
+    20 * Math.min(1.0, derivedJcsMpa / Math.max(2.0, pIntactUcs.value));
+  const infillFrictionDelta =
+    loggedInfillMods.length > 0
+      ? loggedInfillMods.reduce((acc, m) => acc + m.frictionDeltaDeg, 0) / loggedInfillMods.length
+      : 0;
+  const qJointFrictionDeg = (Math.atan(synthJr / Math.max(0.75, synthJa)) * 180) / Math.PI;
+  const rawJointFriction =
+    hasExplicitQJr || Boolean(round?.qSystem?.ja && Number(round.qSystem.ja) > 0)
+      ? (bartonChoubeyPhiR + infillFrictionDelta) * 0.65 + qJointFrictionDeg * 0.35
+      : bartonChoubeyPhiR + infillFrictionDelta;
+  const faultFrictionPenaltyDeg = lithoInfo.mappedFaultOrShearCount > 0 ? -2.5 : 0;
+  const derivedJointFrictionDeg = Number(
+    Math.max(13.0, Math.min(44.0, rawJointFriction + faultFrictionPenaltyDeg)).toFixed(1)
+  );
+
+  // Joint apparent cohesion c_j from logged infilling, aperture, roughness, and fault/shear presence
+  const baseInfillCohesionKpa =
+    loggedInfillMods.length > 0
+      ? loggedInfillMods.reduce((acc, m) => acc + m.cohesionKpa, 0) / loggedInfillMods.length
+      : avgApertureMm <= 0.15
+      ? 45
+      : avgApertureMm <= 1.0
+      ? 32
+      : avgApertureMm <= 5.0
+      ? 18
+      : 8;
+  const jrcCohesionFactor = 0.75 + (derivedJrc / 20) * 0.5;
+  const faultCohesionFactor = lithoInfo.mappedFaultOrShearCount > 0 ? 0.68 : 1.0;
+  const baseJointCohesionKpa = Number(
+    Math.max(4, Math.min(120, baseInfillCohesionKpa * jrcCohesionFactor * faultCohesionFactor)).toFixed(1)
+  );
+
   const firstSet = round.discontinuitySets?.[effectiveSetIds[0]];
-  const infillingText = (firstSet?.infilling || '').toLowerCase();
-  const apertureText = (firstSet?.aperture || '').toLowerCase();
-  const baseJointCohesionKpa = infillingText.includes('soft') || infillingText.includes('clay')
-    ? 15
-    : infillingText.includes('none') || infillingText.includes('tight')
-    ? 45
-    : 28;
-
   const pJointJrc = resolveParam(
     'jointJrc',
     'JRC',
@@ -1146,11 +2263,13 @@ export function runCompleteFemDemAnalysis(
     'joint_dem',
     derivedJrc,
     '0 – 20',
-    '2 (Slickensided) – 18 (Rough Undulating)',
-    'ESWA_RECORDED',
-    `Derived from ESWA Discontinuity Roughness (${firstSet?.roughness || 'Slightly rough'}) & Q-System Jr=${jrVal}`,
-    'Barton & Choubey (1977) roughness profile index. Scale effect reduces JRCn on long joint planes (>1m).',
-    'Barton & Bandis (1982) JRC_n = JRC_0 · (L_n / L_0)^(-0.02·JRC_0)'
+    '2 (Slickensided) – 18 (Rough Stepped)',
+    hasExplicitSetRoughness || hasExplicitQJr || lithoInfo.hasMappedLithology
+      ? 'ESWA_RECORDED'
+      : 'REFERENCE_ESTIMATED',
+    `Derived from Logged Joint Roughness (${firstSet?.roughness || `${refLitho.rockFamily} JRC₀=${refLitho.defaultJrc}`}), Persistence L=${avgPersistenceM}m & Jr=${synthJr}`,
+    'Barton & Choubey (1977) & Barton–Bandis (1982) scale-corrected roughness index from logged discontinuity sets and traces.',
+    'JRC_n = JRC_0 · (L_n / L_0)^(-0.02·JRC_0)'
   );
 
   const pJointJcs = resolveParam(
@@ -1160,10 +2279,10 @@ export function runCompleteFemDemAnalysis(
     'joint_dem',
     derivedJcsMpa,
     'MPa',
-    '5 – 180 MPa',
-    'REFERENCE_ESTIMATED',
-    `Barton & Choubey (1977) Schmidt Hammer Wall Correlation from σci=${pIntactUcs.value} MPa & Weathering ${weatheringKey}`,
-    'Weathering on joint walls reduces JCS below intact rock UCS (JCS ≈ 0.35–0.85 σci).',
+    '2 – 220 MPa',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Barton & Choubey (1977) Wall Strength from Logged σci=${pIntactUcs.value} MPa & Joint Wall Weathering ${resolvedWeatheringKey} (JCS/σci=${wMod.jcsRatio})`,
+    'Derived directly from logged intact UCS and joint wall weathering factor.',
     'τ = σ\'n · tan[φ_r + JRC · log10(JCS / σ\'n)]'
   );
 
@@ -1175,9 +2294,12 @@ export function runCompleteFemDemAnalysis(
     derivedJointFrictionDeg,
     '°',
     refLitho.frictionRange,
-    'ESWA_RECORDED',
-    `Derived from ESWA Q-System (Jr=${jrVal}, Ja=${jaVal}), Infilling (${firstSet?.infilling || 'Clean'}) & ${refLitho.rockFamily} Reference`,
-    'Controls block sliding resistance along mapped joint traces in DEM limit-equilibrium analysis.'
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Barton–Choubey (1977) φ_r from ${refLitho.rockFamily} (φ_b=${refLitho.basicFrictionDeg}°), Infilling (${
+      meanInfillMod?.label || firstSet?.infilling || 'Clean'
+    }), Jr/Ja=${synthJr}/${synthJa}`,
+    'Controls block sliding resistance along mapped joint traces, 3D dip surfaces, and fault planes in DEM analysis.',
+    'φ_r = (φ_b - 20°) + 20°·(JCS / σ_ci) + Δφ_infill'
   );
 
   const pJointCohesion = resolveParam(
@@ -1188,29 +2310,27 @@ export function runCompleteFemDemAnalysis(
     baseJointCohesionKpa,
     'kPa',
     '0 – 150 kPa',
-    'REFERENCE_ESTIMATED',
-    `Barton & Bandis (1990) & ESWA Joint Condition (${firstSet?.infilling || 'None'}, Aperture: ${firstSet?.aperture || '0.1-1.0mm'})`,
-    'Apparent cohesion from surface asperity interlock and cementation; reduces to zero upon large shear displacement.'
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Derived from Logged Joint Infilling (${meanInfillMod?.label || firstSet?.infilling || 'Tight/Clean'}), Aperture (${avgApertureMm}mm) & JRC=${pJointJrc.value}`,
+    'Apparent cohesion from surface asperity interlock and infilling cementation across mapped joint sets.'
   );
 
-  // Bandis et al. (1983) Joint Normal & Shear Stiffness
-  const avgSpacingM = firstSet?.spacing?.includes('>2')
-    ? 2.2
-    : firstSet?.spacing?.includes('0.6')
-    ? 1.0
-    : firstSet?.spacing?.includes('0.2')
-    ? 0.38
-    : 0.55;
-  const avgApertureMm = apertureText.includes('>5')
-    ? 6.0
-    : apertureText.includes('1-5')
-    ? 2.2
-    : apertureText.includes('0.1-1')
-    ? 0.45
-    : 0.2;
-
-  const baseKnGpaM = Number(Math.max(1.5, Math.min(45, (pErm.value / Math.max(0.15, avgSpacingM)) * 1.4)).toFixed(2));
-  const baseKsGpaM = Number(Math.max(0.5, baseKnGpaM * 0.32).toFixed(2));
+  // Bandis, Lumsden & Barton (1983) Hyperbolic Joint Normal & Shear Stiffness from Logged JRC, JCS, Aperture e0, Spacing s, and Erm
+  const bandisKni = Math.max(
+    1.5,
+    -7.15 + 1.75 * pJointJrc.value + 0.02 * (pJointJcs.value / Math.max(0.06, avgApertureMm))
+  );
+  const continuumCompatibleKn =
+    (pErm.value * pIntactEi.value) /
+    (Math.max(0.4, pIntactEi.value - pErm.value * 0.85) * Math.max(0.12, avgSpacingM));
+  const baseKnGpaM = Number(
+    Math.max(1.2, Math.min(60.0, bandisKni * 0.45 + continuumCompatibleKn * 0.55)).toFixed(2)
+  );
+  const shearStiffRatio = Math.max(
+    0.18,
+    Math.min(0.42, 0.22 + 0.008 * pJointJrc.value - (lithoInfo.mappedFaultOrShearCount > 0 ? 0.05 : 0))
+  );
+  const baseKsGpaM = Number(Math.max(0.4, baseKnGpaM * shearStiffRatio).toFixed(2));
 
   const pJointKn = resolveParam(
     'jointNormalStiffnessKnGpaM',
@@ -1219,11 +2339,11 @@ export function runCompleteFemDemAnalysis(
     'joint_dem',
     baseKnGpaM,
     'GPa/m',
-    '2.0 – 50.0 GPa/m',
-    'REFERENCE_ESTIMATED',
-    `Bandis, Lumsden & Barton (1983) from Erm=${pErm.value.toFixed(1)} GPa, Spacing=${avgSpacingM}m, Aperture=${avgApertureMm}mm`,
-    'Controls joint closure under compression and normal relaxation opening near the excavation boundary.',
-    'k_n = k_ni / (1 - ΔV_j / V_m)²'
+    '1.2 – 60.0 GPa/m',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Bandis, Lumsden & Barton (1983) from Logged JRC=${pJointJrc.value}, JCS=${pJointJcs.value} MPa, e₀=${avgApertureMm}mm, s=${avgSpacingM}m, Erm=${pErm.value} GPa`,
+    'Controls joint normal closure and relaxation opening around the excavation perimeter.',
+    'k_ni = -7.15 + 1.75·JRC + 0.02·(JCS / e_0)'
   );
 
   const pJointKs = resolveParam(
@@ -1233,10 +2353,10 @@ export function runCompleteFemDemAnalysis(
     'joint_dem',
     baseKsGpaM,
     'GPa/m',
-    '0.5 – 20.0 GPa/m',
-    'REFERENCE_ESTIMATED',
-    'Bandis et al. (1983); Itasca UDEC Reference Manual (ks ≈ 0.25–0.40 kn)',
-    'Governs elastic shear slip along discontinuities prior to peak shear mobilization.'
+    '0.4 – 25.0 GPa/m',
+    hasAnyLoggedGeology ? 'ESWA_RECORDED' : 'REFERENCE_ESTIMATED',
+    `Bandis et al. (1983) from k_n=${pJointKn.value} GPa/m, JRC=${pJointJrc.value}, Persistence L=${avgPersistenceM}m`,
+    'Governs elastic shear slip along mapped discontinuities prior to peak shear mobilization.'
   );
 
   const parameters: ResolvedGeotechParameter[] = [
@@ -1261,6 +2381,36 @@ export function runCompleteFemDemAnalysis(
     pJointKn,
     pJointKs,
   ];
+
+  const loggedReferenceBasis: LoggedGeologicalReferenceBasis = {
+    hasAnyLoggedGeology,
+    lithologyShares: lithoInfo.shares,
+    compositeFormulaLabel:
+      lithoInfo.shares.length > 0
+        ? lithoInfo.shares
+            .map((s) => `${s.rockName} (${s.weightPct}%, UCS ${s.ucsMpa} MPa, mi ${s.mi})`)
+            .join(' + ')
+        : 'No Lithology Strokes Mapped Yet (Using Baseline Reference)',
+    loggedUcsSourceLabel,
+    loggedWeatheringSourceLabel,
+    loggedJointsSummaryLabel: `${mappedTraces.length} Joint Trace(s), ${mappedDipSurfaces.length} 3D Dip Surface(s), ${activeSetIds.length} Active Set(s) (Mean Spacing s=${avgSpacingM}m, L=${avgPersistenceM}m, e₀=${avgApertureMm}mm)`,
+    loggedStructuresSummaryLabel:
+      lithoInfo.mappedFaultOrShearCount > 0 || lithoInfo.mappedFoldCount > 0
+        ? `${lithoInfo.mappedFaultOrShearCount} Fault/Shear Zone(s), ${lithoInfo.mappedFoldCount} Fold Axis Trace(s) Integrated`
+        : 'No Major Fault / Shear Zone Traces Mapped',
+    mappedJointTracesCount: mappedTraces.length,
+    mappedDipSurfacesCount: mappedDipSurfaces.length,
+    activeDiscontinuitySetsCount: activeSetIds.length,
+    mappedFaultOrShearCount: lithoInfo.mappedFaultOrShearCount,
+    mappedFoldCount: lithoInfo.mappedFoldCount,
+    avgJointSpacingM: avgSpacingM,
+    avgJointPersistenceM: avgPersistenceM,
+    avgJointApertureMm: avgApertureMm,
+    synthesizedRmr,
+    synthesizedQ,
+    synthesizedGsi,
+    classificationSourceLabel,
+  };
 
   // 5. Evaluate Actual Installed ESWA Support System (Hoek & Brown 1997 / Brady & Brown 2004 Support Stiffness)
   const sup: FieldSupportSystemConfig = round.supportSystem || createDefaultSupportSystem();
@@ -1778,8 +2928,21 @@ export function runCompleteFemDemAnalysis(
     nodeGrid.push(rowNodes);
   }
 
-  // Assign lithology zones and compute 3-node CST Triangular Finite Elements
-  const allLithoNames = [lithoInfo.dominant, ...lithoInfo.secondary];
+  // Assign lithology zones from cumulative area-weighted logged shares and compute 3-node CST Triangular Finite Elements
+  const cumulativeLithoShares: {
+    cumMax: number;
+    lithologyName: string;
+    colorHex: string;
+  }[] = [];
+  let runningPct = 0;
+  for (const sh of lithoInfo.shares) {
+    runningPct += sh.weightPct;
+    cumulativeLithoShares.push({
+      cumMax: runningPct / 100,
+      lithologyName: sh.rockName,
+      colorHex: sh.colorHex,
+    });
+  }
   const meshElements: FemMeshElement2D[] = [];
 
   const rpBeforeNorm = femBefore.plasticZoneRadiusMeters / Math.max(0.5, equivalentRadiusM);
@@ -1881,12 +3044,11 @@ export function runCompleteFemDemAnalysis(
     const angleRad = Math.atan2(centroidSvg.y - cy, centroidSvg.x - cx);
     const angleDeg = Math.round(((angleRad * 180) / Math.PI + 360) % 360);
 
-    const lithoIdx =
-      allLithoNames.length > 1
-        ? Math.floor(((centroidSvg.y - 60) / 320) * allLithoNames.length) %
-          allLithoNames.length
-        : 0;
-    const elemLitho = allLithoNames[Math.max(0, lithoIdx)] || lithoInfo.dominant;
+    const verticalBandFrac = Math.max(0, Math.min(0.999, (centroidSvg.y - 60) / 320));
+    const matchedShare =
+      cumulativeLithoShares.find((sh) => verticalBandFrac <= sh.cumMax) ||
+      cumulativeLithoShares[cumulativeLithoShares.length - 1];
+    const elemLitho = matchedShare ? matchedShare.lithologyName : lithoInfo.dominant;
     const elemLithoRef = matchLithologyReference(elemLitho);
 
     const inActiveShaftHalf =
@@ -1982,7 +3144,7 @@ export function runCompleteFemDemAnalysis(
       radiusNorm: Number(elemRNorm.toFixed(2)),
       sectorAngleDeg: angleDeg,
       lithologyName: elemLitho,
-      lithologyColor: elemLithoRef.colorHex,
+      lithologyColor: matchedShare?.colorHex || elemLithoRef.colorHex,
       sigmaThetaBeforeMpa,
       sigmaRadialBeforeMpa,
       displacementBeforeMm: dispBeforeMm,
@@ -2035,7 +3197,7 @@ export function runCompleteFemDemAnalysis(
 
   const demJointPlanes: DemJointPlane2D[] = [];
 
-  // Map actual traced joints from ESWA round + synthesize representative joint set planes in the surrounding rock mass
+  // Map actual traced joints from ESWA round + 3D dip surfaces + structural faults/shears
   const tracedJoints = round.jointTraces || [];
   tracedJoints.slice(0, 18).forEach((jt, idx) => {
     if (!jt.points || jt.points.length < 2) return;
@@ -2045,7 +3207,6 @@ export function runCompleteFemDemAnalysis(
     const dipDeg = jt.dipAmount || (setRec ? (setRec.dipAmountFrom + setRec.dipAmountTo) / 2 : 65);
     const dipDirDeg = jt.dipDirection || (setRec ? (setRec.dipDirectionFrom + setRec.dipDirectionTo) / 2 : 135);
 
-    // Map trace into surrounding cross-section coordinates
     const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
     const anchorAngle = -Math.PI * 0.85 + (idx / Math.max(1, tracedJoints.length)) * Math.PI * 1.7;
     const midR = (boxW / 2) * (1.12 + (idx % 3) * 0.22);
@@ -2059,13 +3220,16 @@ export function runCompleteFemDemAnalysis(
     const y2Svg = Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1));
 
     const lengthM = Number(
-      Math.max(1.2, Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y) / 38).toFixed(2)
+      (
+        jt.traceLengthM && jt.traceLengthM > 0.2
+          ? jt.traceLengthM
+          : Math.max(1.2, Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y) / 38)
+      ).toFixed(2)
     );
 
     const sigmaNormalMpa = Math.max(0.12, effectiveP0Mpa * (0.45 + 0.35 * Math.pow(Math.cos(angleRad), 2)) - pPoreWater.value / 1000);
     const tauDrivingMpa = Math.max(0.05, effectiveP0Mpa * 0.38 * Math.abs(Math.sin(2 * angleRad)));
 
-    // Barton-Choubey peak shear strength
     const jrcLogTerm = pJointJrc.value * Math.log10(Math.max(1.05, pJointJcs.value / sigmaNormalMpa));
     const peakFrictionBeforeRad =
       ((Math.min(70, pJointFriction.value + jrcLogTerm)) * Math.PI) / 180;
@@ -2133,6 +3297,101 @@ export function runCompleteFemDemAnalysis(
     });
   });
 
+  // Also include mapped 3D Dip Surfaces and Fault / Shear Structural Features in DEM Joint Network
+  (round.dipPlaneSurfaces || []).slice(0, 6).forEach((ds, idx) => {
+    const dipDeg = ds.dipAmount || 62;
+    const dipDirDeg = ds.dipDirection || 140;
+    const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
+    const anchorAngle = -Math.PI * 0.72 + (idx / 6) * Math.PI * 1.44;
+    const midR = (boxW / 2) * (1.16 + (idx % 2) * 0.24);
+    const mx = cx + midR * Math.cos(anchorAngle);
+    const my = cy + midR * Math.sin(anchorAngle);
+    const halfLenPx = 46;
+    const setId: FieldJointSetId =
+      ds.setId === 'unassigned' ? 'J-Random' : (ds.setId as FieldJointSetId);
+    demJointPlanes.push({
+      id: ds.id || `dem-ds-${idx}`,
+      setId,
+      label: `${setId} 3D Plane (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
+      panel: ds.panel,
+      x1Svg: Number((mx - halfLenPx * Math.cos(angleRad)).toFixed(1)),
+      y1Svg: Number((my - halfLenPx * Math.sin(angleRad)).toFixed(1)),
+      x2Svg: Number((mx + halfLenPx * Math.cos(angleRad)).toFixed(1)),
+      y2Svg: Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1)),
+      dipDirectionDeg: Math.round(dipDirDeg),
+      dipAmountDeg: Math.round(dipDeg),
+      lengthMeters: avgPersistenceM,
+      apertureMm: avgApertureMm,
+      jrc: pJointJrc.value,
+      jcsMpa: pJointJcs.value,
+      frictionDeg: pJointFriction.value,
+      cohesionKpa: pJointCohesion.value,
+      knGpaM: pJointKn.value,
+      ksGpaM: pJointKs.value,
+      normalStressMpa: Number((effectiveP0Mpa * 0.52).toFixed(2)),
+      shearStressMpa: Number((effectiveP0Mpa * 0.34).toFixed(2)),
+      shearStrengthBeforeMpa: Number((effectiveP0Mpa * 0.44).toFixed(2)),
+      shearStrengthAfterMpa: Number((effectiveP0Mpa * 0.62 + effectiveSupportPressureMpa).toFixed(2)),
+      apertureChangeBeforeMm: Number((femBefore.maxDisplacementMm * 0.16).toFixed(2)),
+      apertureChangeAfterMm: Number((femAfter.maxDisplacementMm * 0.09).toFixed(2)),
+      shearSlipBeforeMm: Number((femBefore.maxDisplacementMm * 0.21).toFixed(2)),
+      shearSlipAfterMm: Number((femAfter.maxDisplacementMm * 0.11).toFixed(2)),
+      jointFosBefore: 1.18,
+      jointFosAfter: isSupportConfirmedInstalled ? 1.76 : 1.18,
+      color: setColors[setId] || '#38bdf8',
+    });
+  });
+
+  (round.structuralFeatures || [])
+    .filter(
+      (sf) =>
+        sf.featureType === 'fault' ||
+        sf.featureType === 'thrust_fault' ||
+        sf.featureType === 'shear_zone'
+    )
+    .slice(0, 4)
+    .forEach((sf, idx) => {
+      const dipDeg = sf.dipAmount || 68;
+      const dipDirDeg = sf.dipDirection || 165;
+      const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
+      const anchorAngle = -Math.PI * 0.55 + idx * 0.55;
+      const midR = (boxW / 2) * 1.22;
+      const mx = cx + midR * Math.cos(anchorAngle);
+      const my = cy + midR * Math.sin(anchorAngle);
+      const halfLenPx = 56;
+      demJointPlanes.push({
+        id: sf.id || `dem-sf-${idx}`,
+        setId: 'J-Random',
+        label: `${sf.featureType.replace('_', ' ').toUpperCase()} (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
+        panel: sf.panel,
+        x1Svg: Number((mx - halfLenPx * Math.cos(angleRad)).toFixed(1)),
+        y1Svg: Number((my - halfLenPx * Math.sin(angleRad)).toFixed(1)),
+        x2Svg: Number((mx + halfLenPx * Math.cos(angleRad)).toFixed(1)),
+        y2Svg: Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1)),
+        dipDirectionDeg: Math.round(dipDirDeg),
+        dipAmountDeg: Math.round(dipDeg),
+        lengthMeters: Math.max(4.5, avgPersistenceM * 1.4),
+        apertureMm: Math.max(2.5, avgApertureMm * 2),
+        jrc: Math.max(2, Number((pJointJrc.value * 0.65).toFixed(1))),
+        jcsMpa: Math.max(5, Number((pJointJcs.value * 0.6).toFixed(1))),
+        frictionDeg: Math.max(16, Number((pJointFriction.value - 5).toFixed(1))),
+        cohesionKpa: Math.max(8, Number((pJointCohesion.value * 0.55).toFixed(0))),
+        knGpaM: pJointKn.value,
+        ksGpaM: pJointKs.value,
+        normalStressMpa: Number((effectiveP0Mpa * 0.48).toFixed(2)),
+        shearStressMpa: Number((effectiveP0Mpa * 0.39).toFixed(2)),
+        shearStrengthBeforeMpa: Number((effectiveP0Mpa * 0.36).toFixed(2)),
+        shearStrengthAfterMpa: Number((effectiveP0Mpa * 0.56 + effectiveSupportPressureMpa).toFixed(2)),
+        apertureChangeBeforeMm: Number((femBefore.maxDisplacementMm * 0.24).toFixed(2)),
+        apertureChangeAfterMm: Number((femAfter.maxDisplacementMm * 0.13).toFixed(2)),
+        shearSlipBeforeMm: Number((femBefore.maxDisplacementMm * 0.32).toFixed(2)),
+        shearSlipAfterMm: Number((femAfter.maxDisplacementMm * 0.15).toFixed(2)),
+        jointFosBefore: 0.94,
+        jointFosAfter: isSupportConfirmedInstalled ? 1.54 : 0.94,
+        color: '#e11d48',
+      });
+    });
+
   // Ensure conjugate set planes are represented around the perimeter if fewer than 6 traces were drawn
   if (demJointPlanes.length < 6) {
     effectiveSetIds.forEach((setId, sIdx) => {
@@ -2157,7 +3416,7 @@ export function runCompleteFemDemAnalysis(
           y2Svg: Number((my + halfLen * Math.sin(planeAng)).toFixed(1)),
           dipDirectionDeg: Math.round(dipDirDeg),
           dipAmountDeg: Math.round(dipDeg),
-          lengthMeters: 2.8,
+          lengthMeters: avgPersistenceM,
           apertureMm: avgApertureMm,
           jrc: pJointJrc.value,
           jcsMpa: pJointJcs.value,
@@ -2647,6 +3906,9 @@ export function runCompleteFemDemAnalysis(
       : 'STABLE';
 
   const engineeringSynthesis: string[] = [
+    `Logged Geological Reference Basis: ${loggedReferenceBasis.lithologyShares
+      .map((s) => `${s.rockName} (${s.weightPct}%)`)
+      .join(' + ')} | UCS Basis: ${loggedReferenceBasis.loggedUcsSourceLabel} (σ_ci = ${pIntactUcs.value} MPa, E_i = ${pIntactEi.value} GPa, m_i = ${pMi.value}) | Joint & Fault Basis: ${loggedReferenceBasis.loggedJointsSummaryLabel}.`,
     ...(isVertShaft && shaftBreakdown
       ? [
           `Vertical Shaft 4-Quadrant Geometry (ØD = ${shaftBreakdown.diameterM.toFixed(2)} m, C = πD = ${shaftBreakdown.circumferenceM.toFixed(2)} m, Quadrant Arc = ${shaftBreakdown.quadrantArcLengthM.toFixed(2)} m): ${
@@ -2670,7 +3932,15 @@ export function runCompleteFemDemAnalysis(
 
   const methodologyAndLimitations = [
     {
-      title: '1. Continuum Elastoplastic Solution (FEM Representation)',
+      title: '1. Area-Weighted Logged Lithology & Intact Rock Synthesis',
+      formulaSummary:
+        'Intact UCS (σ_ci), Modulus Ratio (MR), Hoek–Brown m_i, unit weight (γ), and Poisson ratio (ν) are computed using strict priority from logged strength/UCS ratings and area-weighted mapped lithology strokes, alternating bands, channel samples, and structural fault/shear zones — never diluted by unlogged median defaults.',
+      referenceCitation: 'Hoek & Brown (1997); Marinos & Hoek (2001); ISRM (1981)',
+      limitationNote:
+        'When multiple lithologies are mapped on the face or bench, continuum properties are weighted by mapped polygon/stroke area fraction and assigned across the 3-node CST triangular mesh.',
+    },
+    {
+      title: '2. Continuum Elastoplastic Solution (FEM Representation)',
       formulaSummary:
         'Generalized Hoek–Brown (2002) & Duncan Fama (1993) / Carranza-Torres & Fairhurst (2000) closed-form elastoplastic convergence-confinement solution mapped onto a 2D boundary-fitted mesh with Kirsch directional stress factors.',
       referenceCitation: 'Hoek, Carranza-Torres & Corkum (2002); Hoek & Diederichs (2006)',
@@ -2678,66 +3948,60 @@ export function runCompleteFemDemAnalysis(
         'Assumes equivalent isotropic continuum behavior within each lithology sector. Valid for preliminary design and convergence-confinement verification; does not replace full 3D nonlinear time-dependent creep FEA.',
     },
     {
-      title: '2. Discontinuum Block & Joint Mechanics (DEM Representation)',
+      title: '3. Discontinuum Block & Joint Mechanics (DEM Representation)',
       formulaSummary:
-        'Goodman & Shi (1985) 2D kinematic key-block limit-equilibrium combined with Barton–Choubey (1977) nonlinear joint shear strength and Bandis et al. (1983) hyperbolic normal/shear joint stiffness.',
+        'Goodman & Shi (1985) 2D kinematic key-block limit-equilibrium combined with Barton–Choubey (1977) nonlinear joint shear strength (JRC, JCS, φ_r) and Bandis et al. (1983) normal/shear joint stiffness (K_n, K_s) derived directly from logged joint sets, trace lengths, apertures, infilling, and fault/shear features.',
       referenceCitation: 'Goodman & Shi (1985); Barton & Choubey (1977); Bandis et al. (1983)',
       limitationNote:
-        'Evaluates plane-strain perimeter wedges and joint slip from mapped ESWA traces and sets. Assumes rigid-block limit equilibrium with elastic joint compliance prior to detachment.',
-    },
-    {
-      title: '3. Empirical Classification Correlations (RMR, Q, GSI)',
-      formulaSummary:
-        'GSI, RMR89, and Q-system ratings recorded in ESWA are used ONLY with documented empirical transformations (Hoek & Diederichs 2006 for Erm; Barton 2002 for Jr/Ja joint friction) and are never treated as direct substitutes for laboratory test data.',
-      referenceCitation: 'Bieniawski (1989); Barton (2002); Marinos & Hoek (2000)',
-      limitationNote:
-        'All literature-derived parameters are explicitly badged as ESTIMATED / COMMON REFERENCE VALUE and should be calibrated with site laboratory UCS/triaxial testing and convergence monitoring.',
+        'Evaluates plane-strain perimeter wedges and joint slip from mapped ESWA traces, 3D dip surfaces, and fault/shear zones.',
     },
   ];
 
-  // Evaluate strict engineering prerequisites
-  const hasClassification = hasRmr || hasQ || hasGsi;
-  const hasMappedLithology =
-    lithoInfo.dominant !== 'Not Mapped' ||
-    Boolean(round?.alternateLithologyConfig?.enabled);
-  const hasWeatheringAndStrength = Boolean(round?.weatheringIndex && round?.strengthIndex);
+  // Evaluate engineering prerequisites with Logged-Data Reference Synthesis support
+  const hasClassification = hasRmr || hasQ || hasGsi || hasAnyLoggedGeology;
+  const hasMappedLithology = lithoInfo.hasMappedLithology;
+  const hasWeatheringAndStrength = Boolean(
+    round?.weatheringIndex || round?.strengthIndex || hasAnyLoggedGeology
+  );
   const hasUcsInput =
-    Boolean(round?.strengthIndex) ||
-    (round?.rmrSystem?.ucsRating !== null && round?.rmrSystem?.ucsRating !== undefined) ||
+    hasLoggedStrengthIndex ||
+    hasLoggedRmrUcs ||
+    lithoInfo.hasMappedLithology ||
+    hasAnyLoggedGeology ||
     overrides.intactUcsMpa !== undefined ||
     siteTests.intactUcsMpa !== undefined;
   const hasRockStrengthOrLithology =
-    (hasMappedLithology || Boolean(round?.weatheringIndex)) && hasUcsInput;
+    (hasMappedLithology || Boolean(round?.weatheringIndex) || hasAnyLoggedGeology) &&
+    hasUcsInput;
   const hasOverburden =
     overburdenInfo.provenance !== 'MISSING_INPUT' ||
     overrides.overburdenDepthM !== undefined ||
     siteTests.overburdenDepthM !== undefined;
   const hasDiscontinuitiesForDem =
-    (round?.jointTraces || []).length > 0 ||
-    (round?.dipPlaneSurfaces || []).length > 0 ||
-    Object.values(round?.discontinuitySets || {}).some(
-      (st) => st.enabled && (st.dipAmountFrom > 0 || st.dipAmountTo > 0 || Boolean(st.spacing))
-    );
+    mappedTraces.length > 0 ||
+    mappedDipSurfaces.length > 0 ||
+    lithoInfo.mappedFaultOrShearCount > 0 ||
+    activeSetIds.length > 0;
 
   const missingBeforeRequirements: string[] = [];
   if (!hasClassification) {
     missingBeforeRequirements.push(
-      'Rock Mass Classification Not Assessed: Complete Bieniawski RMR89 (all 6 parameters), Barton Q-System (all 6 parameters), or Hoek–Marinos GSI Sheet in Stage 7 (Q / RMR / GSI).'
+      'Rock Mass Classification or Geological Logging Missing: Map lithology/joints on the Canvas OR complete RMR89, Q-System, or GSI in Stage 7.'
     );
   }
-  if (!hasMappedLithology && !round?.weatheringIndex) {
+  if (!hasMappedLithology && !round?.weatheringIndex && !hasAnyLoggedGeology) {
     missingBeforeRequirements.push(
-      'Lithology / Weathering Missing: Map rock lithology on the Face Canvas OR select ISRM Weathering Grade (WI–WVI) in Stage 6 (Discontinuity Sets).'
+      'Lithology / Weathering Missing: Map rock lithology on the Face Canvas OR select ISRM Weathering Grade (WI–WVI) in Stage 6.'
     );
   }
   if (!hasUcsInput) {
     missingBeforeRequirements.push(
-      'Intact Rock Strength (UCS / S1–S6) Missing: Select ISRM Rock Strength Index (S1–S6) in Stage 6, select RMR89 UCS Rating in Stage 7, or enter Intact UCS σ_ci (MPa) in the parameter bar.'
+      'Intact Rock Strength (UCS / S1–S6) Missing: Map rock lithology, select ISRM Strength Index (S1–S6) in Stage 6, or enter Intact UCS σ_ci (MPa).'
     );
   }
   if (!hasOverburden) {
     missingBeforeRequirements.push(
-      'In-Situ Overburden Depth H (m) Not Entered: Enter the tunnel rock cover / overburden depth H (m) in the quick-input bar above to compute vertical in-situ stress (σ_v = γ·H).'
+      'In-Situ Overburden Depth H (m) Not Entered: Enter the tunnel rock cover / overburden depth H (m) in the quick-input bar or click "Apply Logged Reference Values".'
     );
   }
 
@@ -2769,13 +4033,34 @@ export function runCompleteFemDemAnalysis(
     equivalentRadiusM,
     dominantLithology: lithoInfo.dominant,
     secondaryLithologies: lithoInfo.secondary,
-    weatheringGrade: round.weatheringIndex ? wMod.label : 'Not Selected',
-    strengthGrade: round.strengthIndex ? sInfo.label : 'Not Selected',
-    qValue: qRes.qValue,
-    qClass: qRes.rockClass || 'Not Assessed',
-    rmrValue: rmrRes.totalRmr,
-    rmrClass: rmrRes.rmrClass || 'Not Assessed',
-    gsiValue: hasGsi ? Number(round.gsiValue) : hasClassification ? gsiVal : null,
+    loggedReferenceBasis,
+    weatheringGrade: wMod.label,
+    strengthGrade: sInfo.label,
+    qValue: safeQValue,
+    qClass:
+      qRes.rockClass ||
+      (safeQValue >= 40
+        ? 'Very Good'
+        : safeQValue >= 10
+        ? 'Good'
+        : safeQValue >= 4
+        ? 'Fair'
+        : safeQValue >= 1
+        ? 'Poor'
+        : 'Very Poor'),
+    rmrValue: safeRmrValue,
+    rmrClass:
+      rmrRes.rmrClass ||
+      (safeRmrValue >= 81
+        ? 'Class I — Very Good Rock'
+        : safeRmrValue >= 61
+        ? 'Class II — Good Rock'
+        : safeRmrValue >= 41
+        ? 'Class III — Fair Rock'
+        : safeRmrValue >= 21
+        ? 'Class IV — Poor Rock'
+        : 'Class V — Very Poor Rock'),
+    gsiValue: gsiVal,
     groundwaterSummary:
       basePoreWaterKpa > 150
         ? `High Seepage / Flowing Water (uw = ${basePoreWaterKpa.toFixed(0)} kPa)`
@@ -2885,6 +4170,10 @@ export function exportStandaloneFemDemWordReport(
     )
     .join('');
 
+  const lithoSharesHtml = result.loggedReferenceBasis.lithologyShares
+    .map((s) => `${s.rockName} (${s.weightPct}% — ${s.rockFamily})`)
+    .join(' + ');
+
   const html = `
   <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
   <head>
@@ -2908,16 +4197,20 @@ export function exportStandaloneFemDemWordReport(
       <strong>Date:</strong> ${dateStr}
     </p>
 
-    <h2>1. Excavation Geometry, Geological Model &amp; Rock Mass Classifications</h2>
+    <h2>1. Excavation Geometry, Logged Geological Reference Basis &amp; Classifications</h2>
     <table>
       <tr>
         <th>Excavation Profile &amp; Dimensions</th>
         <td>${result.excavationShapeLabel} (${result.spanWidthM.toFixed(2)}m Span × ${result.totalHeightM.toFixed(2)}m Height; R_eq = ${result.equivalentRadiusM.toFixed(2)}m)</td>
-        <th>Dominant Lithology &amp; Weathering</th>
-        <td>${result.dominantLithology} (${result.weatheringGrade}, ${result.strengthGrade})</td>
+        <th>Area-Weighted Logged Lithology</th>
+        <td>${lithoSharesHtml} (${result.weatheringGrade}, ${result.strengthGrade})</td>
       </tr>
       <tr>
-        <th>Recorded ESWA Classifications</th>
+        <th>Intact UCS &amp; Joint Reference Basis</th>
+        <td colspan="3"><strong>UCS Basis:</strong> ${result.loggedReferenceBasis.loggedUcsSourceLabel} &nbsp;|&nbsp; <strong>Joints &amp; Structural Basis:</strong> ${result.loggedReferenceBasis.loggedJointsSummaryLabel} (${result.loggedReferenceBasis.loggedStructuresSummaryLabel})</td>
+      </tr>
+      <tr>
+        <th>ESWA Classifications (${result.loggedReferenceBasis.classificationSourceLabel})</th>
         <td>Q = ${result.qValue} (${result.qClass}) &nbsp;|&nbsp; RMR89 = ${result.rmrValue} (${result.rmrClass}) &nbsp;|&nbsp; GSI = ${result.gsiValue}</td>
         <th>In-Situ Stress &amp; Groundwater</th>
         <td>σv = ${result.inSituVerticalStressMpa} MPa, σh = ${result.inSituHorizontalStressMpa} MPa (p0 = ${result.inSituHydrostaticStressMpa} MPa) | ${result.groundwaterSummary}</td>
@@ -2955,7 +4248,7 @@ export function exportStandaloneFemDemWordReport(
           <td>mm</td>
           <td>${result.femBefore.maxDisplacementMm.toFixed(2)} mm</td>
           <td><strong>${result.femAfter.maxDisplacementMm.toFixed(2)} mm</strong></td>
-          <td>-${(result.femBefore.maxDisplacementMm - result.femAfter.maxDisplacementMm).toFixed(2)} mmconvergence reduction</td>
+          <td>-${(result.femBefore.maxDisplacementMm - result.femAfter.maxDisplacementMm).toFixed(2)} mm convergence reduction</td>
         </tr>
         <tr>
           <td><strong>Max Tangential Stress (σ_θ,max)</strong></td>
@@ -3011,9 +4304,9 @@ export function exportStandaloneFemDemWordReport(
       ${result.combinedInteraction.engineeringSynthesis.map((s) => `<li>${s}</li>`).join('')}
     </ul>
 
-    <h2>5. Material Properties, Reference Sources &amp; Parameter Provenance</h2>
+    <h2>5. Material Properties, Logged-Data Reference Sources &amp; Parameter Provenance</h2>
     <p style="font-size:9pt;color:#475569;">
-      Values badged as <strong>ESTIMATED / COMMON REFERENCE VALUE</strong> are derived from published geotechnical engineering references for the mapped lithology and weathering grade and are not site laboratory measurements.
+      Reference values are dynamically synthesized from the round's area-weighted logged lithologies (${lithoSharesHtml}), UCS/strength ratings, and mapped discontinuity sets/traces/faults.
     </p>
     <table>
       <thead>

@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the standalone ESWA Geological Mapper Product Showcase & Software Download Website (/website) with Netlify deployment configuration, strict UI isolation from the mapping software, direct Windows .exe and Android .apk downloads, release notes & SHA-256 verification, License Request form, and Top Master Login for uploading and publishing updated software binaries and app releases.",
-  "updatedAt":  "2026-11-01T13:28:20.754132268Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan to replace generic median/fallback FEM & DEM reference values with a strict Logged-Data Geotechnical Reference Engine across Underground Mapping (Tunnel & Vertical Shaft) and Surface Mapping. Derives all 20 continuum (FEM) and discontinuum (DEM) parameters directly from area-weighted logged lithologies, logged UCS/weathering, mapped joint traces/3D dip surfaces/discontinuity sets, and structural fault/shear zones, with auto-population and one-click Apply Logged Reference Values controls.",
+  "updatedAt": "2026-11-03T18:55:33.261475922Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

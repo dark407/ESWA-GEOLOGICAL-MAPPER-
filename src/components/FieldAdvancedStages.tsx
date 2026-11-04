@@ -9793,10 +9793,14 @@ export const FieldSurveyOverbreakStage: React.FC<{
           <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div>
               <div className="text-xs font-black uppercase text-cyan-400">
-                Tunnel Face Survey Point Locator (Click to Locate Points &amp; Connect Overbreak Trace)
+                {isVertShaft
+                  ? 'Vertical Shaft Sump & Perimeter Survey Point Locator (Click to Locate Points & Connect Overbreak Trace)'
+                  : 'Tunnel Face Survey Point Locator (Click to Locate Points & Connect Overbreak Trace)'}
               </div>
               <div className="text-[11px] text-slate-400">
-                Click around the tunnel face perimeter to locate surveyed excavation points. They automatically connect to compute Overbreak Area &amp; Amount.
+                {isVertShaft
+                  ? 'Click around the circular shaft perimeter (Q1 NE 0°–90°, Q2 ES 90°–180°, Q3 SW 180°–270°, Q4 WN 270°–360°) to locate surveyed excavation points.'
+                  : 'Click around the tunnel face perimeter to locate surveyed excavation points. They automatically connect to compute Overbreak Area & Amount.'}
               </div>
             </div>
             <div className="flex items-center gap-1.5">

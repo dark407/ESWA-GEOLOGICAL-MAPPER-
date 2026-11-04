@@ -1,104 +1,56 @@
-# ESWA Geological Mapper — Standalone Software Download Website & Master Release Portal
+# Logged-Data Geotechnical Reference Value Engine for FEM & DEM Analysis (Underground & Surface Mapping)
 
-This plan outlines the architecture and user experience for a dedicated **Product Showcase & Software Distribution Website** that operates as an independent link (`/website` and standalone Netlify deployment) with **zero navigation or UI connection** into the live geological mapping software, while featuring a **Top Master Login** so the owner can upload and publish updated Windows `.exe` and Android `.apk` releases directly from the website.
-
----
-
-## User Review & Critical Decisions
-
-- **Strict Decoupling from the Mapper Application**: Visiting the website link (`/website`, `?site=website`, or a standalone Netlify deployment) renders **only** the public software showcase and download portal. There are no "Launch Web App" buttons, workspace sidebars, or back-links into the NATM/TBM/Mining mapping workspace.
-- **Top Bar Master Login & Live Binary/Release Upload**: A **Master Login** button in the top navigation bar authenticates the Master Owner (`akashdhanusheswar@gmail.com`) via Google Sign-In or Master Passcode. Once logged in on the website, the owner can upload new Windows Desktop (`.exe`) and Android (`.apk`) release packages (or attach direct release URLs), automatically compute SHA-256 checksums and file sizes in-browser, edit version numbers and release notes, and publish updates immediately to all website visitors.
-- **Free Netlify Ready + One-Click Standalone Bundle**: Includes a root `netlify.toml` configuration for free Netlify hosting, plus a built-in **"Export Standalone Netlify Website ZIP"** tool inside the Website Master Console so the website can also be dragged-and-dropped onto Netlify Drop as a 100% separate project at any time.
+## 1. Objective & Root Cause Resolution
+Currently, the FEM & DEM numerical analysis engine (`src/engine/femDemAnalysisEngine.ts`) and stage workspace (`src/components/FieldFemDemAnalysisStage.tsx`) suffer from a critical engineering flaw when resolving **Common Reference Values**:
+- **Unmapped / Unmatched Fallback to Generic Median Values**: When `round.strengthIndex` or `round.weatheringIndex` is not explicitly clicked, or when a mapped lithology stroke uses a catalog ID (e.g., `'1_granite'`, `'24_quartz_mica_schist'`, `'48_fault_gouge'`), the engine falls back to hardcoded median defaults (`S3 = 72 MPa`, `RMR UCS Rating 7 = 75 MPa`, `WII`, `Granite`) and blends `0.6 * S3 + 0.4 * lithoRef`, producing generic medium numbers instead of values grounded in the actual logged rock types, UCS, and joint features.
+- **Ignoring Area-Weighted Multi-Lithology & Vein/Fault Zones**: When multiple rock units, vein/foliation bands, or fault/shear zones are mapped on the face/walls/crown/slope, the reference values do not weight properties by mapped stroke area/coverage or account for fault/shear weakening.
+- **Discontinuum (DEM) Joint Reference Values Disconnected from Mapped Traces & Faults**: Joint parameters ($JRC$, $JCS$, $\phi_b$, $c_j$, $e_0$, $K_n$, $K_s$) were using static baselines instead of synthesizing all logged discontinuity sets (`round.discontinuitySets`), mapped 2D joint traces (`round.jointTraces`), 3D dip plane surfaces (`round.dipPlaneSurfaces`), and structural features (`round.structuralFeatures` such as Faults, Shear Zones, and Fold Axes).
 
 ---
 
-## 1. Overview & Core Concept
+## 2. Architecture of the Logged-Data Reference Value Engine
 
-The **ESWA Geological Mapper Distribution Website** serves as the official public portal where engineering geologists, tunneling contractors, and mining teams can inspect software capabilities, verify package integrity, request software access licenses, and download the latest Windows Desktop (`.exe`) and Android Field Tablet (`.apk`) builds.
+### A. Full-Catalog Area-Weighted Lithology & Structural Zone Resolver (`src/engine/femDemAnalysisEngine.ts`)
+1. **Complete Catalog Resolution**:
+   - Map every rock type and ID in `FIELD_LITHOLOGY_CATALOG` and `FIELD_VEIN_AND_FOLIATION_CATALOG` (plus custom/remembered rocks in `round.alternateLithologyConfig` and project memory) to rigorous published geotechnical properties ($\gamma$, $\sigma_{ci}$, $m_i$, $MR$, $E_i$, $\nu$, $\sigma_t$, base $\phi_b$, and base $JRC$).
+2. **Area-Weighted Composite Lithology Calculation**:
+   - Compute the relative polygon/stroke coverage weight ($w_k$, $\sum w_k = 1.0$) of every logged lithology stroke across the active excavation panels (Face, Left Wall, Right Wall, Crown, Shaft 360° Quadrants, or Surface Slope).
+   - Incorporate `round.alternateLithologyConfig` (interbedded / alternate rock percentages) and `round.structuralFeatures` (Faults / Shear Zones / Breccia bands) into the weighted rock mass composite.
+   - Calculate the **Area-Weighted Logged Reference Baseline** for Unit Weight ($\gamma$), Intact UCS ($\sigma_{ci}$), Hoek–Brown Constant ($m_i$), Modulus Ratio ($MR$), Intact Modulus ($E_i = MR \cdot \sigma_{ci}$), Poisson's Ratio ($\nu$), and Tensile Strength ($\sigma_t$).
 
-For the software owner, the website acts as a self-contained **Release Management & Distribution Hub**: logging in via the top-right **Master Login** button unlocks an inline release publisher to upload updated `.exe` and `.apk` installers, post version changelogs, and manage incoming software license requests without ever leaving the website.
+### B. Strict Logged-Data Priority for Intact UCS ($\sigma_{ci}$), Weathering, and Classifications
+1. **Strict Priority Hierarchy (Zero Generic S3/72 MPa Blending)**:
+   - **Priority 1**: Engineer explicit test/override value (`siteTestMeasurements.intactUcsMpa` or `parameterOverrides.intactUcsMpa`).
+   - **Priority 2**: Logged ISRM Strength Index (`S1`–`S6`) and/or RMR89 UCS Rating (`round.rmrSystem.ucsRating`), refined within the band using the area-weighted logged lithology UCS and logged Weathering Grade (`WI`–`WVI`) rather than averaging with an unlogged `72 MPa` default.
+   - **Priority 3**: Area-weighted logged lithology UCS adjusted by logged Weathering Grade (or weathering inferred from logged discontinuity set weathering / Q-system $J_a$ rating if `weatheringIndex` was not separately clicked).
+2. **Automatic Classification Synthesis When Partially Logged**:
+   - If the user has logged lithology, joint traces/sets, and UCS/weathering, automatically compute a **Logged-Data Reference RMR89, Q, and GSI** from the mapped volumetric joint density ($J_v \rightarrow RQD$), logged joint spacing/persistence/roughness/infilling, logged UCS, and logged water marks so that Rock Mass Modulus ($E_{rm}$), Hoek–Brown ($m_b, s, a, \sigma_{cm}$), and Mohr–Coulomb ($c_{rm}, \phi_{rm}$) are 100% derived from the round's logged geological data.
 
----
-
-## 2. User Experience & Visual Design
-
-The interface follows a high-craft **Industrial Geotechnical & Precision Engineering** aesthetic designed for clarity, engineering trust, and fast binary downloads:
-
-- **Color & Atmospheric Polarity (60-30-10 Rule)**:
-  - **60% Primary Canvas**: Deep obsidian slate (`#0A0E17`) providing high-contrast legibility for technical specifications and release data.
-  - **30% Secondary Surfaces**: Structured dark basalt cards (`#111827`) with subtle `1px solid` hairline borders (`rgba(148, 163, 184, 0.14)`) and zero heavy drop shadows.
-  - **10% Focused Accent**: Survey safety amber (`#F59E0B`) for primary download actions and active version highlights, paired with emerald (`#10B981`) for verified SHA-256 integrity indicators.
-- **Typography & Scannable Hierarchy**:
-  - **Display & Headings**: `Plus Jakarta Sans` (`clamp(2.25rem, 4vw, 3.75rem)`, `tracking-tight`) for clear engineering propositions.
-  - **Body Copy**: `Plus Jakarta Sans` (`16px`, `leading-relaxed`) constrained to `65ch` max width for effortless reading.
-  - **Technical Metadata & Checksums**: `JetBrains Mono` with `tabular-nums` for version numbers (`v2.4.0`), file sizes (`84.6 MB`), release timestamps, and full 64-character SHA-256 hashes.
-- **Top Navigation Bar (3-Zone Contract)**:
-  - **Left**: Clean `ESWA GEOTECH` brand wordmark (no subtitle clutter or floating stat pills).
-  - **Center**: 4 concise text navigation links (`Downloads`, `Capabilities`, `Release Notes`, `Installation & Access`).
-  - **Right**: Single primary administrative action (`Master Login` button, which switches to `Master Release Console • Online` when the owner is authenticated).
-- **Section Flow & Visual Storytelling**:
-  1. **Hero & Direct Download Deck**: High-impact proposition paired with two side-by-side primary download cards:
-     - **Windows Desktop Workstation (`.exe` — 64-bit Windows 10/11)** with one-click download, active version number, release date, file size, and copyable SHA-256 checksum.
-     - **Android Field Tablet & Mobile Edition (`.apk` — Android 10+)** with one-click download, active version number, release date, file size, and copyable SHA-256 checksum.
-  2. **Core Engineering Capabilities (Asymmetric Bento Grid)**: Numbered editorial breakdown (`01. NATM Underground Face Mapping`, `02. TBM Segmental & Cutterhead Logging`, `03. Exploration Core Logging & RQD Analytics`, `04. 3D Geotechnical Rib & Stereonet Engine`) with concrete technical specifications and zero generic buzzwords.
-  3. **Release Notes & Version Checksum Ledger**: Structured tabular changelog showing current and historical releases, what changed in each build, and verifiable SHA-256 checksums.
-  4. **Installation Guide & System Requirements**: Step-by-step instructions for Windows SmartScreen verification, Android APK sideload permissions, and offline field synchronization.
-  5. **License & Software Access Request Form**: Validated lead capture form (Full Name, Organization/Project, Official Email, Target Platform, and Deployment Scope) that submits directly to the Master Portal's access request queue with instant confirmation feedback.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Complete Isolation Between Website and Software**:
-  - *Decision*: Route resolution checks `/website` (or `?site=website` or `VITE_WEBSITE_ONLY=true`) at the root router level and mounts only the standalone Website component tree.
-  - *Rationale*: Ensures customers visiting the download link only experience the public marketing and download portal with no accidental entry into the mapping software UI.
-- **Hybrid Binary Hosting (Direct Cloud/Local Upload + External High-Speed Release URL)**:
-  - *Decision*: The Master Release Upload modal supports both **Direct File Upload** (selecting a `.exe` or `.apk` file from the owner's computer, automatically calculating its exact byte size and SHA-256 hash via Web Crypto API, and storing the package for immediate download) and **Direct Release Binary URL** (for large multi-hundred-megabyte installers hosted on GitHub Releases, Google Drive direct links, or CDN buckets while still auto-computing or recording the SHA-256 checksum).
-  - *Rationale*: Gives the owner instant drag-and-drop file upload convenience for standard packages while supporting unlimited file sizes for heavy desktop installers on free Netlify hosting.
-- **Persistent Real-Time Synchronization**:
-  - *Decision*: All release publications, uploaded binary metadata, changelogs, and license requests are persisted in Firestore (`website_config/current_release`, `website_releases`, and `access_requests`) with local IndexedDB caching fallback.
-  - *Rationale*: Whenever the Master Owner logs into the website and uploads a new `.exe` or `.apk` version, every visitor loading the website link immediately sees the updated version number, release notes, and download file in real time.
+### C. Joint & Fault/Shear Feature Derivation for DEM & Rock Mass Parameters
+1. **Unified Discontinuity & Structural Feature Aggregator**:
+   - Aggregate data from all four logged structural sources in the round:
+     - `round.discontinuitySets` (J1, J2, J3, J4, Bedding/Foliation: spacing, length/persistence, aperture, roughness, infilling, weathering, groundwater).
+     - `round.jointTraces` (mapped trace lengths, set assignments, dip/dip-direction, panel locations).
+     - `round.dipPlaneSurfaces` (3D dip facets, strike/dip).
+     - `round.structuralFeatures` (Faults, Shear Zones, Fold Axes — applying gouge/shear reductions to $JRC$, $\phi_r$, $c_j$, and stiffness $K_n, K_s$).
+2. **Physics-Based Derivation of All 7 DEM Parameters**:
+   - **Joint Roughness ($JRC$)**: Weighted from logged set roughness classes (`Very Rough` $\rightarrow 17$, `Rough` $\rightarrow 13$, `Slightly Rough` $\rightarrow 9$, `Smooth` $\rightarrow 5$, `Slickensided` $\rightarrow 2$), Q-system $J_r$, RMR roughness sub-rating, and reduced where shear/fault features are mapped.
+   - **Joint Wall Strength ($JCS$)**: Derived from the logged intact UCS ($\sigma_{ci}$), logged joint wall weathering, and Barton–Choubey weathering reduction factor.
+   - **Basic / Residual Friction Angle ($\phi_b / \phi_r$)**: Derived from the area-weighted lithology mineral friction angle, adjusted by logged $J_r / J_a$ (`atan(Jr/Ja)`), clay/chlorite/gouge infilling, and weathering ratio $(JCS / \sigma_{ci})$.
+   - **Joint Cohesion ($c_j$) & Aperture ($e_0$)**: Derived directly from logged aperture categories (`<0.1mm Tight` to `>5mm Wide`), logged infilling type (`None/Clean`, `Quartz/Calcite Healed`, `Hard Non-Softening`, `Soft Clay/Gouge`), trace persistence, and fault/shear presence.
+   - **Joint Normal ($K_n$) & Shear Stiffness ($K_s$)**: Computed via Bandis et al. (1983) hyperbolic stiffness equations using the logged $E_{rm}$, logged mean joint spacing, derived aperture $e_0$, $JCS$, and $JRC$.
+3. **Stress & Hydraulic Reference Derivation (Underground & Surface)**:
+   - **Overburden / Slope Height ($H$)**: Derived from logged chainage/elevation/cover metadata, or for Surface Mapping (`mappingDomain === 'SURFACE'`) directly from `surfaceParams.slopeHeightM`, and for Vertical Shaft from shaft depth/chainage (`round.chainageTo`).
+   - **Horizontal-to-Vertical Stress Ratio ($K_0$)**: Derived from Sheorey (1994) thermo-elastic crustal stress equation $K_0 = 0.25 + 7 E_h (0.001 + 1/H)$ using the logged rock mass horizontal modulus $E_h$ (and tectonic fault/fold adjustment when structural features are mapped).
+   - **Joint Pore Water Pressure ($u_w$)**: Derived from mapped water seepage symbols (`round.waterMarks`), discontinuity set groundwater state (`Dry`, `Damp`, `Wet`, `Dripping`, `Flowing`), RMR groundwater rating, and Q-system $J_w$.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     PUBLIC VISITORS (/website Link)                     │
-│  ┌───────────────────┐  ┌────────────────────┐  ┌────────────────────┐  │
-│  │ Windows .EXE Card │  │ Android .APK Card  │  │ License Request UI │  │
-│  │ (Direct Download) │  │ (Direct Download)  │  │ (Validated Form)   │  │
-│  └─────────┬─────────┘  └─────────┬──────────┘  └─────────┬──────────┘  │
-└────────────┼──────────────────────┼───────────────────────┼─────────────┘
-             │                      │                       │
-             ▼                      ▼                       ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                REAL-TIME RELEASE & DISTRIBUTION ENGINE                  │
-│  • Firestore `website_releases` & Chunked Binary / URL Storage          │
-│  • Web Crypto API (`crypto.subtle.digest('SHA-256')`) Checksum Verifier │
-│  • Firestore `access_requests` Queue (Synced with Master Access Portal) │
-└───────────────────────────────────▲─────────────────────────────────────┘
-                                    │
-┌───────────────────────────────────┴─────────────────────────────────────┐
-│              TOP BAR MASTER LOGIN & RELEASE UPLOAD CONSOLE              │
-│  • Authenticated Master Owner (`akashdhanusheswar@gmail.com`)           │
-│  • Drag & Drop .EXE / .APK Uploader + Auto SHA-256 & Size Calculator    │
-│  • Version Publisher, Changelog Editor & Standalone Netlify ZIP Export  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-1. **Isolated Website Router & Netlify Configuration**:
-   - Configure `RootApplicationRouter` so `/website` (and `?site=website`) renders the standalone `ProductDownloadWebsite` module with its own document title, SEO meta tags, and zero imports from the mapping workspace.
-   - Add `netlify.toml` with SPA rewrite rules and cache headers so deploying to free Netlify serves the application cleanly.
-2. **Master Authentication & Release Upload Console**:
-   - Clicking **Master Login** in the website top bar opens a dedicated authentication modal supporting Master Google Sign-In (`akashdhanusheswar@gmail.com`) and Master Passcode verification.
-   - Once authenticated, the owner accesses the **Master Release Publisher Drawer** right on the website to:
-     - Upload a new `.exe` Windows installer or `.apk` Android package from disk (computing exact file size and SHA-256 hash automatically via `crypto.subtle.digest`) or bind a high-speed direct binary URL.
-     - Set version tags (e.g., `v2.5.0`), release date, minimum OS requirements, and structured release notes.
-     - View and approve/manage incoming License & Access Requests submitted through the website form.
-     - Export a ready-to-deploy standalone Netlify website folder/ZIP for independent hosting.
-3. **Firestore Schema & Security Rules**:
-   - Public read access on `website_releases` so any visitor on the website link can view the latest version info and download the published `.exe` and `.apk` builds without logging in.
-   - Master-only write permissions (`isAdmin()`) on `website_releases` so only the Master Owner can upload new software builds or modify download links.
-   - Validated public create access on `website_license_requests` so prospective users can submit access requests from the website.
+## 3. UI & Workflow Enhancements (`src/components/FieldFemDemAnalysisStage.tsx`)
+1. **Logged-Data Reference Basis Banner & Breakdown**:
+   - Display a clear **"Logged Geological Basis"** summary strip showing the exact area-weighted lithologies (e.g., `68% Quartz-Mica Schist + 22% Quartzite + 10% Shear Zone`), logged UCS source, mapped joint trace/set count, and structural features driving the reference values.
+2. **Auto-Population + One-Click "Apply Logged-Data Reference Values" Button**:
+   - All `defaultReferenceValue` and automatic parameter values (`value`) in both **Underground Mapping (Tunnel & Shaft)** and **Surface Mapping** automatically reflect the logged-data calculation.
+   - Add a one-click **"Apply Logged-Data Reference Values"** button in both the Top Control Bar, the Prerequisite Gate card (allowing instant unlocking of missing Overburden/UCS/Classification using the round's logged lithology and joint data), and the Parameters panel/modal, plus a per-parameter **"Use Logged Ref"** button on any overridden card.
+3. **Continuous 3D Strip & Standalone Report Sync**:
+   - Ensure `FieldFemDemReportEmbedSection` and `exportStandaloneFemDemWordReport` cite the exact logged lithology percentages, joint sets/traces, and UCS basis for every parameter.

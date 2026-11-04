@@ -125,9 +125,21 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
         const maxR = Math.max(...loc.rounds.map((r) => r.toRd));
         setSyncFromRd(minR);
         setSyncToRd(Math.max(minR + 2, maxR));
+        // Automatically compile/sync latest drawn traces, lithologies & water symbols when modal opens
+        if (isOpen && !propDataset) {
+          const autoCompiled = compileContinuousDatasetFromFieldAndSavedRecords({
+            excavationMode: syncExcavationMode,
+            projectItem: proj,
+            locationItem: loc,
+            fromRd: minR,
+            toRd: Math.max(minR + 2, maxR),
+            existingDataset: localDataset,
+          });
+          setLocalDataset(autoCompiled);
+        }
       }
     }
-  }, [syncExcavationMode, projectList]);
+  }, [syncExcavationMode, projectList, isOpen]);
 
   const activeSyncProject = useMemo<UnifiedContinuousProjectItem | null>(
     () => projectList.find((p) => p.id === selectedProjectId) || projectList[0] || null,
@@ -414,25 +426,57 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
               </select>
             </div>
 
-            {activeWizardStage === 6 && (
-              <>
-                <button
-                  onClick={() => exportContinuousTunnelLogAsA3Pdf(dataset)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow transition-all cursor-pointer"
-                  title="Download standalone 400-DPI ISO A3 Landscape PDF file"
-                >
-                  <Download className="w-4 h-4" />
-                  Download A3 PDF (400 DPI)
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all cursor-pointer"
-                >
-                  <Printer className="w-4 h-4" />
-                  Print A3 Landscape PDF
-                </button>
-              </>
-            )}
+            <button
+              onClick={() => {
+                if (activeSyncProject && activeSyncLocation) {
+                  const minR =
+                    activeSyncLocation.rounds.length > 0
+                      ? Math.min(...activeSyncLocation.rounds.map((r) => r.fromRd))
+                      : syncFromRd;
+                  const maxR =
+                    activeSyncLocation.rounds.length > 0
+                      ? Math.max(...activeSyncLocation.rounds.map((r) => r.toRd))
+                      : syncToRd;
+                  const compiled = compileContinuousDatasetFromFieldAndSavedRecords({
+                    excavationMode: syncExcavationMode,
+                    projectItem: activeSyncProject,
+                    locationItem: activeSyncLocation,
+                    fromRd: Math.min(minR, maxR),
+                    toRd: Math.max(minR + 0.5, maxR),
+                    existingDataset: dataset,
+                  });
+                  handleSaveCadEdits(compiled);
+                }
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition-all cursor-pointer"
+              title="Re-sync all drawn joint traces, lithology zones, faults & water symbols from Underground Face Mapping"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Sync Drawn Strip Log
+            </button>
+
+            <button
+              onClick={() => exportContinuousTunnelLogAsA3Pdf(dataset)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow transition-all cursor-pointer"
+              title="Download standalone 400-DPI ISO A3 Landscape PDF file"
+            >
+              <Download className="w-4 h-4" />
+              Download A3 PDF (400 DPI)
+            </button>
+            <button
+              onClick={() => {
+                if (activeWizardStage !== 6) {
+                  setActiveWizardStage(6);
+                  setTimeout(() => window.print(), 250);
+                } else {
+                  window.print();
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              Print A3 Landscape PDF
+            </button>
 
             <button
               onClick={onClose}

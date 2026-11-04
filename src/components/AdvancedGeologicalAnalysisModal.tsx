@@ -354,14 +354,55 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     return 'FULL_FACE';
   };
 
-  // Interactive Solver Controls (initialized from live fedData)
+  // Interactive Solver & 3X Geometry / Rock Mass Controls (initialized from live fedData, 100% editable by user)
+  const [interactiveOverrideMode, setInteractiveOverrideMode] = useState<boolean>(true);
+  const [showGlobalParamBar, setShowGlobalParamBar] = useState<boolean>(true);
   const [activeExcavationStage, setActiveExcavationStage] = useState<ExcavationStageType>(() =>
     mapApproachToStage(activeExcavationApproach, isVerticalShaft, shaftHalfSide)
   );
+  const [customSpanW, setCustomSpanW] = useState<number>(fedData.spanW || 8.0);
+  const [customHeightH, setCustomHeightH] = useState<number>(
+    isVerticalShaft ? fedData.spanW || 8.0 : fedData.heightH || 7.0
+  );
+  const [customWallH, setCustomWallH] = useState<number>(
+    isVerticalShaft
+      ? (fedData.spanW || 8.0) / 2
+      : geometry.wallHeight || fedData.benchHeight || (fedData.heightH || 7.0) * 0.55
+  );
+  const [customPullLength, setCustomPullLength] = useState<number>(fedData.pullLengthM || 3.5);
+  const [customChainageNum, setCustomChainageNum] = useState<number>(fedData.currentFaceChainageNum || 100);
   const [customDriveAzimuth, setCustomDriveAzimuth] = useState<number>(fedData.driveAzimuth);
   const [customStrike, setCustomStrike] = useState<number>(fedData.governingJoint?.strike ?? 125);
   const [customDip, setCustomDip] = useState<number>(fedData.governingJoint?.dip ?? 60);
   const [customDipDirection, setCustomDipDirection] = useState<number>(fedData.governingJoint?.dipDirection ?? 215);
+  const [forecastMaxAheadM, setForecastMaxAheadM] = useState<number>(30);
+
+  // Interactive RMR / Q / GSI & Joint Spacing Overrides
+  const initialRmr =
+    fedData.rmrTotal ?? (fedData.qValue ? Math.round(9 * Math.log(Math.max(0.01, fedData.qValue)) + 44) : 55);
+  const initialQ =
+    fedData.qValue ?? (fedData.rmrTotal ? Number(Math.exp((fedData.rmrTotal - 44) / 9).toFixed(2)) : 3.5);
+  const initialGsi = fedData.gsiValue ?? Math.max(15, Math.min(90, initialRmr - 5));
+
+  const [customRmr, setCustomRmr] = useState<number>(initialRmr);
+  const [customQ, setCustomQ] = useState<number>(initialQ);
+  const [customGsi, setCustomGsi] = useState<number>(initialGsi);
+
+  const parseInitSpacing = (s?: string, fallback = 0.45) => {
+    if (!s) return fallback;
+    const m = s.match(/(\d+(?:\.\d+)?)/);
+    return m ? Math.max(0.05, parseFloat(m[1])) : fallback;
+  };
+  const initS1 = parseInitSpacing(jointSets[0]?.spacing, fedData.governingJoint?.spacingM ?? 0.45);
+  const [customS1, setCustomS1] = useState<number>(Number(initS1.toFixed(2)));
+  const [customS2, setCustomS2] = useState<number>(
+    Number(parseInitSpacing(jointSets[1]?.spacing, Math.min(1.5, initS1 * 1.35)).toFixed(2))
+  );
+  const [customS3, setCustomS3] = useState<number>(
+    Number(parseInitSpacing(jointSets[2]?.spacing, Math.min(2.0, initS1 * 1.75)).toFixed(2))
+  );
+  const [customRandomJointsNr, setCustomRandomJointsNr] = useState<number>(0);
+  const [customBetaShape, setCustomBetaShape] = useState<number>(36);
 
   useEffect(() => {
     setActiveExcavationStage(mapApproachToStage(activeExcavationApproach, isVerticalShaft, shaftHalfSide));
@@ -393,27 +434,58 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
   const [porePressureRu, setPorePressureRu] = useState<number>(0.15);
   const [anchorTensionKnPerM, setAnchorTensionKnPerM] = useState<number>(180);
 
-  // Sync solver states when live mapped data updates
-  useEffect(() => {
+  const handleResetToMappedData = () => {
+    setCustomSpanW(fedData.spanW || 8.0);
+    setCustomHeightH(isVerticalShaft ? fedData.spanW || 8.0 : fedData.heightH || 7.0);
+    setCustomWallH(
+      isVerticalShaft
+        ? (fedData.spanW || 8.0) / 2
+        : geometry.wallHeight || fedData.benchHeight || (fedData.heightH || 7.0) * 0.55
+    );
+    setCustomPullLength(fedData.pullLengthM || 3.5);
+    setCustomChainageNum(fedData.currentFaceChainageNum || 100);
     setCustomDriveAzimuth(fedData.driveAzimuth);
     if (fedData.governingJoint) {
       setCustomStrike(fedData.governingJoint.strike);
       setCustomDip(fedData.governingJoint.dip);
       setCustomDipDirection(fedData.governingJoint.dipDirection);
     }
+    const nextRmr =
+      fedData.rmrTotal ?? (fedData.qValue ? Math.round(9 * Math.log(Math.max(0.01, fedData.qValue)) + 44) : 55);
+    const nextQ =
+      fedData.qValue ?? (fedData.rmrTotal ? Number(Math.exp((fedData.rmrTotal - 44) / 9).toFixed(2)) : 3.5);
+    setCustomRmr(nextRmr);
+    setCustomQ(nextQ);
+    setCustomGsi(fedData.gsiValue ?? Math.max(15, Math.min(90, nextRmr - 5)));
+    const s1Init = parseInitSpacing(jointSets[0]?.spacing, fedData.governingJoint?.spacingM ?? 0.45);
+    setCustomS1(Number(s1Init.toFixed(2)));
+    setCustomS2(Number(parseInitSpacing(jointSets[1]?.spacing, Math.min(1.5, s1Init * 1.35)).toFixed(2)));
+    setCustomS3(Number(parseInitSpacing(jointSets[2]?.spacing, Math.min(2.0, s1Init * 1.75)).toFixed(2)));
+  };
+
+  // Sync solver states when live mapped data updates
+  useEffect(() => {
+    handleResetToMappedData();
   }, [
+    fedData.spanW,
+    fedData.heightH,
+    fedData.pullLengthM,
+    fedData.currentFaceChainageNum,
     fedData.driveAzimuth,
+    fedData.rmrTotal,
+    fedData.qValue,
+    fedData.gsiValue,
     fedData.governingJoint?.id,
     fedData.governingJoint?.strike,
     fedData.governingJoint?.dip,
     fedData.governingJoint?.dipDirection,
   ]);
 
-  const spanW = fedData.spanW;
-  const heightH = isVerticalShaft ? spanW : fedData.heightH;
-  const wallH = isVerticalShaft ? spanW / 2 : geometry.wallHeight || fedData.benchHeight || heightH * 0.55;
-  const pullLength = fedData.pullLengthM;
-  const currentFaceChainageNum = fedData.currentFaceChainageNum;
+  const spanW = customSpanW;
+  const heightH = isVerticalShaft ? customSpanW : customHeightH;
+  const wallH = isVerticalShaft ? customSpanW / 2 : customWallH;
+  const pullLength = customPullLength;
+  const currentFaceChainageNum = customChainageNum;
   const isShaftHalfFaceMode =
     isVerticalShaft &&
     ((activeExcavationApproach || '').toLowerCase().includes('half') ||
@@ -431,13 +503,13 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
       : 'CIRCULAR VERTICAL SHAFT (360° FULL FACE)'
     : (geometry.crownGeometry || 'd_shaped').replace(/_/g, ' ').toUpperCase();
 
-  // Derived Validated Ratings
-  const rmrVal = fedData.rmrTotal;
-  const qVal = fedData.qValue;
-  const gsiVal = fedData.gsiValue;
-  const safeRmrForCalc = rmrVal ?? (qVal ? Math.round(9 * Math.log(Math.max(0.01, qVal)) + 44) : 55);
-  const safeQForCalc = qVal ?? (rmrVal ? Number(Math.exp((rmrVal - 44) / 9).toFixed(2)) : 3.5);
-  const safeGsiForCalc = gsiVal ?? Math.max(15, Math.min(90, safeRmrForCalc - 5));
+  // Derived Validated Ratings (Interactive & Live Synced)
+  const rmrVal = customRmr;
+  const qVal = customQ;
+  const gsiVal = customGsi;
+  const safeRmrForCalc = customRmr;
+  const safeQForCalc = customQ;
+  const safeGsiForCalc = customGsi;
 
   // --------------------------------------------------------------------------
   // 1. APPARENT DIP & FUTURE ADVANCE CALCULATIONS
@@ -458,7 +530,8 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const advanceRatePerVerticalMeter = tanAppWall > 0.01 ? 1 / tanAppWall : 99.9;
     const distanceCrownToInvert = heightH * advanceRatePerVerticalMeter;
 
-    const forecastDistances = [3, 6, 9, 12, 15, 20, 25, 30];
+    const stepDist = Math.max(2, Math.round(forecastMaxAheadM / 8));
+    const forecastDistances = Array.from({ length: 8 }, (_, idx) => (idx + 1) * stepDist);
     const forecastTable = forecastDistances.map((distAhead) => {
       const targetChainage = currentFaceChainageNum + distAhead;
       const elevationShift = distAhead * tanAppWall;
@@ -491,7 +564,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
       distanceCrownToInvert,
       forecastTable,
     };
-  }, [customStrike, customDriveAzimuth, customDip, heightH, currentFaceChainageNum, isVerticalShaft]);
+  }, [customStrike, customDriveAzimuth, customDip, heightH, currentFaceChainageNum, isVerticalShaft, forecastMaxAheadM]);
 
   // --------------------------------------------------------------------------
   // 2. 3D TETRAHEDRAL WEDGE & ROCKBOLT FOS CALCULATIONS
@@ -657,20 +730,15 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
     const standupHours = Math.max(0.1, Math.pow(10, logHours));
     const maxUnsupportedSpanM = Math.max(0.8, 0.18 * Math.pow(safeRmrForCalc, 1.15));
 
-    const parseSp = (s?: string, fallback = 0.45) => {
-      if (!s) return fallback;
-      const m = s.match(/(\d+(?:\.\d+)?)/);
-      return m ? Math.max(0.05, parseFloat(m[1])) : fallback;
-    };
-    const s1 = parseSp(jointSets[0]?.spacing, fedData.governingJoint?.spacingM ?? 0.45);
-    const s2 = parseSp(jointSets[1]?.spacing, Math.min(1.5, s1 * 1.35));
-    const s3 = parseSp(jointSets[2]?.spacing, Math.min(2.0, s1 * 1.75));
+    const s1 = Math.max(0.05, customS1);
+    const s2 = Math.max(0.05, customS2);
+    const s3 = Math.max(0.05, customS3);
 
-    const jvVolumetricCount = 1 / s1 + (jointSets.length >= 2 ? 1 / s2 : 0.6) + (jointSets.length >= 3 ? 1 / s3 : 0.4);
+    const jvVolumetricCount = 1 / s1 + 1 / s2 + 1 / s3 + customRandomJointsNr / 5;
     const rqdPalmstrom1982 = Math.max(0, Math.min(100, 115 - 3.3 * jvVolumetricCount));
     const rqdPalmstrom2005 = Math.max(0, Math.min(100, 110 - 2.5 * jvVolumetricCount));
 
-    const betaShapeFactor = 36;
+    const betaShapeFactor = customBetaShape;
     const blockVolumeM3 = betaShapeFactor * Math.pow(jvVolumetricCount, -3);
     const equivalentBlockDiaM = Math.cbrt(blockVolumeM3);
 
@@ -694,7 +762,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
       equivalentBlockDiaM,
       blockClass,
     };
-  }, [spanW, pullLength, safeRmrForCalc, jointSets, fedData.governingJoint?.spacingM, isVerticalShaft, isShaftHalfFaceMode, shaftCenterMedianStatus]);
+  }, [spanW, pullLength, safeRmrForCalc, customS1, customS2, customS3, customRandomJointsNr, customBetaShape, isVerticalShaft, isShaftHalfFaceMode, shaftCenterMedianStatus]);
 
   // --------------------------------------------------------------------------
   // 5. HYDROGEOLOGICAL INFLOW (GOODMAN / HEUER)
@@ -949,6 +1017,25 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
           <div className="flex items-center gap-2 shrink-0">
             <button
+              type="button"
+              onClick={() => setShowGlobalParamBar((v) => !v)}
+              className={`px-2.5 py-1 rounded border text-[11px] font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                showGlobalParamBar
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" /> 3X Parameter Inputs {showGlobalParamBar ? '▲' : '▼'}
+            </button>
+            <button
+              type="button"
+              onClick={handleResetToMappedData}
+              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-mono font-bold text-amber-300 flex items-center gap-1 transition cursor-pointer"
+              title="Reset all 3X parameters to mapped face values"
+            >
+              Sync Mapped Data
+            </button>
+            <button
               onClick={() => window.print()}
               className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-mono font-bold text-slate-200 flex items-center gap-1.5 transition"
             >
@@ -963,23 +1050,153 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
           </div>
         </header>
 
+        {/* ==================== INTERACTIVE 3X PARAMETER INPUT BAR ==================== */}
+        {showGlobalParamBar && (
+          <div className="px-4 py-2 bg-slate-950 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-5 lg:grid-cols-10 gap-2 font-mono text-[10px]">
+            <div>
+              <label className="text-slate-400 block">{isVerticalShaft ? 'Shaft Ø (m)' : 'Span W (m)'}</label>
+              <input
+                type="number"
+                step={0.2}
+                min={1.5}
+                max={35}
+                value={customSpanW}
+                onChange={(e) => setCustomSpanW(Math.max(1.5, Number(e.target.value) || 8))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-sky-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Height H (m)</label>
+              <input
+                type="number"
+                step={0.2}
+                min={1.5}
+                max={35}
+                value={customHeightH}
+                onChange={(e) => setCustomHeightH(Math.max(1.5, Number(e.target.value) || 7))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-sky-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Pull L_pull (m)</label>
+              <input
+                type="number"
+                step={0.2}
+                min={0.5}
+                max={15}
+                value={customPullLength}
+                onChange={(e) => setCustomPullLength(Math.max(0.5, Number(e.target.value) || 3.5))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Face RD (m)</label>
+              <input
+                type="number"
+                step={1}
+                value={customChainageNum}
+                onChange={(e) => setCustomChainageNum(Number(e.target.value) || 0)}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-white font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Drive Azim (°)</label>
+              <input
+                type="number"
+                min={0}
+                max={360}
+                value={Math.round(customDriveAzimuth)}
+                onChange={(e) => setCustomDriveAzimuth(((Number(e.target.value) || 0) % 360 + 360) % 360)}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-sky-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Plane Strike (°)</label>
+              <input
+                type="number"
+                min={0}
+                max={360}
+                value={Math.round(customStrike)}
+                onChange={(e) => {
+                  const st = ((Number(e.target.value) || 0) % 360 + 360) % 360;
+                  setCustomStrike(st);
+                  setCustomDipDirection((st + 90) % 360);
+                }}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">Plane Dip (°)</label>
+              <input
+                type="number"
+                min={0}
+                max={90}
+                value={Math.round(customDip)}
+                onChange={(e) => setCustomDip(Math.max(0, Math.min(90, Number(e.target.value) || 45)))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">RMR₈₉ (0–100)</label>
+              <input
+                type="number"
+                min={5}
+                max={100}
+                value={customRmr}
+                onChange={(e) => {
+                  const r = Math.max(5, Math.min(100, Number(e.target.value) || 50));
+                  setCustomRmr(r);
+                  setCustomGsi(Math.max(10, r - 5));
+                }}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-400 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">NGI Q-Value</label>
+              <input
+                type="number"
+                step={0.2}
+                min={0.01}
+                max={1000}
+                value={customQ}
+                onChange={(e) => setCustomQ(Math.max(0.01, Number(e.target.value) || 1))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-400 block">GSI (10–95)</label>
+              <input
+                type="number"
+                min={10}
+                max={95}
+                value={customGsi}
+                onChange={(e) => setCustomGsi(Math.max(10, Math.min(95, Number(e.target.value) || 50)))}
+                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-purple-300 font-bold"
+              />
+            </div>
+          </div>
+        )}
+
         {/* ==================== MAIN 2-COLUMN WORKSPACE: GROUPED SIDEBAR + CAD VIEWPORT ==================== */}
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
           {/* LEFT GROUPED CATEGORY SIDEBAR */}
           <aside className="w-full md:w-64 lg:w-72 bg-slate-950 border-b md:border-b-0 md:border-r border-slate-800/90 flex flex-col shrink-0 max-h-48 md:max-h-none overflow-y-auto">
             <div className="px-3 py-2 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between">
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
-                Analysis Modules ({readyCount}/15 Ready)
+                Analysis Modules ({interactiveOverrideMode ? '15/15 Interactive' : `${readyCount}/15 Ready`})
               </span>
-              <span
-                className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                  readyCount === 15
+              <button
+                type="button"
+                onClick={() => setInteractiveOverrideMode((v) => !v)}
+                className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded cursor-pointer ${
+                  interactiveOverrideMode || readyCount === 15
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                     : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                 }`}
+                title="Toggle between Interactive Input Mode and Strict Gatekeeper Mode"
               >
-                {readyCount === 15 ? 'ALL VERIFIED' : 'DATA GATED'}
-              </span>
+                {interactiveOverrideMode ? 'INTERACTIVE ON' : readyCount === 15 ? 'ALL VERIFIED' : 'DATA GATED'}
+              </button>
             </div>
 
             <div className="p-2 space-y-3 flex-1 overflow-y-auto">
@@ -992,7 +1209,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     const Icon = item.icon;
                     const isActive = activeTab === item.id;
                     const readiness = readinessByTab[item.id];
-                    const isReady = readiness?.canCalculate;
+                    const isReady = interactiveOverrideMode || readiness?.canCalculate;
 
                     return (
                       <button
@@ -1034,13 +1251,14 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
 
           {/* RIGHT MAIN CAD WORKSPACE PANE */}
           <main className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-4 bg-[#060a12]">
-            {/* STRICT DATA-DRIVEN GATEKEEPER: NO INPUT = NO OUTPUT */}
-            {!currentModuleReadiness.canCalculate ? (
+            {/* STRICT DATA-DRIVEN GATEKEEPER OR INTERACTIVE PARAMETER OVERRIDE */}
+            {!currentModuleReadiness.canCalculate && !interactiveOverrideMode ? (
               <div className="max-w-4xl mx-auto py-4">
                 <DataRequirementLockView
                   readiness={currentModuleReadiness}
                   moduleTitle={currentModuleReadiness.moduleName}
                   onReturnToCanvas={onClose}
+                  onUnlockInteractiveOverride={() => setInteractiveOverrideMode(true)}
                 />
               </div>
             ) : (
@@ -1051,7 +1269,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     activeExcavationStage,
                     spanW,
                     heightH,
-                    fedData.benchHeight,
+                    wallH,
                     0,
                     pullLength,
                     geometry
@@ -1254,8 +1472,84 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           </div>
                         </div>
 
-                        <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-1 text-[11px] font-mono tabular-nums">
-                          <div className="flex justify-between">
+                        {/* Interactive 3D Stage & Geometry Parameter Controls */}
+                        <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-2 text-[11px] font-mono tabular-nums">
+                          <div className="text-[10px] text-sky-400 font-bold uppercase border-b border-slate-800 pb-1">
+                            Interactive 3D Shell &amp; Plane Controls
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                            <div>
+                              <label className="text-slate-400 block">{isVerticalShaft ? 'Shaft Ø (m)' : 'Span W (m)'}</label>
+                              <input
+                                type="number"
+                                step={0.2}
+                                min={1.5}
+                                value={customSpanW}
+                                onChange={(e) => setCustomSpanW(Math.max(1.5, Number(e.target.value) || 8))}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Height H (m)</label>
+                              <input
+                                type="number"
+                                step={0.2}
+                                min={1.5}
+                                value={customHeightH}
+                                onChange={(e) => setCustomHeightH(Math.max(1.5, Number(e.target.value) || 7))}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Pull L (m)</label>
+                              <input
+                                type="number"
+                                step={0.2}
+                                min={0.5}
+                                value={customPullLength}
+                                onChange={(e) => setCustomPullLength(Math.max(0.5, Number(e.target.value) || 3.5))}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-emerald-300"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Azimuth (°)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={Math.round(customDriveAzimuth)}
+                                onChange={(e) => setCustomDriveAzimuth(((Number(e.target.value) || 0) % 360 + 360) % 360)}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-sky-300"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Strike (°)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={Math.round(customStrike)}
+                                onChange={(e) => {
+                                  const st = ((Number(e.target.value) || 0) % 360 + 360) % 360;
+                                  setCustomStrike(st);
+                                  setCustomDipDirection((st + 90) % 360);
+                                }}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-amber-300"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Dip (°)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={90}
+                                value={Math.round(customDip)}
+                                onChange={(e) => setCustomDip(Math.max(0, Math.min(90, Number(e.target.value) || 45)))}
+                                className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-amber-300"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-slate-800">
                             <span className="text-slate-400">Active Stage Area / Volume:</span>
                             <span className="text-emerald-400 font-bold">{effectiveStageArea.toFixed(2)} m² / {effectiveStageVol.toFixed(1)} m³</span>
                           </div>
@@ -1266,14 +1560,6 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                                 ? `${pullLength.toFixed(2)} m (${isShaftHalfFaceMode ? `Median ${shaftCenterMedianStatus.toUpperCase()}` : 'Full 360°'})`
                                 : `${(stageBounds.yMax - stageBounds.yMin).toFixed(2)} m`}
                             </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">{isVerticalShaft ? 'Shaft Radius R:' : 'Springline / Wall H:'}</span>
-                            <span className="text-sky-300 font-bold">{wallH.toFixed(2)} m</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Mapped Planes Intersecting:</span>
-                            <span className="text-emerald-400 font-bold">{mapped3DTraces.length}</span>
                           </div>
                         </div>
                       </div>
@@ -1337,10 +1623,65 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                       <div className="space-y-3">
                         <div className="border-b border-slate-800 pb-2">
                           <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
-                            AHEAD-OF-FACE STATION SCHEDULE (+30m)
+                            INTERACTIVE AHEAD-OF-FACE FORECAST (+{forecastMaxAheadM}m)
                           </div>
                           <div className="text-xs font-mono text-slate-300 mt-0.5 tabular-nums">
                             Governing Plane: <strong>{fedData.governingJoint?.set || 'J1'}</strong> (Strike {customStrike}° / Dip {customDip}°)
+                          </div>
+                        </div>
+
+                        {/* Interactive Forecast Input Controls */}
+                        <div className="bg-slate-950/90 border border-slate-800 rounded p-2.5 space-y-2 font-mono text-[10px]">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-slate-400 block">Governing Strike (°)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={Math.round(customStrike)}
+                                onChange={(e) => {
+                                  const st = ((Number(e.target.value) || 0) % 360 + 360) % 360;
+                                  setCustomStrike(st);
+                                  setCustomDipDirection((st + 90) % 360);
+                                }}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Governing Dip (°)</label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={89}
+                                value={Math.round(customDip)}
+                                onChange={(e) => setCustomDip(Math.max(1, Math.min(89, Number(e.target.value) || 60)))}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Drive Azimuth (°)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={360}
+                                value={Math.round(customDriveAzimuth)}
+                                onChange={(e) => setCustomDriveAzimuth(((Number(e.target.value) || 0) % 360 + 360) % 360)}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-sky-300 font-bold"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-400 block">Forecast Horizon (+m)</label>
+                              <input
+                                type="number"
+                                min={8}
+                                max={120}
+                                step={4}
+                                value={forecastMaxAheadM}
+                                onChange={(e) => setForecastMaxAheadM(Math.max(8, Math.min(120, Number(e.target.value) || 30)))}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold"
+                              />
+                            </div>
                           </div>
                         </div>
 
@@ -1359,7 +1700,7 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto border border-slate-800 rounded-lg">
+                        <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-48">
                           <table className="w-full text-left border-collapse font-mono text-[11px] tabular-nums">
                             <thead>
                               <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
@@ -1930,37 +2271,111 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                       </div>
                     </div>
 
-                    {/* Right 4 Cols: Palmström Numeric Inspector */}
+                    {/* Right 4 Cols: Palmström Interactive Spacing Controls & Numeric Inspector */}
                     <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
                       <div className="space-y-3">
                         <div className="border-b border-slate-800 pb-2">
                           <div className="text-[10px] font-mono uppercase tracking-wider text-sky-400 font-bold">
-                            BLOCK SIZE SUMMARY
+                            INTERACTIVE JOINT SPACING &amp; BLOCK INPUTS
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 bg-slate-950/90 border border-slate-800 rounded p-2.5 font-mono text-[11px]">
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Set 1 True Spacing (S₁)</span>
+                              <span className="text-sky-300 font-bold">{customS1.toFixed(2)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.05}
+                              max={3.0}
+                              step={0.05}
+                              value={customS1}
+                              onChange={(e) => setCustomS1(Number(e.target.value))}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Set 2 True Spacing (S₂)</span>
+                              <span className="text-emerald-300 font-bold">{customS2.toFixed(2)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.05}
+                              max={3.0}
+                              step={0.05}
+                              value={customS2}
+                              onChange={(e) => setCustomS2(Number(e.target.value))}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Set 3 True Spacing (S₃)</span>
+                              <span className="text-amber-300 font-bold">{customS3.toFixed(2)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.05}
+                              max={3.0}
+                              step={0.05}
+                              value={customS3}
+                              onChange={(e) => setCustomS3(Number(e.target.value))}
+                              className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                            <div>
+                              <label className="text-[10px] text-slate-400 block">Random Joints (Nr)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={20}
+                                step={1}
+                                value={customRandomJointsNr}
+                                onChange={(e) => setCustomRandomJointsNr(Math.max(0, Number(e.target.value) || 0))}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block">Shape Factor β</label>
+                              <input
+                                type="number"
+                                min={20}
+                                max={100}
+                                step={2}
+                                value={customBetaShape}
+                                onChange={(e) => setCustomBetaShape(Math.max(20, Number(e.target.value) || 36))}
+                                className="w-full mt-0.5 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-sky-300"
+                              />
+                            </div>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 font-mono tabular-nums">
-                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
                             <div className="text-[9px] text-slate-500 uppercase">Volumetric Jv</div>
-                            <div className="text-base font-bold text-white mt-0.5">
+                            <div className="text-sm font-bold text-white mt-0.5">
                               {standupAndBlockAnalysis.jvVolumetricCount.toFixed(2)} <span className="text-[10px] text-slate-400">j/m³</span>
                             </div>
                           </div>
-                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
                             <div className="text-[9px] text-slate-500 uppercase">Block Volume Vb</div>
-                            <div className="text-base font-bold text-emerald-400 mt-0.5">
+                            <div className="text-sm font-bold text-emerald-400 mt-0.5">
                               {standupAndBlockAnalysis.blockVolumeM3.toFixed(3)} <span className="text-[10px] text-slate-400">m³</span>
                             </div>
                           </div>
-                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
                             <div className="text-[9px] text-slate-500 uppercase">RQD (115 - 3.3Jv)</div>
-                            <div className="text-base font-bold text-sky-400 mt-0.5">
+                            <div className="text-sm font-bold text-sky-400 mt-0.5">
                               {standupAndBlockAnalysis.rqdPalmstrom1982.toFixed(1)}%
                             </div>
                           </div>
-                          <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
                             <div className="text-[9px] text-slate-500 uppercase">Eq. Block Dia</div>
-                            <div className="text-base font-bold text-amber-400 mt-0.5">
+                            <div className="text-sm font-bold text-amber-400 mt-0.5">
                               {(standupAndBlockAnalysis.equivalentBlockDiaM * 100).toFixed(1)} cm
                             </div>
                           </div>
@@ -2196,24 +2611,75 @@ export const AdvancedGeologicalAnalysisModal: React.FC<AdvancedGeologicalAnalysi
                     <div className="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 flex flex-col justify-between space-y-3">
                       <div className="space-y-2.5 font-mono tabular-nums">
                         <div className="text-[10px] uppercase tracking-wider text-sky-400 font-bold border-b border-slate-800 pb-2">
-                          STAND-UP TIME READOUT
+                          INTERACTIVE STAND-UP TIME CONTROLS &amp; READOUT
                         </div>
+
+                        <div className="space-y-2 bg-slate-950/90 border border-slate-800 rounded p-2.5 text-[11px]">
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Rock Mass Rating (RMR₈₉)</span>
+                              <span className="text-emerald-400 font-bold">{customRmr}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={10}
+                              max={95}
+                              step={1}
+                              value={customRmr}
+                              onChange={(e) => setCustomRmr(Number(e.target.value))}
+                              className="w-full accent-emerald-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Excavation Span W (m)</span>
+                              <span className="text-sky-300 font-bold">{customSpanW.toFixed(1)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={2}
+                              max={25}
+                              step={0.5}
+                              value={customSpanW}
+                              onChange={(e) => setCustomSpanW(Number(e.target.value))}
+                              className="w-full accent-sky-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-slate-300">
+                              <span>Round Pull Length (m)</span>
+                              <span className="text-amber-300 font-bold">{customPullLength.toFixed(1)} m</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.5}
+                              max={10}
+                              step={0.5}
+                              value={customPullLength}
+                              onChange={(e) => setCustomPullLength(Number(e.target.value))}
+                              className="w-full accent-amber-400 h-1.5 bg-slate-800 rounded mt-1"
+                            />
+                          </div>
+                        </div>
+
                         <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
                           <div className="text-[9px] text-slate-500 uppercase">Unsupported Stand-Up Time</div>
-                          <div className="text-lg font-bold text-emerald-400 mt-0.5">
+                          <div className="text-base font-bold text-emerald-400 mt-0.5">
                             {standupAndBlockAnalysis.standupHours.toFixed(1)} hrs ({standupAndBlockAnalysis.standupDays.toFixed(2)} days)
                           </div>
                         </div>
-                        <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                          <div className="text-[9px] text-slate-500 uppercase">Active Unsupported Span</div>
-                          <div className="text-base font-bold text-sky-300 mt-0.5">
-                            {standupAndBlockAnalysis.activeSpanM.toFixed(2)} m
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500 uppercase">Active Span</div>
+                            <div className="text-sm font-bold text-sky-300 mt-0.5">
+                              {standupAndBlockAnalysis.activeSpanM.toFixed(2)} m
+                            </div>
                           </div>
-                        </div>
-                        <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                          <div className="text-[9px] text-slate-500 uppercase">Max Safe Unsupported Span</div>
-                          <div className="text-base font-bold text-amber-300 mt-0.5">
-                            {standupAndBlockAnalysis.maxUnsupportedSpanM.toFixed(2)} m
+                          <div className="bg-slate-950 border border-slate-800 rounded p-2">
+                            <div className="text-[9px] text-slate-500 uppercase">Max Safe Span</div>
+                            <div className="text-sm font-bold text-amber-300 mt-0.5">
+                              {standupAndBlockAnalysis.maxUnsupportedSpanM.toFixed(2)} m
+                            </div>
                           </div>
                         </div>
                       </div>

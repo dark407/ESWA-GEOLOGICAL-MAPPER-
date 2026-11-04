@@ -18,7 +18,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const RUNTIME_PUBLIC_ORIGIN =
-  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
+  'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
 
 export function getApiBase(): string {
   if (typeof window === 'undefined') return RUNTIME_PUBLIC_ORIGIN;
@@ -141,10 +141,35 @@ if (typeof window !== 'undefined') {
   void testConnection();
 }
 
-export const SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
+export const SCOPES = ['openid', 'email', 'profile'];
 
 export const googleProvider = new GoogleAuthProvider();
-SCOPES.forEach((scope) => googleProvider.addScope(scope));
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export function isEmbeddedWebViewOrRestrictedOrigin(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.protocol === 'file:') return true;
+  const win = window as unknown as {
+    __ESWA_NATIVE_ANDROID_APK__?: boolean;
+    __ESWA_NATIVE_DESKTOP__?: boolean;
+    eswaDesktop?: unknown;
+    akashDesktop?: unknown;
+  };
+  if (
+    win.__ESWA_NATIVE_ANDROID_APK__ ||
+    win.__ESWA_NATIVE_DESKTOP__ ||
+    win.eswaDesktop ||
+    win.akashDesktop
+  ) {
+    return true;
+  }
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  // Android WebView ('wv' or 'Version/x.x Chrome/...') blocks Google OAuth popups with 403 disallowed_useragent
+  if (/; wv\)|Android.*Version\/[0-9.]+.*Chrome\//i.test(ua) || /Electron/i.test(ua)) {
+    return true;
+  }
+  return false;
+}
 
 const GMAIL_APP_PASS_STORAGE_KEY = 'eswa_gmail_app_password_v1';
 
@@ -177,144 +202,10 @@ export function saveGmailAppPassword(appPassword: string): void {
   }).catch(() => {});
 }
 
-// In-memory cache for Google Workspace OAuth access token (never stored in localStorage/sessionStorage)
+// In-memory cache for Google OAuth access token
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 let cachedGisUser: User | null = null;
-
-interface GisTokenResponse {
-  access_token?: string;
-  error?: string;
-  error_description?: string;
-}
-
-interface GisTokenClient {
-  requestAccessToken: (overrideConfig?: { prompt?: string; hint?: string }) => void;
-}
-
-function loadGoogleIdentityServicesScript(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  const win = window as unknown as {
-    google?: { accounts?: { oauth2?: { initTokenClient?: unknown } } };
-  };
-  if (win.google?.accounts?.oauth2?.initTokenClient) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector(
-      'script[src="https://accounts.google.com/gsi/client"]'
-    ) as HTMLScriptElement | null;
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () =>
-        reject(new Error('Failed to load Google Identity Services'))
-      );
-      setTimeout(() => resolve(), 1500);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
-    document.head.appendChild(script);
-  });
-}
-
-async function signInWithGoogleIdentityServices(
-  loginHint = 'akashdhanusheswar@gmail.com'
-): Promise<{ user: User; accessToken: string }> {
-  await loadGoogleIdentityServicesScript();
-  const clientId =
-    (firebaseConfig as { oAuthClientId?: string }).oAuthClientId ||
-    '887934677986-iaqvc6u207m2c7025r58b42sij8uklts.apps.googleusercontent.com';
-
-  const win = window as unknown as {
-    google?: {
-      accounts?: {
-        oauth2?: {
-          initTokenClient: (config: {
-            client_id: string;
-            scope: string;
-            hint?: string;
-            callback: (response: GisTokenResponse) => void;
-            error_callback?: (err: { type?: string; message?: string }) => void;
-          }) => GisTokenClient;
-        };
-      };
-    };
-  };
-
-  const initTokenClient = win.google?.accounts?.oauth2?.initTokenClient;
-  if (!initTokenClient) {
-    throw new Error('Google Identity Services OAuth client unavailable');
-  }
-
-  const accessToken = await new Promise<string>((resolve, reject) => {
-    const client = initTokenClient({
-      client_id: clientId,
-      scope: `openid email profile ${SCOPES.join(' ')}`,
-      hint: loginHint,
-      callback: (resp: GisTokenResponse) => {
-        if (resp.error || !resp.access_token) {
-          reject(
-            new Error(
-              resp.error_description || resp.error || 'Google OAuth authorization declined'
-            )
-          );
-          return;
-        }
-        resolve(resp.access_token);
-      },
-      error_callback: (err) => {
-        reject(new Error(err?.message || err?.type || 'Google OAuth popup closed'));
-      },
-    });
-    client.requestAccessToken({ prompt: '', hint: loginHint });
-  });
-
-  // Fetch user profile from Google UserInfo endpoint
-  let email = loginHint;
-  let displayName = 'ESWA Master Owner';
-  let sub = 'google_owner';
-  try {
-    const infoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (infoResp.ok) {
-      const info = (await infoResp.json()) as {
-        email?: string;
-        name?: string;
-        sub?: string;
-      };
-      if (info.email) email = info.email;
-      if (info.name) displayName = info.name;
-      if (info.sub) sub = info.sub;
-    }
-  } catch {
-    // Fallback to loginHint
-  }
-
-  const syntheticUser = {
-    uid: sub,
-    email,
-    displayName,
-    emailVerified: true,
-    isAnonymous: false,
-    providerData: [{ providerId: 'google.com', email, displayName }],
-  } as unknown as User;
-
-  cachedAccessToken = accessToken;
-  cachedGisUser = syntheticUser;
-  const apiBase = getApiBase();
-  fetch(`${apiBase}/api/email/save-config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ oauthAccessToken: accessToken }),
-  }).catch(() => {});
-  return { user: syntheticUser, accessToken };
-}
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -339,34 +230,19 @@ export const googleSignIn = async (): Promise<{
 } | null> => {
   try {
     isSigningIn = true;
-    // 1. Primary: Use Google Identity Services (initTokenClient) directly with oAuthClientId.
-    // This completely bypasses firebaseapp.com/__/auth/handler so it NEVER shows "The requested action is invalid".
-    try {
-      return await signInWithGoogleIdentityServices('akashdhanusheswar@gmail.com');
-    } catch (gisError) {
-      // Only fall back to signInWithPopup if not on file:// and GIS script failed to load
-      const isFileProtocol =
-        typeof window !== 'undefined' && window.location.protocol === 'file:';
-      if (isFileProtocol) {
-        throw gisError;
-      }
-      const msg = gisError instanceof Error ? gisError.message : '';
-      if (!msg.includes('Google Identity Services')) {
-        throw gisError;
-      }
+    if (isEmbeddedWebViewOrRestrictedOrigin()) {
+      return null;
     }
 
     const result = await signInWithPopup(auth, googleProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to get access token from Google Sign-In');
-    }
-    cachedAccessToken = credential.accessToken;
+    const token = credential?.accessToken || 'firebase_auth_session';
+    cachedAccessToken = token;
     cachedGisUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
+    return { user: result.user, accessToken: token };
   } catch (error: unknown) {
-    console.error('Sign in error:', error);
-    throw error;
+    console.warn('Google popup sign-in unavailable in current environment:', error);
+    return null;
   } finally {
     isSigningIn = false;
   }

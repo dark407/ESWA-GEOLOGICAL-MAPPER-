@@ -27,6 +27,7 @@ export interface DataRequirementLockViewProps {
   moduleTitle: string;
   onReturnToCanvas?: () => void;
   onOpenClassificationDrawer?: () => void;
+  onUnlockInteractiveOverride?: () => void;
 }
 
 export const DataRequirementLockView: React.FC<DataRequirementLockViewProps> = ({
@@ -34,6 +35,7 @@ export const DataRequirementLockView: React.FC<DataRequirementLockViewProps> = (
   moduleTitle,
   onReturnToCanvas,
   onOpenClassificationDrawer,
+  onUnlockInteractiveOverride,
 }) => {
   const isViolation = readiness.status === 'INVALID' || readiness.validationErrors.length > 0;
 
@@ -82,7 +84,7 @@ export const DataRequirementLockView: React.FC<DataRequirementLockViewProps> = (
             <p className="text-xs text-slate-400 leading-relaxed">
               {isViolation
                 ? 'One or more geotechnical parameters violate physical rock mechanics limits or geometrical orthogonality laws. Calculations cannot proceed on thermodynamically impossible values.'
-                : 'This rock mechanics calculation is strictly locked until authentic geotechnical parameters are supplied from the active excavation face. Autonomous calculation with synthetic or unverified values is prohibited.'}
+                : 'This rock mechanics calculation uses authentic geotechnical parameters from the active excavation face, or you can enable interactive manual parameter input below to run custom 3D simulations.'}
             </p>
           </div>
         </div>
@@ -163,7 +165,17 @@ export const DataRequirementLockView: React.FC<DataRequirementLockViewProps> = (
           <p className="text-[11px] text-slate-400 leading-snug">
             {readiness.actionGuidance}
           </p>
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">
+            {onUnlockInteractiveOverride && (
+              <button
+                type="button"
+                onClick={onUnlockInteractiveOverride}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-md"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Interactive Manual Input</span>
+              </button>
+            )}
             {onReturnToCanvas && (
               <button
                 type="button"

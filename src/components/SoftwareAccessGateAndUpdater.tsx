@@ -20,6 +20,7 @@ import {
   subscribeClientSoftwareUpdates,
   verifyAndActivateOnePcLogin,
 } from '../engine/softwareLicensingEngine';
+import { signInWithGoogleAccount } from '../engine/userCloudAndPackageEngine';
 import {
   downloadMasterAndroidApk,
   downloadUserAndroidApk,
@@ -194,6 +195,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
         roleTitle: roleTitle.trim(),
         purposeNotes: purposeNotes.trim(),
       });
+      if (result.session?.email) {
+        void signInWithGoogleAccount({
+          email: result.session.email,
+          displayName: result.session.fullName,
+        });
+      }
       onAuthorizedSession(result.session);
     } catch (err: unknown) {
       setRegisterError(
@@ -248,6 +255,12 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
       if (!res.ok || !res.session) {
         setLoginError(res.message);
       } else {
+        if (res.session.email) {
+          void signInWithGoogleAccount({
+            email: res.session.email,
+            displayName: res.session.fullName,
+          });
+        }
         onAuthorizedSession(res.session);
       }
     } catch (err: unknown) {
@@ -561,31 +574,14 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-slate-300">
-                  User ID (or Master Admin Email)
+                  Google Email or User ID (or Master Admin Email)
                 </span>
                 <input
                   type="text"
                   required
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
-                  placeholder="Enter your User ID or Master Email"
-                  className="w-full px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
-                  style={{
-                    backgroundColor: '#0F172A',
-                    borderColor: palette.accentHex + '60',
-                    color: '#FFFFFF',
-                  }}
-                />
-              </label>
-
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-slate-300">Password</span>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your Password"
+                  placeholder="Enter your Google Email (e.g. name@gmail.com) or User ID"
                   className="w-full px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
                   style={{
                     backgroundColor: '#0F172A',
@@ -597,13 +593,32 @@ export const SoftwareAccessGate: React.FC<SoftwareAccessGateProps> = ({
 
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-slate-300">
-                  1-Device / 1-PC License Key (Optional for Master Admin)
+                  Password / Position / Mobile Number
+                </span>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your Password, Position, or Mobile Number"
+                  className="w-full px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
+                  style={{
+                    backgroundColor: '#0F172A',
+                    borderColor: palette.accentHex + '60',
+                    color: '#FFFFFF',
+                  }}
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-slate-300">
+                  1-Device / 1-PC License Key (Optional)
                 </span>
                 <input
                   type="text"
                   value={licenseKey}
                   onChange={(e) => setLicenseKey(e.target.value)}
-                  placeholder="ESWA-1PC-XXXX-XXXX-XXXX"
+                  placeholder="Optional: ESWA-1PC-XXXX-XXXX-XXXX"
                   className="w-full min-h-[44px] px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none"
                   style={{
                     backgroundColor: '#0F172A',

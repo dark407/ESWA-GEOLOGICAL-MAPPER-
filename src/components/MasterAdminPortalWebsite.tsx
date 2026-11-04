@@ -243,16 +243,18 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       return 'Geologist';
     };
 
-    // 1. Add requests and link any matching license
+    // 1. Add requests and link any matching license strictly by userId or exact device hardwareId
     requests.forEach((r) => {
       const matchedLic = licenses.find(
         (l) =>
           (r.assignedUserId && l.userId === r.assignedUserId) ||
           l.userId === r.requestId.replace(/^req_/, '') ||
           (r.pcHardwareId &&
+            r.pcHardwareId !== 'N/A' &&
             l.boundPcHardwareId &&
-            r.pcHardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase()) ||
-          (r.email && l.email && r.email.toLowerCase() === l.email.toLowerCase())
+            l.boundPcHardwareId !== 'N/A' &&
+            r.pcHardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
+            (!r.email || !l.email || r.email.toLowerCase() === l.email.toLowerCase()))
       );
 
       const resolvedStatus: 'pending' | 'approved' | 'revoked' = matchedLic
@@ -288,8 +290,11 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           item.rawLic?.userId === l.userId ||
           item.id === l.userId ||
           (l.boundPcHardwareId &&
-            item.hardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase()) ||
-          (l.email && item.email && item.email.toLowerCase() === l.email.toLowerCase())
+            l.boundPcHardwareId !== 'N/A' &&
+            item.hardwareId &&
+            item.hardwareId !== 'N/A' &&
+            item.hardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
+            (!l.email || !item.email || item.email.toLowerCase() === l.email.toLowerCase()))
       );
       if (!alreadyIncluded) {
         list.push({

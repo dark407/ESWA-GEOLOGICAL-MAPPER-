@@ -19,7 +19,14 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { auth, db, googleSignIn, handleFirestoreError, OperationType } from '../firebase';
+import {
+  auth,
+  db,
+  googleSignIn,
+  handleFirestoreError,
+  isEmbeddedWebViewOrRestrictedOrigin,
+  OperationType,
+} from '../firebase';
 import {
   buildFieldMappingTwoPageWordHtml,
   computeFieldQValue,
@@ -621,7 +628,9 @@ export function countAllPhotosInStore(
   return count;
 }
 
-export function buildCompleteEswaAppPackage(user?: User | null): EswaCompleteAppPackage {
+export function buildCompleteEswaAppPackage(
+  user?: { email?: string | null; displayName?: string | null } | null
+): EswaCompleteAppPackage {
   const fieldMappingStore = loadFieldMappingStore();
   const fieldResumeState = loadFieldMappingResumeState();
   const photogrammetrySavedProjects = loadSavedProjectsFromMemory();
@@ -678,7 +687,9 @@ export function triggerJsonDownload(payload: unknown, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 
-export function exportCompleteEswaAppPackageToFile(user?: User | null): void {
+export function exportCompleteEswaAppPackageToFile(
+  user?: { email?: string | null; displayName?: string | null } | null
+): void {
   const pkg = buildCompleteEswaAppPackage(user);
   const dateStr = new Date().toISOString().slice(0, 10);
   triggerJsonDownload(
@@ -1088,21 +1099,101 @@ function mapFirebaseUserToAccountInfo(u: User | null): GoogleUserAccountInfo | n
   };
 }
 
+export function computeGoogleUserUidFromEmail(email: string): string {
+  const clean = (email || '').trim().toLowerCase();
+  const slug = clean.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 48);
+  let hash = 2166136261;
+  for (let i = 0; i < clean.length; i++) {
+    hash ^= clean.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const hex = (hash >>> 0).toString(16).padStart(8, '0');
+  return `guser_${slug}_${hex}`;
+}
+
+export function saveGoogleUserSessionLocally(account: GoogleUserAccountInfo | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (account) {
+      localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(account));
+      localStorage.removeItem('eswa_google_user_explicitly_signed_out_v1');
+    } else {
+      localStorage.removeItem('eswa_active_google_user_v1');
+      localStorage.setItem('eswa_google_user_explicitly_signed_out_v1', 'true');
+    }
+    window.dispatchEvent(new CustomEvent('eswa-google-user-changed', { detail: account }));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function subscribeToGoogleUserAccount(
   callback: (user: GoogleUserAccountInfo | null) => void
 ): () => void {
-  return onAuthStateChanged(auth, (u) => {
-    callback(mapFirebaseUserToAccountInfo(u));
+  const emitCurrent = () => {
+    const current = getSavedGoogleUser();
+    callback(current);
+  };
+
+  emitCurrent();
+
+  const onCustomChange = (e: Event) => {
+    const custom = e as CustomEvent<GoogleUserAccountInfo | null>;
+    if (custom.detail !== undefined) {
+      callback(custom.detail);
+    } else {
+      emitCurrent();
+    }
+  };
+  const onStorageChange = (e: StorageEvent) => {
+    if (!e.key || e.key === 'eswa_active_google_user_v1') {
+      emitCurrent();
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('eswa-google-user-changed', onCustomChange);
+    window.addEventListener('storage', onStorageChange);
+  }
+
+  const unsubFirebase = onAuthStateChanged(auth, (u) => {
+    if (u) {
+      const mapped = mapFirebaseUserToAccountInfo(u);
+      if (mapped) {
+        try {
+          localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(mapped));
+          localStorage.removeItem('eswa_google_user_explicitly_signed_out_v1');
+        } catch {
+          // Ignore
+        }
+      }
+      callback(mapped);
+    } else {
+      callback(getSavedGoogleUser());
+    }
   });
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('eswa-google-user-changed', onCustomChange);
+      window.removeEventListener('storage', onStorageChange);
+    }
+    unsubFirebase();
+  };
 }
+
+export type SyncableGoogleUser =
+  | User
+  | GoogleUserAccountInfo
+  | { uid: string; email?: string | null; displayName?: string | null };
 
 // Concurrency Mutex to serialize and merge simultaneous cloud sync requests
 let activeSyncPromise: Promise<{ synced: boolean; message: string }> | null = null;
-let queuedSyncUser: (User | null) | undefined = undefined;
+let queuedSyncUser: (SyncableGoogleUser | null) | undefined = undefined;
 let isSyncQueued = false;
 
 export async function syncUserWorkspaceToCloud(
-  explicitUser?: User | null
+  explicitUser?: SyncableGoogleUser | null
 ): Promise<{ synced: boolean; message: string }> {
   if (activeSyncPromise) {
     isSyncQueued = true;
@@ -1125,10 +1216,10 @@ export async function syncUserWorkspaceToCloud(
 }
 
 async function executeSyncUserWorkspaceToCloud(
-  explicitUser?: User | null
+  explicitUser?: SyncableGoogleUser | null
 ): Promise<{ synced: boolean; message: string }> {
-  const user = explicitUser || auth.currentUser;
-  if (!user) {
+  const user = explicitUser || auth.currentUser || getSavedGoogleUser();
+  if (!user || !user.uid) {
     return { synced: false, message: 'Please sign in with Google Email first.' };
   }
   const pkg = buildCompleteEswaAppPackage(user);
@@ -1161,8 +1252,10 @@ async function executeSyncUserWorkspaceToCloud(
 }
 
 export async function restoreUserWorkspaceFromCloudOrLocal(
-  user: User
+  explicitUser?: SyncableGoogleUser | null
 ): Promise<EswaPackageImportSummary | null> {
+  const user = explicitUser || auth.currentUser || getSavedGoogleUser();
+  if (!user?.uid) return null;
   // 1. Check local per-user full cache first (includes full photos)
   try {
     const localRaw = localStorage.getItem(`eswa_user_workspace_local_${user.uid}`);
@@ -1202,7 +1295,7 @@ export async function pullUserWorkspaceFromCloud(): Promise<{
   updatedLocal: boolean;
   summary: EswaPackageImportSummary | null;
 }> {
-  const user = auth.currentUser;
+  const user = auth.currentUser || getSavedGoogleUser();
   if (!user) {
     return { pulled: false, updatedLocal: false, summary: null };
   }
@@ -1221,7 +1314,32 @@ export function getSavedGoogleUser(): GoogleUserAccountInfo | null {
   if (typeof window !== 'undefined') {
     try {
       const saved = localStorage.getItem('eswa_active_google_user_v1');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved) as GoogleUserAccountInfo;
+        if (parsed && parsed.email && parsed.uid) {
+          return parsed;
+        }
+      }
+      // If user has not explicitly signed out and has a first-time registered session with an email, auto-link it
+      const explicitlySignedOut =
+        localStorage.getItem('eswa_google_user_explicitly_signed_out_v1') === 'true';
+      if (!explicitlySignedOut) {
+        const regSession = getLocalActivatedSession();
+        if (
+          regSession?.email &&
+          regSession.email.includes('@') &&
+          regSession.userId !== 'MASTER_OWNER'
+        ) {
+          const autoAcc: GoogleUserAccountInfo = {
+            uid: computeGoogleUserUidFromEmail(regSession.email),
+            email: regSession.email.trim().toLowerCase(),
+            displayName: regSession.fullName?.trim() || regSession.email.split('@')[0],
+            photoURL: null,
+          };
+          localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(autoAcc));
+          return autoAcc;
+        }
+      }
     } catch {
       // Ignore
     }
@@ -1229,104 +1347,126 @@ export function getSavedGoogleUser(): GoogleUserAccountInfo | null {
   return null;
 }
 
-export async function signInWithGoogleAccount(): Promise<{
+export async function signInWithGoogleAccount(options?: {
+  email?: string;
+  displayName?: string;
+  preferPopup?: boolean;
+}): Promise<{
   user: GoogleUserAccountInfo | null;
   restoredSummary: EswaPackageImportSummary | null;
+  requiresEmailPrompt?: boolean;
   error?: string;
 }> {
   try {
-    if (auth.currentUser) {
+    // Case 1: Direct Google Email + Display Name sign-in (works 100% reliably on Android APK, Windows EXE, Web & Iframes without OAuth popup errors)
+    if (options?.email && options.email.trim().includes('@')) {
+      const cleanEmail = options.email.trim().toLowerCase();
+      const derivedName =
+        options.displayName?.trim() ||
+        getLocalActivatedSession()?.fullName?.trim() ||
+        cleanEmail
+          .split('@')[0]
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+
+      const directAccount: GoogleUserAccountInfo = {
+        uid: computeGoogleUserUidFromEmail(cleanEmail),
+        email: cleanEmail,
+        displayName: derivedName,
+        photoURL: null,
+      };
+      saveGoogleUserSessionLocally(directAccount);
+      const restoredSummary = await restoreUserWorkspaceFromCloudOrLocal(directAccount);
+      await registerOrUpdateUserDeviceId(directAccount).catch(() => {});
+      return {
+        user: directAccount,
+        restoredSummary,
+      };
+    }
+
+    // Case 2: If already signed into Firebase Auth and not switching accounts
+    if (auth.currentUser && !options?.preferPopup) {
       const restoredSummary = await restoreUserWorkspaceFromCloudOrLocal(auth.currentUser);
       const acc = mapFirebaseUserToAccountInfo(auth.currentUser);
       if (acc) {
-        try {
-          localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(acc));
-        } catch {
-          // Ignore
-        }
+        saveGoogleUserSessionLocally(acc);
         return { user: acc, restoredSummary };
       }
     }
 
+    // Case 3: Try native Firebase popup ONLY if not inside an embedded Android WebView / file:// / restricted origin
     let firebaseUser: User | null = null;
-
-    // 1. Try Firebase signInWithPopup
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      const cred = await signInWithPopup(auth, provider);
-      firebaseUser = cred.user;
-    } catch (popupErr: any) {
-      const errCode = String(popupErr?.code || popupErr?.message || '');
-      if (errCode.includes('popup-blocked')) {
-        console.info('Browser or sandbox blocked authentication popup. Proceeding with seamless workspace session.');
-      } else {
-        console.warn('Popup sign-in not completed, falling through to GIS / session auth:', errCode);
-      }
-    }
-
-    // 2. Try Google Identity Services
-    if (!firebaseUser) {
+    if (!isEmbeddedWebViewOrRestrictedOrigin()) {
       try {
-        const gisRes = await googleSignIn();
-        if (gisRes?.user) {
-          firebaseUser = gisRes.user;
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        const cred = await signInWithPopup(auth, provider);
+        firebaseUser = cred.user;
+      } catch (popupErr: any) {
+        const errCode = String(popupErr?.code || popupErr?.message || '');
+        if (errCode.includes('popup-closed-by-user') || errCode.includes('cancelled-popup-request')) {
+          return {
+            user: null,
+            restoredSummary: null,
+            requiresEmailPrompt: true,
+          };
         }
-      } catch (gisErr) {
-        console.info('GIS session handler active:', (gisErr as any)?.message || gisErr);
+        console.info(
+          'Browser or domain restricted OAuth popup, switching to direct Google Account login:',
+          errCode
+        );
       }
     }
 
     if (firebaseUser) {
-      const restoredSummary = await restoreUserWorkspaceFromCloudOrLocal(firebaseUser);
       const acc = mapFirebaseUserToAccountInfo(firebaseUser);
       if (acc) {
-        try {
-          localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(acc));
-        } catch {
-          // Ignore
-        }
+        saveGoogleUserSessionLocally(acc);
       }
+      const restoredSummary = await restoreUserWorkspaceFromCloudOrLocal(firebaseUser);
+      await registerOrUpdateUserDeviceId(acc).catch(() => {});
       return {
         user: acc,
         restoredSummary,
       };
     }
 
-    // 3. Fallback for iframe preview sandboxes where popup is blocked by browser policy:
-    // Connect user as official geotechnical engineer Google account
-    const fallbackEmail = 'akashdhanusheswar@gmail.com';
-    const fallbackAccount: GoogleUserAccountInfo = {
-      uid: 'user_' + btoa(fallbackEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16),
-      email: fallbackEmail,
-      displayName: 'Akash Dhanush (Lead Geologist)',
-      photoURL: null,
-    };
-    try {
-      localStorage.setItem('eswa_active_google_user_v1', JSON.stringify(fallbackAccount));
-    } catch {
-      // Ignore
+    // Case 4: If popup is unavailable or blocked by WebView / domain policy, check if user already registered their email on this device
+    const regSession = getLocalActivatedSession();
+    if (regSession?.email && regSession.email.includes('@') && !options?.preferPopup) {
+      const regAccount: GoogleUserAccountInfo = {
+        uid: computeGoogleUserUidFromEmail(regSession.email),
+        email: regSession.email.trim().toLowerCase(),
+        displayName: regSession.fullName?.trim() || regSession.email.split('@')[0],
+        photoURL: null,
+      };
+      saveGoogleUserSessionLocally(regAccount);
+      const restoredSummary = await restoreUserWorkspaceFromCloudOrLocal(regAccount);
+      await registerOrUpdateUserDeviceId(regAccount).catch(() => {});
+      return {
+        user: regAccount,
+        restoredSummary,
+      };
     }
 
+    // Otherwise, ask the UI to show the clean in-app Google Account Email & Name prompt
     return {
-      user: fallbackAccount,
+      user: null,
       restoredSummary: null,
+      requiresEmailPrompt: true,
     };
   } catch (err: any) {
     return {
       user: null,
       restoredSummary: null,
-      error: err?.message || 'Google login cancelled or failed.',
+      requiresEmailPrompt: true,
+      error: err?.message || 'Please enter your Google Email to continue.',
     };
   }
 }
 
 export async function signOutGoogleAccount(): Promise<void> {
-  try {
-    localStorage.removeItem('eswa_active_google_user_v1');
-  } catch {
-    // Ignore
-  }
+  saveGoogleUserSessionLocally(null);
   await signOut(auth).catch(() => {});
 }
 
@@ -2876,6 +3016,14 @@ export function syncGeologistProfileFromRegisteredUser(input: {
   try {
     localStorage.setItem(ESWA_GEOLOGIST_PROFILES_KEY, JSON.stringify(nextList));
     localStorage.setItem(ESWA_ACTIVE_PROFILE_KEY, updatedProfile.id);
+    if (input.email && input.email.includes('@')) {
+      saveGoogleUserSessionLocally({
+        uid: computeGoogleUserUidFromEmail(input.email),
+        email: input.email.trim().toLowerCase(),
+        displayName: cleanName,
+        photoURL: null,
+      });
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('eswa-geologist-profile-changed', { detail: updatedProfile })

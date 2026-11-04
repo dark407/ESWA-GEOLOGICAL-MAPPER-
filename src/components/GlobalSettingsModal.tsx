@@ -63,9 +63,12 @@ import {
   signInWithGoogleAccount,
   signOutGoogleAccount,
   subscribeToSharedProject,
+  syncUserWorkspaceToCloud,
+  restoreUserWorkspaceFromCloudOrLocal,
   verifyAndSetActiveProfile,
   GeologistUserProfile,
 } from '../engine/userCloudAndPackageEngine';
+import { getLocalActivatedSession } from '../engine/softwareLicensingEngine';
 import { ThemeToggleButton, useTheme, THEME_COLOR_PALETTES, ThemeColor } from '../context/ThemeContext';
 import { DeviceIdAndNotificationHeaderWidget } from './DeviceIdReviewAndNotificationCenter';
 
@@ -97,6 +100,18 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
   const [copiedDeviceId, setCopiedDeviceId] = useState(false);
   const [savingAlias, setSavingAlias] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Google Sign-In Inline Fallback State
+  const [showGoogleEmailPrompt, setShowGoogleEmailPrompt] = useState(false);
+  const [googleEmailInput, setGoogleEmailInput] = useState(() => {
+    const reg = getLocalActivatedSession();
+    return reg?.email || '';
+  });
+  const [googleNameInput, setGoogleNameInput] = useState(() => {
+    const reg = getLocalActivatedSession();
+    return reg?.fullName || '';
+  });
+  const [isGoogleAuthBusy, setIsGoogleAuthBusy] = useState(false);
 
   // Active Shared Project
   const [sharedProjects, setSharedProjects] = useState<SharedProjectCollaborationRecord[]>(() =>
@@ -257,17 +272,83 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (preferPopup = false) => {
+    setIsGoogleAuthBusy(true);
     try {
-      const res = await signInWithGoogleAccount();
+      const res = await signInWithGoogleAccount({ preferPopup });
       if (res.user) {
         if (onUserChanged) onUserChanged(res.user);
-        setStatusMessage({ text: `Signed in as ${res.user.displayName || res.user.email}`, type: 'success' });
+        setShowGoogleEmailPrompt(false);
+        setStatusMessage({
+          text: `Signed in as ${res.user.displayName || res.user.email} (Cloud Sync Active)`,
+          type: 'success',
+        });
+      } else if (res.requiresEmailPrompt) {
+        const reg = getLocalActivatedSession();
+        if (reg?.email && !googleEmailInput) setGoogleEmailInput(reg.email);
+        if (reg?.fullName && !googleNameInput) setGoogleNameInput(reg.fullName);
+        setShowGoogleEmailPrompt(true);
+        setStatusMessage({
+          text: 'Enter your Google Email below to sign in and activate Cloud Sync on this device.',
+          type: 'info',
+        });
+      } else if (res.error) {
+        setShowGoogleEmailPrompt(true);
+        setStatusMessage({ text: res.error, type: 'error' });
+      }
+    } catch (err: any) {
+      setShowGoogleEmailPrompt(true);
+      setStatusMessage({ text: err?.message || 'Google Sign-In failed', type: 'error' });
+    } finally {
+      setIsGoogleAuthBusy(false);
+    }
+  };
+
+  const handleGoogleDirectEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleEmailInput.trim() || !googleEmailInput.includes('@')) {
+      setStatusMessage({ text: 'Please enter a valid Google Email address.', type: 'error' });
+      return;
+    }
+    setIsGoogleAuthBusy(true);
+    try {
+      const res = await signInWithGoogleAccount({
+        email: googleEmailInput.trim(),
+        displayName: googleNameInput.trim() || undefined,
+      });
+      if (res.user) {
+        if (onUserChanged) onUserChanged(res.user);
+        setShowGoogleEmailPrompt(false);
+        setStatusMessage({
+          text: `Google Account connected: ${res.user.displayName} (${res.user.email})`,
+          type: 'success',
+        });
       } else if (res.error) {
         setStatusMessage({ text: res.error, type: 'error' });
       }
     } catch (err: any) {
-      setStatusMessage({ text: err?.message || 'Google Sign-In failed', type: 'error' });
+      setStatusMessage({ text: err?.message || 'Could not connect Google Account.', type: 'error' });
+    } finally {
+      setIsGoogleAuthBusy(false);
+    }
+  };
+
+  const handleManualCloudSync = async () => {
+    setIsGoogleAuthBusy(true);
+    try {
+      await syncUserWorkspaceToCloud();
+      await restoreUserWorkspaceFromCloudOrLocal();
+      setStatusMessage({
+        text: 'Cloud Workspace synced across devices successfully!',
+        type: 'success',
+      });
+    } catch {
+      setStatusMessage({
+        text: 'Workspace saved locally; cloud sync will complete when online.',
+        type: 'info',
+      });
+    } finally {
+      setIsGoogleAuthBusy(false);
     }
   };
 
@@ -675,7 +756,7 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
           {activeTab === 'account' && (
             <div className="space-y-5 animate-in fade-in duration-150">
               {/* Google Account Card */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 sm:p-5">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
                     {currentUser?.photoURL ? (
@@ -690,7 +771,7 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                       </div>
                     )}
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm sm:text-base font-bold text-white">
                           {currentUser ? currentUser.displayName || 'Signed In Engineer' : 'Google Account Sync'}
                         </h3>
@@ -706,33 +787,137 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                       </div>
                       <p className="text-xs text-slate-400">
                         {currentUser?.email ||
-                          'Sign in to sync excavation logs, face reports, and team reviews across mobile and PC devices.'}
+                          'Sign in with your Google Account to sync excavation logs, face reports, and team reviews across mobile and PC devices.'}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                     {currentUser ? (
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogout}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Sign Out</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={isGoogleAuthBusy}
+                          onClick={handleManualCloudSync}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isGoogleAuthBusy ? 'animate-spin' : ''}`} />
+                          <span>Sync Now</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGoogleEmailInput(currentUser.email || '');
+                            setGoogleNameInput(currentUser.displayName || '');
+                            setShowGoogleEmailPrompt((prev) => !prev);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Switch Account</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGoogleLogout}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>Sign Out</span>
+                        </button>
+                      </>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={handleGoogleLogin}
-                        className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold flex items-center gap-2 shadow transition-all cursor-pointer"
-                      >
-                        <LogIn className="w-3.5 h-3.5 text-orange-600" />
-                        <span>Sign in with Google</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={isGoogleAuthBusy}
+                          onClick={() => handleGoogleLogin(false)}
+                          className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold flex items-center gap-2 shadow transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <LogIn className="w-3.5 h-3.5 text-orange-600" />
+                          <span>{isGoogleAuthBusy ? 'Connecting...' : 'Sign in with Google'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowGoogleEmailPrompt((prev) => !prev)}
+                          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Enter Google Email</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
+
+                {/* Universal Direct Google Account Sign-In Form (works in Android APK WebView, Electron EXE, and restricted browsers without OAuth popup errors) */}
+                {showGoogleEmailPrompt && (
+                  <form
+                    onSubmit={handleGoogleDirectEmailLogin}
+                    className="pt-3 border-t border-slate-800/90 space-y-3 animate-in fade-in duration-150"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-orange-400">
+                        Direct Google Account Sign-In (Works on Web, Android APK &amp; Desktop EXE)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowGoogleEmailPrompt(false)}
+                        className="text-xs text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="block space-y-1">
+                        <span className="text-[11px] text-slate-400 font-medium">
+                          Google Email Address *
+                        </span>
+                        <input
+                          type="email"
+                          required
+                          value={googleEmailInput}
+                          onChange={(e) => setGoogleEmailInput(e.target.value)}
+                          placeholder="your.name@gmail.com"
+                          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-orange-500"
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-[11px] text-slate-400 font-medium">
+                          Your Full Name (Optional)
+                        </span>
+                        <input
+                          type="text"
+                          value={googleNameInput}
+                          onChange={(e) => setGoogleNameInput(e.target.value)}
+                          placeholder="e.g. Rajesh Kumar"
+                          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-orange-500"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] text-slate-400">
+                        Links your Google Email to Cloud Firestore workspace sync without requiring third-party browser popups.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isGoogleAuthBusy}
+                          onClick={() => handleGoogleLogin(true)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                        >
+                          Try Browser Popup
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isGoogleAuthBusy}
+                          className="px-4 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow cursor-pointer disabled:opacity-50"
+                        >
+                          {isGoogleAuthBusy ? 'Signing In...' : 'Connect Google Account'}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
               </div>
 
               {/* Hardware Device ID Card */}
