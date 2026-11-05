@@ -2246,13 +2246,133 @@ export function constructPlaneFromTraceHinge(
   };
 }
 
+export type TracePivotEndpoint = 'start' | 'end';
+export type DipHalfCircleSense = 'inwards' | 'outwards';
+
 /**
- * Constructs a 3D discontinuity plane anchored at the mapped 2D trace midpoint on any panel
- * (`face`, `left_wall`, `right_wall`, `crown`, or `shaft_sn`) in both Tunnel Mode and Vertical Shaft Mode
- * that strictly hinges on the drawn joint trace line (`strikeVector = hingeAxis`):
- * - Changing Dip Direction (0°–359°) smoothly rotates the 3D plane around the stationary drawn trace hinge.
- * - Changing Dip Amount (0°–90°) smoothly tilts the 3D plane around the stationary drawn trace hinge.
- * - Never detaches the 3D plane from the drawn trace endpoints `traceStartPoint -> traceEndPoint`.
+ * Returns true when the given panel measures Strike in plan/horizontal view
+ * (Tunnel Crown, Surface Mapping Berm/Crest/Trench Floor, or Vertical Shaft Bottom Face at Pull 0m),
+ * and false when the panel measures Dip on a vertical/inclined wall or face
+ * (Tunnel Face/Left Wall/Right Wall, Vertical Shaft 4 Quadrant Walls, Surface Face/Flank Walls).
+ */
+export function isStrikeMeasuredOnPanel(
+  panel: FieldPanelId,
+  geom: TunnelSpatialGeometry
+): boolean {
+  if (geom.isVerticalShaft) {
+    return panel === 'face';
+  }
+  return panel === 'crown';
+}
+
+/**
+ * Rotates the mapped 2D joint trace points around the user-selected endpoint
+ * ('start' = P1 Starting Point, 'end' = P2 Ending Point):
+ * - On Dip-measured panels (Face / Walls / Shaft Quadrant Walls):
+ *   Changing Dip Amount (0°–90°) with Dip Sense ('inwards' vs 'outwards') sweeps the trace
+ *   across the full 180° half-circle around the selected endpoint while keeping the selected
+ *   endpoint 100% fixed and preserving trace length.
+ * - On Strike-measured panels (Crown / Surface Berm / Shaft Bottom Face — Vice Versa):
+ *   Changing Strike / Dip Direction (0°–359°) rotates the Strike trace around the selected endpoint
+ *   while keeping the selected endpoint fixed and preserving trace length.
+ */
+export function computeEndpointPivotedTracePoints(params: {
+  points: FieldPoint2D[];
+  panel: FieldPanelId;
+  geom: TunnelSpatialGeometry;
+  pivotEndpoint: TracePivotEndpoint | null;
+  targetDipAmountDeg: number;
+  targetDipDirectionDeg: number;
+  initialDipDirectionDeg: number;
+  isDipAmountEdited: boolean;
+  isStrikeDirEdited: boolean;
+  dipHalfCircleSense?: DipHalfCircleSense;
+}): FieldPoint2D[] {
+  const {
+    points,
+    panel,
+    geom,
+    pivotEndpoint,
+    targetDipAmountDeg,
+    targetDipDirectionDeg,
+    initialDipDirectionDeg,
+    isDipAmountEdited,
+    isStrikeDirEdited,
+    dipHalfCircleSense = 'inwards',
+  } = params;
+
+  if (!points || points.length < 2 || !pivotEndpoint) {
+    return points;
+  }
+
+  const pStart = points[0];
+  const pEnd = points[points.length - 1];
+  const pivotPt = pivotEndpoint === 'start' ? pStart : pEnd;
+  const otherPt = pivotEndpoint === 'start' ? pEnd : pStart;
+
+  const vx = otherPt.x - pivotPt.x;
+  const vy = otherPt.y - pivotPt.y;
+  const chordLen = Math.hypot(vx, vy);
+  if (chordLen < 1e-3) {
+    return points;
+  }
+
+  const strikePanel = isStrikeMeasuredOnPanel(panel, geom);
+
+  let rotRad = 0;
+  if (!strikePanel) {
+    if (!isDipAmountEdited && dipHalfCircleSense === 'inwards') {
+      return points;
+    }
+    const clampedDip = clampDip(targetDipAmountDeg ?? 60);
+    const dipRad = degToRad(clampedDip);
+    const baseSx = Math.abs(vx) > 1e-3 ? (vx >= 0 ? 1 : -1) : 1;
+    // Flip across the 90° vertical axis when switching between Inwards and Outwards on the 180° half-circle:
+    const sx = dipHalfCircleSense === 'outwards' ? -baseSx : baseSx;
+    const sy = Math.abs(vy) > 1e-3 ? (vy >= 0 ? 1 : -1) : pivotEndpoint === 'start' ? 1 : -1;
+    const targetVx = sx * Math.cos(dipRad);
+    const targetVy = sy * Math.sin(dipRad);
+    const curAngle = Math.atan2(vy, vx);
+    const targetAngle = Math.atan2(targetVy, targetVx);
+    rotRad = targetAngle - curAngle;
+  } else {
+    if (!isStrikeDirEdited) {
+      return points;
+    }
+    const deltaDeg = targetDipDirectionDeg - initialDipDirectionDeg;
+    rotRad = degToRad(deltaDeg);
+  }
+
+  if (Math.abs(rotRad) < 1e-6) {
+    return points;
+  }
+
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+
+  return points.map((pt, idx) => {
+    if (
+      (pivotEndpoint === 'start' && idx === 0) ||
+      (pivotEndpoint === 'end' && idx === points.length - 1)
+    ) {
+      return { x: pt.x, y: pt.y };
+    }
+    const rx = pt.x - pivotPt.x;
+    const ry = pt.y - pivotPt.y;
+    return {
+      x: Number((pivotPt.x + rx * cosR - ry * sinR).toFixed(2)),
+      y: Number((pivotPt.y + rx * sinR + ry * cosR).toFixed(2)),
+    };
+  });
+}
+
+/**
+ * Constructs a 3D discontinuity plane anchored at the active (endpoint-pivoted) 2D trace on any panel
+ * (`face`, `left_wall`, `right_wall`, `crown`, or `shaft_sn`) in Tunnel Mode, Vertical Shaft Mode, and Surface Mapping:
+ * - On Dip-measured panels: Dip Amount pivots the trace around the selected Starting/Ending point,
+ *   and Dip Direction rotates the 3D plane hinge-based around that tilted trace line.
+ * - On Strike-measured panels (Vice Versa): Strike/Dip Direction pivots the Strike trace around the selected
+ *   Starting/Ending point, and Dip Amount tilts the 3D plane hinge-based around that Strike trace line.
  */
 export function constructTraceAnchoredPlaneFromOrientation(
   points: FieldPoint2D[],
@@ -2261,7 +2381,7 @@ export function constructTraceAnchoredPlaneFromOrientation(
   dipDeg: number,
   geom: TunnelSpatialGeometry,
   directionSide: 'heading' | 'collar' = 'heading',
-  overrideHingeDipAmount: boolean = false
+  _overrideHingeDipAmount: boolean = false
 ): TraceHingePlaneResult {
   const pFirst = points[0] || { x: 300, y: 300 };
   const pLast = points[points.length - 1] || { x: 700, y: 500 };
@@ -2278,9 +2398,7 @@ export function constructTraceAnchoredPlaneFromOrientation(
   let uy = dy / traceLen;
   let uz = dz / traceLen;
 
-  const isHorizontalTracePanel =
-    (!geom.isVerticalShaft && panel === 'crown') ||
-    (Boolean(geom.isVerticalShaft) && panel === 'face');
+  const isHorizontalTracePanel = isStrikeMeasuredOnPanel(panel, geom);
 
   // Canonicalize vertical panel trace vector downward (uz <= 0) so drawing bottom-to-top vs top-to-bottom
   // always gives the exact same down-dip hinge orientation:
@@ -2308,27 +2426,16 @@ export function constructTraceAnchoredPlaneFromOrientation(
   const relDd = geom.isVerticalShaft
     ? safeDipDir
     : normalizeAngle360(safeDipDir - drive);
-  // When the user also adjusts Dip Amount on a vertical panel, smoothly offset the hinge rotation angle
-  // around the stationary trace hinge without ever moving the trace endpoints off the drawn trace:
-  const dipTiltOffsetDeg = overrideHingeDipAmount ? safeDip - 65 : 0;
-  const alphaRad = degToRad(relDd + dipTiltOffsetDeg);
+  const alphaRad = degToRad(relDd);
   const cosA = Math.cos(alphaRad);
   const sinA = Math.sin(alphaRad);
 
   if (!geom.isVerticalShaft && panel === 'crown') {
-    const rawDx = pLast.x - pFirst.x;
-    const rawDy = pLast.y - pFirst.y;
-    const rawCanvasLen = Math.hypot(rawDx, rawDy);
-    if (rawCanvasLen > 1e-4) {
-      ux = -rawDy / rawCanvasLen;
-      uy = rawDx / rawCanvasLen;
-      uz = 0;
-    } else {
-      const horizMetricLen = Math.hypot(dx, dy) || 1;
-      ux = dx / horizMetricLen;
-      uy = dy / horizMetricLen;
-      uz = 0;
-    }
+    const horizMetricLen = Math.hypot(dx, dy) || 1;
+    ux = dx / horizMetricLen;
+    uy = dy / horizMetricLen;
+    uz = 0;
+
     const w = geom.widthM || 8.0;
     const cx = w / 2;
     const hw = geom.wallHeightM || (geom.heightM || 6.5) * 0.55;
@@ -2336,15 +2443,14 @@ export function constructTraceAnchoredPlaneFromOrientation(
     const normDy = Math.max(-1, Math.min(1, (midPoint.y - cx) / Math.max(0.1, w / 2)));
     midPoint.z = Number((hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy))).toFixed(3));
 
-    const halfLen = traceLen / 2;
     traceStartPt = {
-      x: Number((midPoint.x - ux * halfLen).toFixed(3)),
-      y: Number((midPoint.y - uy * halfLen).toFixed(3)),
+      x: Number(p1.x.toFixed(3)),
+      y: Number(p1.y.toFixed(3)),
       z: midPoint.z,
     };
     traceEndPt = {
-      x: Number((midPoint.x + ux * halfLen).toFixed(3)),
-      y: Number((midPoint.y + uy * halfLen).toFixed(3)),
+      x: Number(p2.x.toFixed(3)),
+      y: Number(p2.y.toFixed(3)),
       z: midPoint.z,
     };
   } else if (geom.isVerticalShaft && panel === 'face') {
@@ -2356,14 +2462,16 @@ export function constructTraceAnchoredPlaneFromOrientation(
 
   const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
 
-  // CASE 1: Tunnel Face (!geom.isVerticalShaft && panel === 'face')
+  // CASE 1: Tunnel / Surface Face (!geom.isVerticalShaft && panel === 'face')
   if (!geom.isVerticalShaft && panel === 'face') {
     const sY = uy >= 0 ? 1 : -1;
     const absUy = Math.abs(uy);
     const absUz = Math.abs(uz);
 
-    const c1 = cosA;
-    const c2 = sY * sinA;
+    const dirSign = directionSide === 'collar' ? -1 : 1;
+    const c1 = dirSign * cosA;
+    const sinSign = Math.abs(sinA) > 1e-5 ? (sinA >= 0 ? 1 : -1) : 1;
+    const c2 = sY * sinSign * Math.max(0.42, Math.abs(sinA));
 
     const rawNx = c1;
     const rawNy = c2 * sY * absUz;
@@ -2434,14 +2542,16 @@ export function constructTraceAnchoredPlaneFromOrientation(
     };
   }
 
-  // CASE 2: Tunnel Sidewalls (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall'))
+  // CASE 2: Tunnel / Surface Sidewalls (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall'))
   if (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall')) {
     const sX = ux >= 0 ? 1 : -1;
     const absUx = Math.abs(ux);
     const absUz = Math.abs(uz);
 
-    const c1 = sinA;
-    const c2 = sX * cosA;
+    const dirSign = directionSide === 'collar' ? -1 : 1;
+    const c1 = dirSign * sinA;
+    const cosSign = Math.abs(cosA) > 1e-5 ? (cosA >= 0 ? 1 : -1) : 1;
+    const c2 = sX * cosSign * Math.max(0.42, Math.abs(cosA));
 
     const rawNx = c2 * sX * absUz;
     const rawNy = c1;
@@ -2545,8 +2655,11 @@ export function constructTraceAnchoredPlaneFromOrientation(
     const proj1 = targetHx * e1x + targetHy * e1y;
     const proj2 = targetHx * e2x + targetHy * e2y;
     const phi = Math.atan2(proj2, proj1);
-    const c1 = Math.cos(phi);
-    const c2 = Math.sin(phi);
+    const dirSign = directionSide === 'collar' ? -1 : 1;
+    const c1 = dirSign * Math.cos(phi);
+    const sinPhi = Math.sin(phi);
+    const sinPhiSign = Math.abs(sinPhi) > 1e-5 ? (sinPhi >= 0 ? 1 : -1) : 1;
+    const c2 = sinPhiSign * Math.max(0.42, Math.abs(sinPhi));
 
     const rawNx = c1 * e1x + c2 * e2x;
     const rawNy = c1 * e1y + c2 * e2y;
@@ -2617,30 +2730,31 @@ export function constructTraceAnchoredPlaneFromOrientation(
     };
   }
 
-  // CASE 4: Horizontal Trace Panels — Vertical Shaft Bottom Face (geom.isVerticalShaft && panel === 'face')
-  // and Tunnel Crown (!geom.isVerticalShaft && panel === 'crown').
-  // Strictly hinge the 3D plane on the horizontal trace vector u = (ux, uy, 0) so changing EITHER
-  // Dip Direction (0°..359°) OR Dip Amount (0°..90°) rotates the plane smoothly around the drawn trace hinge!
+  // CASE 4: Horizontal Strike-Measured Panels — Vertical Shaft Bottom Face (geom.isVerticalShaft && panel === 'face')
+  // and Tunnel Crown / Surface Berm (!geom.isVerticalShaft && panel === 'crown').
+  // Here the trace u = (ux, uy, 0) is the Strike trace (already pivoted around Starting/Ending point when Strike/Dip Direction changes),
+  // and Dip Amount (safeDip 0°..90°) tilts the 3D plane purely around the Strike trace hinge u!
   const horizLen = Math.hypot(ux, uy) || 1;
   const hUx = ux / horizLen;
   const hUy = uy / horizLen;
   // e1 = (-hUy, hUx, 0) is horizontal in-floor/in-crown perpendicular to trace u; e2 = (0, 0, 1) is vertical (+Z)
-  const e1x = -hUy;
-  const e1y = hUx;
+  let e1x = -hUy;
+  let e1y = hUx;
 
-  // Natural RHR dip direction perpendicular to the horizontal trace u:
-  const traceBaseDipDirDeg = geom.isVerticalShaft
-    ? normalizeAngle360(radToDeg(Math.atan2(e1y, -e1x)))
-    : normalizeAngle360(radToDeg(Math.atan2(e1y, e1x)) + drive);
-
-  // Relative angular delta from the trace's natural perpendicular dip direction:
-  let deltaDipDirDeg = ((safeDipDir - traceBaseDipDirDeg + 540) % 360) - 180;
+  // Align e1 with the user's selected Dip Direction (and directionSide if flipped):
+  const targetDipDirX = geom.isVerticalShaft ? -cosA : cosA;
+  const targetDipDirY = sinA;
+  if (e1x * targetDipDirX + e1y * targetDipDirY < 0) {
+    e1x = -e1x;
+    e1y = -e1y;
+  }
   if (directionSide === 'collar') {
-    deltaDipDirDeg += 180;
+    e1x = -e1x;
+    e1y = -e1y;
   }
 
-  // Combine Dip Amount (safeDip) and Dip Direction rotation (deltaDipDirDeg) into the hinge rotation angle phi around u:
-  const phiRad = degToRad(safeDip + deltaDipDirDeg);
+  // Tilt the 3D plane around the Strike trace hinge u by exact Dip Amount (0°..90°):
+  const phiRad = degToRad(safeDip);
   const sinPhi = Math.sin(phiRad);
   const cosPhi = Math.cos(phiRad);
 
@@ -2777,9 +2891,8 @@ export function tunnel3DMetricToCanvasPoint(
 
 /**
  * Constructs a 3D discontinuity plane and curved crown arch intersection trace for Crown mapping.
- * Because the tunnel crown is an arched vault, a dipping plane cutting through the crown produces
- * a curved intersection line. When Dip Direction or Dip Amount changes in the 3D Joint Inspector,
- * both the 3D plane and the curved intersection trace on the crown dynamically update.
+ * Endpoints of the trace remain strictly pinned to the active (endpoint-pivoted) chord endpoints P1 and P2,
+ * while the interior of the trace curves along the crown vault according to Dip Amount.
  */
 export function constructCurvedCrownPlaneAndTrace(
   points: FieldPoint2D[],
@@ -2810,22 +2923,20 @@ export function constructCurvedCrownPlaneAndTrace(
 
   const drawnCurve3D = safePts.map((pt) => pointToTunnel3DMetric(pt, 'crown', geom));
 
-  // Compute centroid anchor on the crown arch
-  const avgX = drawnCurve3D.reduce((s, p) => s + p.x, 0) / drawnCurve3D.length;
-  const avgY = drawnCurve3D.reduce((s, p) => s + p.y, 0) / drawnCurve3D.length;
-  const normDy0 = Math.max(-1, Math.min(1, (avgY - w / 2) / (w / 2)));
+  const first3D = drawnCurve3D[0];
+  const last3D = drawnCurve3D[drawnCurve3D.length - 1];
+  const midX = (first3D.x + last3D.x) / 2;
+  const midY = (first3D.y + last3D.y) / 2;
+  const normDy0 = Math.max(-1, Math.min(1, (midY - w / 2) / (w / 2)));
   const archZ0 = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy0 * normDy0));
   const anchor3D: Vec3D = {
-    x: Number(avgX.toFixed(3)),
-    y: Number(avgY.toFixed(3)),
+    x: Number(midX.toFixed(3)),
+    y: Number(midY.toFixed(3)),
     z: Number(archZ0.toFixed(3)),
   };
 
-  // Measure horizontal chord length of the drawn trace
-  const first3D = drawnCurve3D[0];
-  const last3D = drawnCurve3D[drawnCurve3D.length - 1];
   let chordLenM = Math.hypot(last3D.x - first3D.x, last3D.y - first3D.y);
-  if (chordLenM < 0.4) {
+  if (chordLenM < 0.2) {
     chordLenM = Math.min(w * 0.65, pullL * 0.75);
   }
 
@@ -2836,16 +2947,14 @@ export function constructCurvedCrownPlaneAndTrace(
     geom.driveAzimuthDeg || 0
   );
 
-  // Horizontal strike and dip-direction unit vectors in tunnel (X, Y)
+  // Horizontal dip-direction unit vector in tunnel (X, Y)
   const relDipRad = degToRad(normalizeAngle360(dipDirectionDeg - (geom.driveAzimuthDeg || 0)));
   const dipDirX = Math.cos(relDipRad);
   const dipDirY = Math.sin(relDipRad);
-  // Right-Hand Rule strike unit vector (looking along strike, dips to the right)
-  const strikeDirX = Math.sin(relDipRad);
-  const strikeDirY = -Math.cos(relDipRad);
 
   // As a plane with dip angle delta cuts the arched crown roof Z_arch(Y),
-  // any drop in roof height dZ = Z_arch(anchor) - Z_arch(s) shifts the trace in the dip direction by cot(delta) * dZ.
+  // any drop in roof height shifts the interior of the trace in the dip direction by cot(delta) * dZ,
+  // while keeping the endpoints tau = ±1 strictly pinned at first3D (P1) and last3D (P2).
   const clampedDip = Math.max(5, Math.min(90, dipDeg));
   const cotDip = Math.cos(degToRad(clampedDip)) / Math.max(0.08, Math.sin(degToRad(clampedDip)));
 
@@ -2856,25 +2965,21 @@ export function constructCurvedCrownPlaneAndTrace(
   for (let i = 0; i <= nSamples; i++) {
     const t = i / nSamples; // 0..1
     const tau = (t - 0.5) * 2; // -1..+1
-    const s = (t - 0.5) * chordLenM;
 
-    // Base chord position along strike
-    const baseX = anchor3D.x + s * strikeDirX;
-    const baseY = anchor3D.y + s * strikeDirY;
+    // Interpolate directly between first3D (P1) and last3D (P2) so endpoints stay 100% pinned:
+    const baseX = first3D.x + t * (last3D.x - first3D.x);
+    const baseY = first3D.y + t * (last3D.y - first3D.y);
 
-    // Arch elevation drop from apex/anchor across both transverse Y and vault profile
     const normDyBase = Math.max(-1, Math.min(1, (baseY - w / 2) / (w / 2)));
     const zAtBase = hw + archRise * Math.sqrt(Math.max(0, 1 - normDyBase * normDyBase));
     const transDrop = Math.max(0, archZ0 - zAtBase);
-    const vaultDrop = archRise * 0.36 * (1 - tau * tau); // Smooth parabolic arch sag centered on the trace
+    const vaultDrop = archRise * 0.28 * (1 - tau * tau);
 
-    // Total curved displacement along dip direction (zero at endpoints tau=±1 so endpoints stay anchored on chord, curving through the crown)
-    const archCurveOffset = (vaultDrop + transDrop * 0.5 * (1 - tau * tau)) * Math.min(1.85, cotDip * 0.85);
-    // Center the curve around anchor3D by subtracting mean offset (2/3 of peak)
-    const centeredOffset = archCurveOffset - archRise * 0.36 * 0.55 * Math.min(1.85, cotDip * 0.85);
+    // Zero at tau = -1 (P1) and tau = +1 (P2), maximum at midpoint tau = 0:
+    const archCurveOffset = (vaultDrop + transDrop * 0.45 * (1 - tau * tau)) * Math.min(1.4, cotDip * 0.65);
 
-    const cx = Math.max(0.04, Math.min(pullL - 0.04, baseX + dipDirX * centeredOffset));
-    const cy = Math.max(0.06, Math.min(w - 0.06, baseY + dipDirY * centeredOffset));
+    const cx = Math.max(0.04, Math.min(pullL - 0.04, baseX + dipDirX * archCurveOffset));
+    const cy = Math.max(0.06, Math.min(w - 0.06, baseY + dipDirY * archCurveOffset));
     const normDy = Math.max(-1, Math.min(1, (cy - w / 2) / (w / 2)));
     const cz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
 
@@ -2884,7 +2989,13 @@ export function constructCurvedCrownPlaneAndTrace(
       z: Number(cz.toFixed(3)),
     };
     editedCurve3D.push(pt3);
-    editedCanvasPoints.push(tunnel3DMetricToCanvasPoint(pt3, 'crown', geom));
+    if (i === 0) {
+      editedCanvasPoints.push({ x: safePts[0].x, y: safePts[0].y });
+    } else if (i === nSamples) {
+      editedCanvasPoints.push({ x: safePts[safePts.length - 1].x, y: safePts[safePts.length - 1].y });
+    } else {
+      editedCanvasPoints.push(tunnel3DMetricToCanvasPoint(pt3, 'crown', geom));
+    }
   }
 
   // Build a 3D plane polygon that covers the entire curved trace on the crown and cuts through the curve into the tunnel

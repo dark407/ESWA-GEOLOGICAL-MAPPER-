@@ -934,262 +934,265 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   useEffect(() => {
     if (!activeRound || !activeLocation) return;
     if (isVerticalShaftMode || activeLocation.undergroundSubMode === 'vertical_shaft') return;
-    try {
-      const fromSt = activeRound.chainageFrom || '';
-      const toSt = activeRound.chainageTo || '';
-      const pullLen = activeRound.pullLengthMeters || 3.5;
-      const liveInterval = parsePullIntervalFromRecord(
-        fromSt,
-        toSt,
-        pullLen
-      );
-      const projName = (activeProject?.projectName || 'Tunnel Project').trim();
-      const locName = (activeLocation.name || 'Main Tunnel').trim();
+    const syncTimer = window.setTimeout(() => {
+      try {
+        const fromSt = activeRound.chainageFrom || '';
+        const toSt = activeRound.chainageTo || '';
+        const pullLen = activeRound.pullLengthMeters || 3.5;
+        const liveInterval = parsePullIntervalFromRecord(
+          fromSt,
+          toSt,
+          pullLen
+        );
+        const projName = (activeProject?.projectName || 'Tunnel Project').trim();
+        const locName = (activeLocation.name || 'Main Tunnel').trim();
 
-      const allow3DProj = Boolean(activeRound.show3DPlanePreview);
-      const convertedJoints: Joint[] = [
-        ...activeRound.jointTraces.map((tr) => {
-          const metricPts =
-            tr.metricPoints && tr.metricPoints.length === tr.points.length
-              ? tr.metricPoints
-              : computePhysicalMetricPoints(tr.points, tr.panel, activeLocation, activeRound);
-          return {
-            id: tr.id,
-            surface: (
-              tr.panel === 'left_wall'
-                ? 'leftWall'
-                : tr.panel === 'right_wall'
-                ? 'rightWall'
-                : tr.panel === 'crown'
-                ? 'crown'
-                : 'face'
-            ) as SurfaceType,
-            geometry: metricPts,
-            traceAngle: tr.strike || 0,
-            strike: tr.strike || 0,
-            dip: tr.dipAmount || 45,
-            dipDirection: tr.dipDirection || 90,
-            set: (tr.setId || 'J1') as unknown as JointSet,
-            featureType: 'joint' as const,
-            confidence: 'High' as const,
-            confidenceScore: 0.9,
-            confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
-            source: 'MANUAL' as const,
-            accepted: true,
-            persistenceMeters: tr.traceLengthM || 1.5,
-            orientationStatus: (
-              tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED'
-            ) as any,
-            allow3DPlaneProjection: allow3DProj,
-          } as unknown as Joint;
-        }),
-        ...(activeRound.structuralFeatures || [])
-          .filter(
-            (sf) =>
-              sf.panel === 'left_wall' || sf.panel === 'crown' || sf.panel === 'right_wall'
-          )
-          .map((sf) => {
-            const metricPts = computePhysicalMetricPoints(
-              sf.points,
-              sf.panel,
-              activeLocation,
-              activeRound
-            );
+        const allow3DProj = Boolean(activeRound.show3DPlanePreview);
+        const convertedJoints: Joint[] = [
+          ...activeRound.jointTraces.map((tr) => {
+            const metricPts =
+              tr.metricPoints && tr.metricPoints.length === tr.points.length
+                ? tr.metricPoints
+                : computePhysicalMetricPoints(tr.points, tr.panel, activeLocation, activeRound);
             return {
-              id: sf.id,
+              id: tr.id,
               surface: (
-                sf.panel === 'left_wall'
+                tr.panel === 'left_wall'
                   ? 'leftWall'
-                  : sf.panel === 'right_wall'
+                  : tr.panel === 'right_wall'
                   ? 'rightWall'
-                  : 'crown'
+                  : tr.panel === 'crown'
+                  ? 'crown'
+                  : 'face'
               ) as SurfaceType,
               geometry: metricPts,
-              traceAngle: ((sf.dipDirection - 90 + 360) % 360),
-              strike: ((sf.dipDirection - 90 + 360) % 360),
-              dip: sf.dipAmount || 60,
-              dipDirection: sf.dipDirection || 90,
-              set: 'F1' as unknown as JointSet,
-              featureType: (
-                sf.featureType === 'shear_zone' || sf.featureType === 'fault'
-                  ? 'shear'
-                  : 'joint'
-              ) as any,
-              confidence: 'High' as const,
-              confidenceScore: 0.95,
-              confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
-              source: 'MANUAL' as const,
-              accepted: true,
-              persistenceMeters: 2.0,
-              orientationStatus: 'DIRECTLY_MEASURED' as any,
-              allow3DPlaneProjection: false,
-            } as unknown as Joint;
-          }),
-        ...(activeRound.dipPlaneSurfaces || [])
-          .filter(
-            (ds) =>
-              ds.panel === 'left_wall' || ds.panel === 'crown' || ds.panel === 'right_wall'
-          )
-          .map((ds) => {
-            const srcPts =
-              ds.outlinePolygon && ds.outlinePolygon.length >= 2 ? ds.outlinePolygon : ds.points;
-            const metricPts = computePhysicalMetricPoints(
-              srcPts,
-              ds.panel,
-              activeLocation,
-              activeRound
-            );
-            return {
-              id: ds.id,
-              surface: (
-                ds.panel === 'left_wall'
-                  ? 'leftWall'
-                  : ds.panel === 'right_wall'
-                  ? 'rightWall'
-                  : 'crown'
-              ) as SurfaceType,
-              geometry: metricPts,
-              traceAngle: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
-              strike: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
-              dip: ds.dipAmount || 45,
-              dipDirection: ds.dipDirection || 90,
-              set: (ds.setId && ds.setId !== 'unassigned' ? ds.setId : 'J1') as unknown as JointSet,
+              traceAngle: tr.strike || 0,
+              strike: tr.strike || 0,
+              dip: tr.dipAmount || 45,
+              dipDirection: tr.dipDirection || 90,
+              set: (tr.setId || 'J1') as unknown as JointSet,
               featureType: 'joint' as const,
               confidence: 'High' as const,
-              confidenceScore: 0.95,
-              confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
+              confidenceScore: 0.9,
+              confidenceBreakdown: { detection: 90, trace: 90, geometric: 90, orientation: 90 },
               source: 'MANUAL' as const,
               accepted: true,
-              persistenceMeters: 1.5,
-              orientationStatus: 'DIRECTLY_MEASURED' as any,
-              allow3DPlaneProjection: false,
+              persistenceMeters: tr.traceLengthM || 1.5,
+              orientationStatus: (
+                tr.editedByCompass ? 'DIRECTLY_MEASURED' : 'GEOMETRICALLY_CALCULATED'
+              ) as any,
+              allow3DPlaneProjection: allow3DProj,
             } as unknown as Joint;
           }),
-      ];
+          ...(activeRound.structuralFeatures || [])
+            .filter(
+              (sf) =>
+                sf.panel === 'left_wall' || sf.panel === 'crown' || sf.panel === 'right_wall'
+            )
+            .map((sf) => {
+              const metricPts = computePhysicalMetricPoints(
+                sf.points,
+                sf.panel,
+                activeLocation,
+                activeRound
+              );
+              return {
+                id: sf.id,
+                surface: (
+                  sf.panel === 'left_wall'
+                    ? 'leftWall'
+                    : sf.panel === 'right_wall'
+                    ? 'rightWall'
+                    : 'crown'
+                ) as SurfaceType,
+                geometry: metricPts,
+                traceAngle: ((sf.dipDirection - 90 + 360) % 360),
+                strike: ((sf.dipDirection - 90 + 360) % 360),
+                dip: sf.dipAmount || 60,
+                dipDirection: sf.dipDirection || 90,
+                set: 'F1' as unknown as JointSet,
+                featureType: (
+                  sf.featureType === 'shear_zone' || sf.featureType === 'fault'
+                    ? 'shear'
+                    : 'joint'
+                ) as any,
+                confidence: 'High' as const,
+                confidenceScore: 0.95,
+                confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
+                source: 'MANUAL' as const,
+                accepted: true,
+                persistenceMeters: 2.0,
+                orientationStatus: 'DIRECTLY_MEASURED' as any,
+                allow3DPlaneProjection: false,
+              } as unknown as Joint;
+            }),
+          ...(activeRound.dipPlaneSurfaces || [])
+            .filter(
+              (ds) =>
+                ds.panel === 'left_wall' || ds.panel === 'crown' || ds.panel === 'right_wall'
+            )
+            .map((ds) => {
+              const srcPts =
+                ds.outlinePolygon && ds.outlinePolygon.length >= 2 ? ds.outlinePolygon : ds.points;
+              const metricPts = computePhysicalMetricPoints(
+                srcPts,
+                ds.panel,
+                activeLocation,
+                activeRound
+              );
+              return {
+                id: ds.id,
+                surface: (
+                  ds.panel === 'left_wall'
+                    ? 'leftWall'
+                    : ds.panel === 'right_wall'
+                    ? 'rightWall'
+                    : 'crown'
+                ) as SurfaceType,
+                geometry: metricPts,
+                traceAngle: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
+                strike: ds.strike || ((ds.dipDirection - 90 + 360) % 360),
+                dip: ds.dipAmount || 45,
+                dipDirection: ds.dipDirection || 90,
+                set: (ds.setId && ds.setId !== 'unassigned' ? ds.setId : 'J1') as unknown as JointSet,
+                featureType: 'joint' as const,
+                confidence: 'High' as const,
+                confidenceScore: 0.95,
+                confidenceBreakdown: { detection: 95, trace: 95, geometric: 95, orientation: 95 },
+                source: 'MANUAL' as const,
+                accepted: true,
+                persistenceMeters: 1.5,
+                orientationStatus: 'DIRECTLY_MEASURED' as any,
+                allow3DPlaneProjection: false,
+              } as unknown as Joint;
+            }),
+        ];
 
-      const convertedLithology: LithologyRegion[] = (activeRound.lithologyStrokes || [])
-        .filter((st) => st.mode !== 'lithology_erase' && (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall'))
-        .map((st) => {
-          const surf: SurfaceType =
-            st.panel === 'left_wall'
-              ? 'leftWall'
-              : st.panel === 'right_wall'
-              ? 'rightWall'
-              : 'crown';
-          const srcPts = st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
-          let metricPolygon: Point2D[];
-          if (srcPts.length >= 3 && (st.isClosed || (st.polygon && st.polygon.length >= 3))) {
-            metricPolygon = srcPts.map((p) => {
-              const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
-              return mPt;
-            });
-          } else {
-            // Open brush stroke: expand centerline with brush radius into ribbon polygon
-            const halfM = Math.max(0.25, (st.brushRadius || 24) * 0.02);
-            const mPts = srcPts.map((p) => {
-              const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
-              return mPt;
-            });
-            const leftSide: Point2D[] = [];
-            const rightSide: Point2D[] = [];
-            for (let i = 0; i < mPts.length; i++) {
-              const prev = mPts[Math.max(0, i - 1)];
-              const next = mPts[Math.min(mPts.length - 1, i + 1)];
-              const dx = next.x - prev.x;
-              const dy = next.y - prev.y;
-              const len = Math.hypot(dx, dy) || 1;
-              const nx = -dy / len;
-              const ny = dx / len;
-              leftSide.push({ x: mPts[i].x + nx * halfM, y: mPts[i].y + ny * halfM });
-              rightSide.push({ x: mPts[i].x - nx * halfM, y: mPts[i].y - ny * halfM });
+        const convertedLithology: LithologyRegion[] = (activeRound.lithologyStrokes || [])
+          .filter((st) => st.mode !== 'lithology_erase' && (st.panel === 'left_wall' || st.panel === 'crown' || st.panel === 'right_wall'))
+          .map((st) => {
+            const surf: SurfaceType =
+              st.panel === 'left_wall'
+                ? 'leftWall'
+                : st.panel === 'right_wall'
+                ? 'rightWall'
+                : 'crown';
+            const srcPts = st.polygon && st.polygon.length >= 3 ? st.polygon : st.points;
+            let metricPolygon: Point2D[];
+            if (srcPts.length >= 3 && (st.isClosed || (st.polygon && st.polygon.length >= 3))) {
+              metricPolygon = srcPts.map((p) => {
+                const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
+                return mPt;
+              });
+            } else {
+              // Open brush stroke: expand centerline with brush radius into ribbon polygon
+              const halfM = Math.max(0.25, (st.brushRadius || 24) * 0.02);
+              const mPts = srcPts.map((p) => {
+                const [mPt] = computePhysicalMetricPoints([p], st.panel, activeLocation, activeRound);
+                return mPt;
+              });
+              const leftSide: Point2D[] = [];
+              const rightSide: Point2D[] = [];
+              for (let i = 0; i < mPts.length; i++) {
+                const prev = mPts[Math.max(0, i - 1)];
+                const next = mPts[Math.min(mPts.length - 1, i + 1)];
+                const dx = next.x - prev.x;
+                const dy = next.y - prev.y;
+                const len = Math.hypot(dx, dy) || 1;
+                const nx = -dy / len;
+                const ny = dx / len;
+                leftSide.push({ x: mPts[i].x + nx * halfM, y: mPts[i].y + ny * halfM });
+                rightSide.push({ x: mPts[i].x - nx * halfM, y: mPts[i].y - ny * halfM });
+              }
+              metricPolygon = [...leftSide, ...rightSide.reverse(), leftSide[0]];
             }
-            metricPolygon = [...leftSide, ...rightSide.reverse(), leftSide[0]];
-          }
-          const pat = (st.patternId || st.rockType || 'quartzite') as LithologyPatternType;
-          return {
-            id: st.id,
-            surface: surf,
-            polygon: metricPolygon,
-            polygonPoints: metricPolygon,
-            lithologyName: st.rockName || 'Lithology',
-            lithologyType: st.rockType,
-            rockType: st.rockType,
-            patternType: pat,
-            colorHex: st.color || '#fef08a',
-            opacity: 0.35,
-            description: st.rockName || 'Rock Mass',
-            structuralFeatures: '',
-            userApproved: true,
-          };
-        });
+            const pat = (st.patternId || st.rockType || 'quartzite') as LithologyPatternType;
+            return {
+              id: st.id,
+              surface: surf,
+              polygon: metricPolygon,
+              polygonPoints: metricPolygon,
+              lithologyName: st.rockName || 'Lithology',
+              lithologyType: st.rockType,
+              rockType: st.rockType,
+              patternType: pat,
+              colorHex: st.color || '#fef08a',
+              opacity: 0.35,
+              description: st.rockName || 'Rock Mass',
+              structuralFeatures: '',
+              userApproved: true,
+            };
+          });
 
-      const defQ = createDefaultQIndexParameters();
-      const syntheticRecord: SavedProjectRecord = {
-        id: `auto-round-${activeRound.id}`,
-        projectName: projName,
-        tunnelName: locName,
-        location: locName,
-        chainage: fromSt || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
-        faceChainage: toSt || `RD ${liveInterval.toRd}m`,
-        numericChainageMeters: liveInterval.toRd,
-        date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-        savedAt: new Date().toISOString(),
-        mappingMode: 'tunnel_3d',
-        geometry: {
-          width: activeLocation.widthM,
-          height: activeLocation.heightM,
-          wallHeight: activeLocation.wallHeightM || activeLocation.heightM * 0.58,
-          leftWallArcLength: activeLocation.wallHeightM || 4.2,
-          rightWallArcLength: activeLocation.wallHeightM || 4.2,
-          crownArcLength: activeLocation.widthM * 1.25,
-          crownGeometry: 'horseshoe',
-          crownRadius: activeLocation.widthM * 0.5,
-          crossSectionPoints: [],
-          units: 'm',
-          source: 'manual',
-        },
-        settings: {
+        const defQ = createDefaultQIndexParameters();
+        const syntheticRecord: SavedProjectRecord = {
+          id: `auto-round-${activeRound.id}`,
           projectName: projName,
           tunnelName: locName,
           location: locName,
-          driveDirectionInput: String(activeRound.tunnelDriveDirection || 0),
-          driveDirection: activeRound.tunnelDriveDirection || 0,
           chainage: fromSt || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
           faceChainage: toSt || `RD ${liveInterval.toRd}m`,
-          roundLength: pullLen,
+          numericChainageMeters: liveInterval.toRd,
           date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
-          mappedBy: activeRound.geologistName || '',
-          lithology: activeRound.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
-        },
-        joints: convertedJoints,
-        lithologyRegions: convertedLithology,
-        customJointSetOverrides: {},
-        qIndexParams: {
-          ...defQ,
-          rqd: activeRound.qSystem?.rqd ?? 75,
-          jn: activeRound.qSystem?.jn ?? 9,
-          jr: activeRound.qSystem?.jr ?? 1.5,
-          ja: activeRound.qSystem?.ja ?? 2,
-          jw: activeRound.qSystem?.jw ?? 1,
-          srf: activeRound.qSystem?.srf ?? 2.5,
-          qValue: computeFieldQValue(activeRound.qSystem).qValue,
-        },
-        rmrParams: {
-          intactStrengthRating: activeRound.rmrSystem?.ucsRating ?? 12,
-          rqdRating: activeRound.rmrSystem?.rqdRating ?? 17,
-          spacingRating: activeRound.rmrSystem?.spacingRating ?? 10,
-          conditionRating: activeRound.rmrSystem?.conditionRating ?? 20,
-          groundwaterRating: activeRound.rmrSystem?.waterRating ?? 10,
-          orientationAdjustmentRating: activeRound.rmrSystem?.orientationAdj ?? -5,
-        } as any,
-      } as any;
+          savedAt: new Date().toISOString(),
+          mappingMode: 'tunnel_3d',
+          geometry: {
+            width: activeLocation.widthM,
+            height: activeLocation.heightM,
+            wallHeight: activeLocation.wallHeightM || activeLocation.heightM * 0.58,
+            leftWallArcLength: activeLocation.wallHeightM || 4.2,
+            rightWallArcLength: activeLocation.wallHeightM || 4.2,
+            crownArcLength: activeLocation.widthM * 1.25,
+            crownGeometry: 'horseshoe',
+            crownRadius: activeLocation.widthM * 0.5,
+            crossSectionPoints: [],
+            units: 'm',
+            source: 'manual',
+          },
+          settings: {
+            projectName: projName,
+            tunnelName: locName,
+            location: locName,
+            driveDirectionInput: String(activeRound.tunnelDriveDirection || 0),
+            driveDirection: activeRound.tunnelDriveDirection || 0,
+            chainage: fromSt || `RD ${liveInterval.fromRd}m - ${liveInterval.toRd}m`,
+            faceChainage: toSt || `RD ${liveInterval.toRd}m`,
+            roundLength: pullLen,
+            date: activeRound.createdAt || activeRound.dateAndTimeOfExcavation || new Date().toISOString().slice(0, 10),
+            mappedBy: activeRound.geologistName || '',
+            lithology: activeRound.lithologyStrokes?.[0]?.rockName || 'Rock Mass',
+          },
+          joints: convertedJoints,
+          lithologyRegions: convertedLithology,
+          customJointSetOverrides: {},
+          qIndexParams: {
+            ...defQ,
+            rqd: activeRound.qSystem?.rqd ?? 75,
+            jn: activeRound.qSystem?.jn ?? 9,
+            jr: activeRound.qSystem?.jr ?? 1.5,
+            ja: activeRound.qSystem?.ja ?? 2,
+            jw: activeRound.qSystem?.jw ?? 1,
+            srf: activeRound.qSystem?.srf ?? 2.5,
+            qValue: computeFieldQValue(activeRound.qSystem).qValue,
+          },
+          rmrParams: {
+            intactStrengthRating: activeRound.rmrSystem?.ucsRating ?? 12,
+            rqdRating: activeRound.rmrSystem?.rqdRating ?? 17,
+            spacingRating: activeRound.rmrSystem?.spacingRating ?? 10,
+            conditionRating: activeRound.rmrSystem?.conditionRating ?? 20,
+            groundwaterRating: activeRound.rmrSystem?.waterRating ?? 10,
+            orientationAdjustmentRating: activeRound.rmrSystem?.orientationAdj ?? -5,
+          } as any,
+        } as any;
 
-      const existing = loadAllContinuousStripDatasets();
-      const updated = syncSavedProjectsIntoStripDatasets(existing, [syntheticRecord]);
-      saveAllContinuousStripDatasets(updated);
-    } catch {
-      // Non-blocking background sync
-    }
+        const existing = loadAllContinuousStripDatasets();
+        const updated = syncSavedProjectsIntoStripDatasets(existing, [syntheticRecord]);
+        saveAllContinuousStripDatasets(updated);
+      } catch {
+        // Non-blocking background sync
+      }
+    }, 650);
+    return () => window.clearTimeout(syncTimer);
   }, [
     activeRound?.jointTraces,
     activeRound?.lithologyStrokes,

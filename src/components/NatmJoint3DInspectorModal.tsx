@@ -88,6 +88,10 @@ import {
   pointToTunnel3DMetric,
   constructCurvedCrownPlaneAndTrace,
   recomputeAlignedCanvasTracePoints,
+  TracePivotEndpoint,
+  DipHalfCircleSense,
+  isStrikeMeasuredOnPanel,
+  computeEndpointPivotedTracePoints,
 } from '../engine/joint3DInspectorEngine';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
 import { createTunnelGeometry } from '../engine/geometryEngine';
@@ -161,8 +165,10 @@ function getCardinal(deg: number): string {
 }
 
 // ----------------------------------------------------------------------------
-// THREE.JS 3D BILLBOARD SPRITE TEXT GENERATOR FOR ADVANCE & FACE SIGNAGE
+// THREE.JS 3D BILLBOARD SPRITE TEXT GENERATOR WITH GPU TEXTURE CACHE
 // ----------------------------------------------------------------------------
+const BILLBOARD_TEXTURE_CACHE = new Map<string, THREE.CanvasTexture>();
+
 function createBillboardLabel(
   text: string,
   bgColor: string,
@@ -170,31 +176,52 @@ function createBillboardLabel(
   scaleX = 1.65,
   scaleY = 0.36
 ): THREE.Sprite {
-  const canvas = document.createElement('canvas');
-  canvas.width = 384;
-  canvas.height = 88;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = bgColor;
-    ctx.beginPath();
-    ctx.roundRect(6, 6, 372, 76, 18);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+  const cacheKey = `${text}|${bgColor}|${textColor}`;
+  let texture = BILLBOARD_TEXTURE_CACHE.get(cacheKey);
+  if (!texture) {
+    if (BILLBOARD_TEXTURE_CACHE.size > 160) {
+      const oldestKey = BILLBOARD_TEXTURE_CACHE.keys().next().value;
+      if (oldestKey) {
+        BILLBOARD_TEXTURE_CACHE.get(oldestKey)?.dispose();
+        BILLBOARD_TEXTURE_CACHE.delete(oldestKey);
+      }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = 384;
+    canvas.height = 88;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = bgColor;
+      ctx.beginPath();
+      ctx.roundRect(6, 6, 372, 76, 18);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
-    ctx.fillStyle = textColor;
-    ctx.font = 'bold 28px monospace, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 192, 44);
+      ctx.fillStyle = textColor;
+      ctx.font = 'bold 28px monospace, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 192, 44);
+    }
+    texture = new THREE.CanvasTexture(canvas);
+    texture.userData = { isCached: true };
+    texture.needsUpdate = true;
+    BILLBOARD_TEXTURE_CACHE.set(cacheKey, texture);
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
   sprite.scale.set(scaleX, scaleY, 1);
   return sprite;
+}
+
+let CACHED_VALIDATION_REPORT: ReturnType<typeof runJointEngineValidationTests> | null = null;
+function getCachedValidationReport() {
+  if (!CACHED_VALIDATION_REPORT) {
+    CACHED_VALIDATION_REPORT = runJointEngineValidationTests();
+  }
+  return CACHED_VALIDATION_REPORT;
 }
 
 // ----------------------------------------------------------------------------
@@ -394,8 +421,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       rawTunnelGeometry.excavationApproach,
       rawTunnelGeometry.shaftHalfSide,
       rawTunnelGeometry.shaftCenterMedianStatus,
-      rawTunnelGeometry.crossSectionPoints,
-      rawTunnelGeometry.customProfile,
+      rawTunnelGeometry.crossSectionPoints?.length,
     ]
   );
   // Real-Time Theme Integration (supports light & dark themes seamlessly)
@@ -501,15 +527,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
       : 90
     : (canonicalTraceEst?.dipAmount ?? currentJoint.dipAmount ?? 65);
 
-  const [dipDirection, setDipDirection] = useState<number>(
-    canonicalTraceEst?.dipDirection ?? currentJoint.dipDirection ?? 135
-  );
+  const resolvedInitialDipDir =
+    canonicalTraceEst?.dipDirection ?? currentJoint.dipDirection ?? 135;
+  const [dipDirection, setDipDirection] = useState<number>(resolvedInitialDipDir);
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
 
-  // Hinge Axis of Rotation State:
-  // - On Underground Face & Walls: Plane takes the drawn joint trace as its stationary hinge axis (rotates around that trace). Changing Dip Amount directly tilts the plane toward Vertical (90°) or Horizontal (0°), so an Indication Warning Modal is shown before changing Dip Amount.
-  // - On Crown & Surface Mapping (Vice Versa): Plane takes the drawn joint trace as the Strike trace hinge. Dip Amount changes freely around that Strike trace; changing Strike / Dip Direction rotates the plane horizontally, so an Indication Warning Modal is shown before changing Strike / Dip Direction.
   const isSurfaceMapping = Boolean(
     tunnelGeometry.mappingDomain && tunnelGeometry.mappingDomain !== 'TUNNEL'
   );
@@ -540,21 +563,33 @@ const NatmJoint3DInspectorModalContent: React.FC<
       ? currentDipSurface?.panel || 'face'
       : currentJoint.panel || 'face';
 
-  const isCrownOrSurface =
-    !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
-  const isFaceTrace = currentJoint.panel === 'face';
+  // Unified rule across Tunnel, Vertical Shaft, and Surface Mapping:
+  // - Strike-Measured Panels (isStrikeMeasuredPanel === true):
+  //   Tunnel Crown, Surface Berm/Crest/Trench Floor, Vertical Shaft Bottom Face (Pull 0m).
+  //   -> Changing Strike / Dip Direction asks for Starting (P1) or Ending (P2) point and pivots around it;
+  //      once completed, changing Dip Amount tilts the 3D plane hinge-based around that Strike trace.
+  // - Dip-Measured Panels (isStrikeMeasuredPanel === false):
+  //   Tunnel Face/Left Wall/Right Wall, Vertical Shaft 4 Quadrant Walls, Surface Face/Left Wall/Right Wall.
+  //   -> Changing Dip Amount asks for Starting (P1) or Ending (P2) point and dips around that point;
+  //      once completed, changing Dip Direction rotates the 3D plane hinge-based around that tilted trace.
+  const isStrikeMeasuredPanel = isStrikeMeasuredOnPanel(
+    currentJoint.panel || 'face',
+    tunnelGeometry
+  );
+  const isCrownOrSurface = isStrikeMeasuredPanel;
+  const isFaceTrace = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'face';
   const isWallTrace =
     currentJoint.panel === 'left_wall' ||
     currentJoint.panel === 'right_wall' ||
     (Boolean(tunnelGeometry.isVerticalShaft) &&
       (currentJoint.panel === 'crown' || currentJoint.panel === 'shaft_sn'));
-  const isCrownTrace = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
+  const isCrownTrace = isStrikeMeasuredPanel;
 
   const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(
     inspectTargetType !== 'dip_surface'
   );
   const [isStrikeLineHingeLocked, setIsStrikeLineHingeLocked] = useState<boolean>(
-    inspectTargetType !== 'dip_surface' && isCrownOrSurface
+    inspectTargetType !== 'dip_surface' && isStrikeMeasuredPanel
   );
   const [hingeDipDeg, setHingeDipDeg] = useState<number>(resolvedInitialDip || 90);
   const [hingeDipSide, setHingeDipSide] = useState<'heading' | 'collar'>(
@@ -562,38 +597,104 @@ const NatmJoint3DInspectorModalContent: React.FC<
   );
   const [showIntensityMethodModal, setShowIntensityMethodModal] = useState<boolean>(false);
 
-  // Pre-Change Indication Warning Modal State for Face Dip Amount vs Crown/Surface Strike Direction
-  const [faceDipChangeConfirmedForJointId, setFaceDipChangeConfirmedForJointId] = useState<string | null>(null);
-  const [crownStrikeChangeConfirmedForJointId, setCrownStrikeChangeConfirmedForJointId] = useState<string | null>(null);
+  // Dip Half-Circle Sense ('inwards' = Dip Inwards into rock/heading, 'outwards' = Dip Outwards toward excavation/collar)
+  const [dipHalfCircleSense, setDipHalfCircleSense] = useState<DipHalfCircleSense>(
+    currentJoint.panel === 'crown' && currentJoint.crownDipSign === '-90' ? 'outwards' : 'inwards'
+  );
+
+  // Endpoint-based Dip / Strike Pivot State ('start' = P1 Starting Point, 'end' = P2 Ending Point)
+  const [tracePivotEndpoint, setTracePivotEndpoint] = useState<TracePivotEndpoint | null>(null);
+  const [isDipAmountEdited, setIsDipAmountEdited] = useState<boolean>(false);
+  const [isStrikeDirEdited, setIsStrikeDirEdited] = useState<boolean>(false);
+  const [isPrimaryStepCompleted, setIsPrimaryStepCompleted] = useState<boolean>(false);
+  const [initialDipDirectionForPivot, setInitialDipDirectionForPivot] = useState<number>(
+    resolvedInitialDipDir
+  );
   const [hingeIndicationModal, setHingeIndicationModal] = useState<{
     mode: 'FACE_DIP_AMOUNT' | 'CROWN_SURFACE_STRIKE_DIR';
     targetValue: number;
     currentValue: number;
+    targetSense?: DipHalfCircleSense;
   } | null>(null);
 
-  const handleRequestDipAmountChange = (nextDip: number) => {
+  const handleDipHalfCircleSenseChange = (nextSense: DipHalfCircleSense) => {
+    const nextSide: 'heading' | 'collar' = nextSense === 'inwards' ? 'heading' : 'collar';
+    const isFlipping = nextSense !== dipHalfCircleSense;
+    setDipHalfCircleSense(nextSense);
+    setHingeDipSide(nextSide);
+    if (!isStrikeMeasuredPanel && inspectTargetType !== 'dip_surface') {
+      if (!tracePivotEndpoint) {
+        setHingeIndicationModal({
+          mode: 'FACE_DIP_AMOUNT',
+          targetValue: dipAmount ?? 60,
+          currentValue: dipAmount ?? 60,
+          targetSense: nextSense,
+        });
+        return;
+      }
+      setIsDipAmountEdited(true);
+      setIsHingeRotationActive(true);
+    }
+    if (isFlipping) {
+      setDipDirection((prev) => (((prev ?? 135) + 180) % 360 + 360) % 360);
+    }
+  };
+
+  const handleRequestDipAmountChange = (nextDip: number, explicitSense?: DipHalfCircleSense) => {
     const clamped = Math.max(0, Math.min(90, Math.round(nextDip)));
+    const targetSense = explicitSense || dipHalfCircleSense;
+    if (explicitSense && explicitSense !== dipHalfCircleSense) {
+      setDipHalfCircleSense(explicitSense);
+      setHingeDipSide(explicitSense === 'inwards' ? 'heading' : 'collar');
+    }
     if (inspectTargetType === 'dip_surface') {
       setIsHingeRotationActive(false);
       setDipAmount(clamped);
       setHingeDipDeg(clamped);
       return;
     }
-    if (
-      !isCrownOrSurface &&
-      isHingeRotationActive &&
-      faceDipChangeConfirmedForJointId !== currentJoint.id &&
-      clamped !== dipAmount
-    ) {
-      setHingeIndicationModal({
-        mode: 'FACE_DIP_AMOUNT',
-        targetValue: clamped,
-        currentValue: dipAmount ?? 60,
-      });
+    if (!isStrikeMeasuredPanel) {
+      // On Dip-measured panels (Tunnel Face/Walls, Shaft Quadrant Walls, Surface Face/Walls):
+      // Ask which endpoint (Starting Point P1 or Ending Point P2) to base the Dip Amount change on if not yet selected
+      if (!tracePivotEndpoint && (clamped !== dipAmount || targetSense !== dipHalfCircleSense)) {
+        setHingeIndicationModal({
+          mode: 'FACE_DIP_AMOUNT',
+          targetValue: clamped,
+          currentValue: dipAmount ?? 60,
+          targetSense,
+        });
+        return;
+      }
+      setIsDipAmountEdited(true);
+      setIsHingeRotationActive(true);
+      setDipAmount(clamped);
+      setHingeDipDeg(clamped);
       return;
     }
+    // On Strike-measured panels (Crown / Surface Berm / Shaft Bottom Face):
+    // Dip Amount rotates the 3D plane hinge-based around the Strike trace
+    setIsHingeRotationActive(true);
     setDipAmount(clamped);
     setHingeDipDeg(clamped);
+  };
+
+  // Continuous 0°..180° Half-Circle Protractor angle:
+  // 0°..90° = Dip Inwards (0° Horizontal Inwards -> 90° Vertical)
+  // 90°..180° = Dip Outwards (90° Vertical -> 180° Horizontal Outwards, i.e., dipAmount = 180 - angle)
+  const halfCircleProtractorAngle = useMemo(() => {
+    const d = Math.max(0, Math.min(90, dipAmount ?? 60));
+    return dipHalfCircleSense === 'inwards' ? d : 180 - d;
+  }, [dipAmount, dipHalfCircleSense]);
+
+  const handleHalfCircleProtractorChange = (angle0to180: number) => {
+    const clamped180 = Math.max(0, Math.min(180, Math.round(angle0to180)));
+    const nextSense: DipHalfCircleSense = clamped180 <= 90 ? 'inwards' : 'outwards';
+    const nextDip = clamped180 <= 90 ? clamped180 : 180 - clamped180;
+    const isFlipping = nextSense !== dipHalfCircleSense;
+    if (isFlipping) {
+      setDipDirection((prev) => (((prev ?? 135) + 180) % 360 + 360) % 360);
+    }
+    handleRequestDipAmountChange(nextDip, nextSense);
   };
 
   const handleRequestDipDirectionOrStrikeChange = (nextDipDir: number) => {
@@ -603,29 +704,54 @@ const NatmJoint3DInspectorModalContent: React.FC<
       setDipDirection(normDir);
       return;
     }
-    if (
-      isCrownOrSurface &&
-      isStrikeLineHingeLocked &&
-      crownStrikeChangeConfirmedForJointId !== currentJoint.id &&
-      normDir !== dipDirection
-    ) {
-      setHingeIndicationModal({
-        mode: 'CROWN_SURFACE_STRIKE_DIR',
-        targetValue: normDir,
-        currentValue: dipDirection ?? 135,
-      });
-      return;
-    }
-    if (isCrownOrSurface) {
+    if (isStrikeMeasuredPanel) {
+      // Vice Versa on Strike-measured panels (Tunnel Crown, Surface Berm/Crest/Floor, Shaft Bottom Face):
+      // Ask which endpoint (Starting Point P1 or Ending Point P2) to base the Strike / Dip Direction change on if not yet selected
+      if (!tracePivotEndpoint && normDir !== dipDirection) {
+        setHingeIndicationModal({
+          mode: 'CROWN_SURFACE_STRIKE_DIR',
+          targetValue: normDir,
+          currentValue: dipDirection ?? 135,
+        });
+        return;
+      }
+      setIsStrikeDirEdited(true);
       setIsStrikeLineHingeLocked(false);
       setIsHingeRotationActive(true);
       setDipDirection(normDir);
     } else {
-      // On Face & Walls (and all Vertical Shaft panels): rotate the 3D plane strictly around the traced joint hinge
+      // On Dip-measured panels: once Dip Amount is set, Dip Direction rotates the 3D plane hinge-based around the trace
       setIsHingeRotationActive(true);
       setDipDirection(normDir);
     }
   };
+
+  // Active 2D trace points pivoted around Starting Point (P1) or Ending Point (P2)
+  const activeTracePoints = useMemo(() => {
+    return computeEndpointPivotedTracePoints({
+      points: currentJoint.points,
+      panel: currentJoint.panel || 'face',
+      geom: tunnelGeometry,
+      pivotEndpoint: tracePivotEndpoint,
+      targetDipAmountDeg: dipAmount ?? 60,
+      targetDipDirectionDeg: dipDirection ?? 135,
+      initialDipDirectionDeg: initialDipDirectionForPivot,
+      isDipAmountEdited,
+      isStrikeDirEdited,
+      dipHalfCircleSense,
+    });
+  }, [
+    currentJoint.points,
+    currentJoint.panel,
+    tunnelGeometry,
+    tracePivotEndpoint,
+    dipAmount,
+    dipDirection,
+    initialDipDirectionForPivot,
+    isDipAmountEdited,
+    isStrikeDirEdited,
+    dipHalfCircleSense,
+  ]);
 
   const handleTraceHingeAngleOrSideChange = (
     nextHingeDeg: number,
@@ -633,23 +759,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
   ) => {
     const clampedHinge = Math.max(0, Math.min(90, Math.round(nextHingeDeg)));
     const isFlippingSide = nextSide !== hingeDipSide;
+    const nextSense: DipHalfCircleSense = nextSide === 'heading' ? 'inwards' : 'outwards';
     setHingeDipDeg(clampedHinge);
     setHingeDipSide(nextSide);
-    if (currentJoint.points && currentJoint.points.length >= 2) {
+    setDipHalfCircleSense(nextSense);
+    if (activeTracePoints && activeTracePoints.length >= 2) {
       const targetPrefDir = isFlippingSide
         ? ((dipDirection + 180) % 360 + 360) % 360
         : dipDirection;
-      const res = constructPlaneFromTraceHinge(
-        currentJoint.points,
-        currentJoint.panel || 'face',
-        clampedHinge,
-        nextSide,
-        tunnelGeometry,
-        isStrikeLineHingeLocked,
-        targetPrefDir
-      );
-      setDipAmount(res.derivedDipDeg);
-      setDipDirection(res.derivedDipDirectionDeg);
+      if (isFlippingSide) {
+        setDipDirection(targetPrefDir);
+      } else {
+        handleRequestDipAmountChange(clampedHinge, nextSense);
+      }
     } else {
       setDipAmount(clampedHinge);
     }
@@ -689,7 +811,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
   // When switching currentJointId or currentDipSurfaceId or inspectTargetType, load its orientation parameters
   useEffect(() => {
-    const isCr = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
+    const isStrikePan = isStrikeMeasuredOnPanel(currentJoint.panel || 'face', tunnelGeometry);
     const recalcEst =
       inspectTargetType !== 'dip_surface' &&
       !currentJoint.editedByCompass &&
@@ -706,7 +828,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
             Boolean(tunnelGeometry.isVerticalShaft)
           )
         : null;
-    const resolvedDip = isCr
+    const resolvedDip = isStrikePan
       ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
         typeof currentJoint.dipAmount === 'number' &&
         currentJoint.dipAmount >= 1 &&
@@ -714,12 +836,20 @@ const NatmJoint3DInspectorModalContent: React.FC<
         ? currentJoint.dipAmount
         : 90
       : (recalcEst?.dipAmount ?? currentJoint.dipAmount ?? 65);
-    setDipDirection(recalcEst?.dipDirection ?? currentJoint.dipDirection ?? 135);
+    const resolvedDir = recalcEst?.dipDirection ?? currentJoint.dipDirection ?? 135;
+    setDipDirection(resolvedDir);
+    setInitialDipDirectionForPivot(resolvedDir);
     setDipAmount(resolvedDip);
     setHingeDipDeg(resolvedDip);
-    setHingeDipSide(isCr && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading');
+    const initSide = isStrikePan && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading';
+    setHingeDipSide(initSide);
+    setDipHalfCircleSense(initSide === 'collar' ? 'outwards' : 'inwards');
     setIsHingeRotationActive(inspectTargetType !== 'dip_surface');
-    setIsStrikeLineHingeLocked(inspectTargetType !== 'dip_surface' && isCr);
+    setIsStrikeLineHingeLocked(inspectTargetType !== 'dip_surface' && isStrikePan);
+    setTracePivotEndpoint(null);
+    setIsDipAmountEdited(false);
+    setIsStrikeDirEdited(false);
+    setIsPrimaryStepCompleted(false);
     setHingeIndicationModal(null);
     setJointSetId(currentJoint.setId || 'unassigned');
     setMeasurementSource(
@@ -757,9 +887,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
     return (
       dipDirection !== (currentJoint.dipDirection ?? 135) ||
       dipAmount !== baselineDip ||
-      jointSetId !== (currentJoint.setId || 'unassigned')
+      jointSetId !== (currentJoint.setId || 'unassigned') ||
+      isDipAmountEdited ||
+      isStrikeDirEdited
     );
-  }, [dipDirection, dipAmount, jointSetId, currentJoint]);
+  }, [dipDirection, dipAmount, jointSetId, currentJoint, isDipAmountEdited, isStrikeDirEdited]);
 
   // Toggle for interior plane sheet (default true to immediately display the colored cutting plane)
   const [showInteriorPlane, setShowInteriorPlane] = useState<boolean>(true);
@@ -858,25 +990,25 @@ const NatmJoint3DInspectorModalContent: React.FC<
     if (
       currentJoint.panel !== 'crown' ||
       tunnelGeometry.isVerticalShaft ||
-      !currentJoint.points ||
-      currentJoint.points.length < 2
+      !activeTracePoints ||
+      activeTracePoints.length < 2
     ) {
       return null;
     }
     return constructCurvedCrownPlaneAndTrace(
-      currentJoint.points,
+      activeTracePoints,
       dipDirection ?? 135,
       dipAmount ?? 60,
       tunnelGeometry
     );
-  }, [currentJoint.panel, currentJoint.points, dipDirection, dipAmount, tunnelGeometry]);
+  }, [currentJoint.panel, activeTracePoints, dipDirection, dipAmount, tunnelGeometry]);
 
-  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on all Tunnel & Vertical Shaft panels)
+  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Active Endpoint-Pivoted Trace Line on all Tunnel, Shaft & Surface panels)
   const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
-    if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
-    if (isStrikeLineHingeLocked) {
+    if (!isHingeRotationActive || activeTracePoints.length < 2) return null;
+    if (isStrikeLineHingeLocked && !isStrikeDirEdited) {
       return constructPlaneFromTraceHinge(
-        currentJoint.points,
+        activeTracePoints,
         currentJoint.panel || 'face',
         dipAmount ?? hingeDipDeg,
         hingeDipSide,
@@ -886,18 +1018,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
       );
     }
     return constructTraceAnchoredPlaneFromOrientation(
-      currentJoint.points,
+      activeTracePoints,
       currentJoint.panel || 'face',
       dipDirection ?? 135,
       dipAmount ?? 60,
       tunnelGeometry,
       hingeDipSide,
-      faceDipChangeConfirmedForJointId === currentJoint.id
+      isDipAmountEdited
     );
   }, [
     isHingeRotationActive,
-    currentJoint.id,
-    currentJoint.points,
+    activeTracePoints,
     currentJoint.panel,
     dipDirection,
     dipAmount,
@@ -905,13 +1036,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
     hingeDipSide,
     tunnelGeometry,
     isStrikeLineHingeLocked,
-    faceDipChangeConfirmedForJointId,
+    isStrikeDirEdited,
+    isDipAmountEdited,
   ]);
 
   // 1. Strike Convention & Angles (keeps Strike invariant only when rotating around an explicitly locked Strike Line Hinge)
   const strikeInfo = useMemo(() => {
     const base = calculateStrikeFromDipDirection(dipDirection ?? 135, dipAmount ?? 60);
-    if (isStrikeLineHingeLocked && hingePlaneResult) {
+    if (isStrikeLineHingeLocked && !isStrikeDirEdited && hingePlaneResult) {
       const fixedStrike = hingePlaneResult.strikeRhrDeg;
       const fixedAlt = (fixedStrike + 180) % 360;
       const p1 = Math.min(fixedStrike, fixedAlt);
@@ -934,7 +1066,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       ...base,
       isOrientationComplete: true,
     };
-  }, [dipDirection, dipAmount, isStrikeLineHingeLocked, hingePlaneResult]);
+  }, [dipDirection, dipAmount, isStrikeLineHingeLocked, isStrikeDirEdited, hingePlaneResult]);
 
   // 1b. True Dip vs. Surface Apparent Dips Matrix (Analytical Geological Calculation)
   const apparentMatrix = useMemo<TunnelSurfacesApparentDipMatrix>(() => {
@@ -945,7 +1077,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     );
   }, [dipDirection, dipAmount, tunnelGeometry?.driveAzimuthDeg]);
 
-  // 2. Anchor Point Derived from actual mapped 2D polyline vertices or user-selected plot anchor
+  // 2. Anchor Point Derived from active (endpoint-pivoted) 2D polyline vertices or user-selected plot anchor
   const anchorPoint = useMemo(() => {
     const pull = plotPlaneAdvanceM;
     if (plotPlaneAnchorType === 'FACE_CENTER') {
@@ -963,23 +1095,24 @@ const NatmJoint3DInspectorModalContent: React.FC<
     if (plotPlaneAnchorType === 'INVERT') {
       return { x: pull, y: (tunnelGeometry.widthM || 8.5) / 2, z: 0.1 };
     }
-    const derived = deriveAnchorPointFromPoints(currentJoint.points, currentJoint.panel, tunnelGeometry);
-    if (currentJoint.panel === 'face') {
+    const derived = deriveAnchorPointFromPoints(activeTracePoints, currentJoint.panel, tunnelGeometry);
+    if (currentJoint.panel === 'face' && !tunnelGeometry.isVerticalShaft) {
       return { ...derived, x: pull };
     }
     return derived;
-  }, [plotPlaneAnchorType, plotPlaneAdvanceM, currentJoint.points, currentJoint.panel, tunnelGeometry]);
+  }, [plotPlaneAnchorType, plotPlaneAdvanceM, activeTracePoints, currentJoint.panel, tunnelGeometry]);
 
   // Exact 2D Traced Joint Length in Meters
   const currentTraceLengthM = useMemo(() => {
     const rawLen =
       hingePlaneResult?.traceLengthM ||
-      calculatePolylineLengthM(currentJoint.points, currentJoint.panel || 'face', tunnelGeometry) ||
+      calculatePolylineLengthM(activeTracePoints, currentJoint.panel || 'face', tunnelGeometry) ||
       1.2;
     return Number(Math.max(0.2, rawLen).toFixed(2));
-  }, [hingePlaneResult, currentJoint.points, currentJoint.panel, tunnelGeometry]);
+  }, [hingePlaneResult, activeTracePoints, currentJoint.panel, tunnelGeometry]);
 
   // 3b. ISRM & Rock Mechanics Fracture Intensity & Occupied Area Calculation
+  // Note: Endpoint rotation is an isometry preserving trace length, so depend on currentJoint.points to avoid per-frame recalculation
   const fractureIntensityResult = useMemo<JointFractureIntensityAndAreaResult>(() => {
     return calculateJointFractureIntensityAndArea(
       currentJoint.points,
@@ -1082,8 +1215,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
     return calculateJointPairIntersection(plane, targetPlane, tunnelGeometry?.driveAzimuthDeg ?? 0);
   }, [compareTargetJointId, otherJoints, plane, tunnelGeometry]);
 
-  // 8. Automated Engine Validation Test Report
-  const validationReport = useMemo(() => runJointEngineValidationTests(), []);
+  // 8. Automated Engine Validation Test Report (Cached at module scope for instant modal launch)
+  const validationReport = useMemo(() => getCachedValidationReport(), []);
 
   // Format joints for Advance Geological Analysis modal integration
   const convertedJoints = useMemo(() => {
@@ -1124,7 +1257,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
   }, []);
 
   // -------------------------------------------------------------------------
-  // THREE.JS HIGH-PERFORMANCE 3D CANVAS RENDERING (PURE WHITE BACKGROUND)
+  // THREE.JS HIGH-PERFORMANCE ON-DEMAND 3D CANVAS RENDERING
   // -------------------------------------------------------------------------
   const threeMountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -1132,8 +1265,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
-  // Dynamic mesh group reference to update ONLY joint features without recreating the scene
+  // Separate persistent groups for Tunnel Shell vs Dynamic Joint Plane (prevents WebGL context recreation)
+  const tunnelGroupRef = useRef<THREE.Group | null>(null);
   const jointGroupRef = useRef<THREE.Group | null>(null);
+  const requestRenderRef = useRef<() => void>(() => {});
+  const cameraCenterRef = useRef<{ cx: number; cy: number; cz: number }>({
+    cx: (tunnelGeometry.widthM || 8.5) / 2,
+    cy: Boolean(tunnelGeometry.isVerticalShaft)
+      ? (tunnelGeometry.pullLengthM || 3.0) / 2
+      : (tunnelGeometry.heightM || 7.5) / 2,
+    cz: Boolean(tunnelGeometry.isVerticalShaft)
+      ? (tunnelGeometry.widthM || 8.5) / 2
+      : (tunnelGeometry.pullLengthM || 3.0) / 2,
+  });
 
   // Mutable camera orientation ref — prevents React state updates during drag
   const camSphericalRef = useRef<{ radius: number; theta: number; phi: number }>({
@@ -1146,10 +1290,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const targetOffsetRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
   const lastThetaDegRef = useRef<number>(-999);
 
-  const isDraggingRef = useRef<boolean>(false);
-  const prevMouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  // Set Camera Presets (smoothly updates camSphericalRef and resets pan offset)
+  // Set Camera Presets (smoothly updates camSphericalRef and triggers on-demand render)
   const setCameraPreset = (preset: 'ISO' | 'PLAN' | 'FACE' | 'PROFILE' | 'RIGHT') => {
     targetOffsetRef.current = { x: 0, y: 0, z: 0 };
     switch (preset) {
@@ -1170,6 +1311,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         break;
     }
     setCameraTheta(camSphericalRef.current.theta);
+    requestRenderRef.current();
   };
 
   // Align camera with True North
@@ -1177,6 +1319,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const driveAz = tunnelGeometry.driveAzimuthDeg || 0;
     camSphericalRef.current.theta = -((driveAz * Math.PI) / 180);
     setCameraTheta(camSphericalRef.current.theta);
+    requestRenderRef.current();
   };
 
   // Align camera looking straight down the Tunnel Drive Axis (+Z)
@@ -1184,6 +1327,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     camSphericalRef.current.theta = 0;
     camSphericalRef.current.phi = Math.PI / 2.3;
     setCameraTheta(0);
+    requestRenderRef.current();
   };
 
   // Reset Camera Target & Orbit
@@ -1191,14 +1335,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
     targetOffsetRef.current = { x: 0, y: 0, z: 0 };
     camSphericalRef.current = { radius: 17, theta: Math.PI / 4, phi: Math.PI / 3 };
     setCameraTheta(Math.PI / 4);
+    requestRenderRef.current();
   };
 
   // On-screen Zoom & Pan buttons
   const zoomIn = () => {
     camSphericalRef.current.radius = Math.max(3, camSphericalRef.current.radius - 2.5);
+    requestRenderRef.current();
   };
   const zoomOut = () => {
     camSphericalRef.current.radius = Math.min(55, camSphericalRef.current.radius + 2.5);
+    requestRenderRef.current();
   };
   const panCamera = (dx: number, dy: number) => {
     const cam = camSphericalRef.current;
@@ -1207,10 +1354,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
     targetOffsetRef.current.x += rightX * dx;
     targetOffsetRef.current.z += rightZ * dx;
     targetOffsetRef.current.y += dy;
+    requestRenderRef.current();
   };
 
+  // Keep latest control state in refs for zero-lag event handlers
+  const inspectTargetTypeRef = useRef(inspectTargetType);
+  const isStrikeLineHingeLockedRef = useRef(isStrikeLineHingeLocked);
+  useEffect(() => {
+    inspectTargetTypeRef.current = inspectTargetType;
+    isStrikeLineHingeLockedRef.current = isStrikeLineHingeLocked;
+  }, [inspectTargetType, isStrikeLineHingeLocked]);
+
   // -------------------------------------------------------------------------
-  // INITIALIZE THREE.JS SCENE ONCE
+  // 1. INITIALIZE PERSISTENT THREE.JS WEBGL CONTEXT & ON-DEMAND RENDER ENGINE ONCE
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (activeTab !== 'VIEW_3D' || !threeMountRef.current) return;
@@ -1219,29 +1375,30 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 450;
 
-    // 1. Scene with Pure White Background
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xffffff);
     sceneRef.current = scene;
 
-    // 2. Camera
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 150);
     cameraRef.current = camera;
 
-    // 3. Renderer with High Performance
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
       powerPreference: 'high-performance',
     });
+    const gl = renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const rendererStr = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
+    const isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software/i.test(rendererStr);
+
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.75));
     renderer.setClearColor(0xffffff, 1);
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // 4. Studio CAD Lighting for White Background
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xdfe7ec, 0.85);
     scene.add(hemiLight);
 
@@ -1252,6 +1409,298 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const dirLight2 = new THREE.DirectionalLight(0x94a3b8, 0.4);
     dirLight2.position.set(-15, 10, -15);
     scene.add(dirLight2);
+
+    const tunnelGroup = new THREE.Group();
+    tunnelGroupRef.current = tunnelGroup;
+    scene.add(tunnelGroup);
+
+    const jointGroup = new THREE.Group();
+    jointGroupRef.current = jointGroup;
+    scene.add(jointGroup);
+
+    let pendingRaf = false;
+    let drawPending = false;
+    let needsFollowUp = false;
+    const afterDraw: (cb: () => void) => void = isSoftwareGl
+      ? (cb) => setTimeout(cb, 0)
+      : (cb) => cb();
+
+    const renderSingleFrame = () => {
+      pendingRaf = false;
+      const cam = camSphericalRef.current;
+      const target = targetOffsetRef.current;
+      const { cx, cy, cz } = cameraCenterRef.current;
+      const targetX = cx + target.x;
+      const targetY = cy + target.y;
+      const targetZ = cz + target.z;
+
+      const x = targetX + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
+      const y = targetY + cam.radius * Math.cos(cam.phi);
+      const z = targetZ + cam.radius * Math.sin(cam.phi) * Math.cos(cam.theta);
+
+      camera.position.set(x, y, z);
+      camera.lookAt(targetX, targetY, targetZ);
+
+      const thetaDeg = Math.round(((cam.theta * 180) / Math.PI) * 10) / 10;
+      if (Math.abs(thetaDeg - lastThetaDegRef.current) >= 1.0) {
+        lastThetaDegRef.current = thetaDeg;
+        setCameraTheta((prev) => (Math.abs(prev - cam.theta) < 1e-3 ? prev : cam.theta));
+      }
+
+      drawPending = true;
+      renderer.render(scene, camera);
+      afterDraw(() => {
+        drawPending = false;
+        if (needsFollowUp) {
+          needsFollowUp = false;
+          requestRender();
+        }
+      });
+    };
+
+    const requestRender = () => {
+      if (drawPending) {
+        needsFollowUp = true;
+        return;
+      }
+      if (!pendingRaf) {
+        pendingRaf = true;
+        animFrameIdRef.current = requestAnimationFrame(renderSingleFrame);
+      }
+    };
+
+    requestRenderRef.current = requestRender;
+    requestRender();
+
+    // Mouse & Touch Controls (Coalesced On-Demand Render)
+    let isMouseDown = false;
+    let mouseButton = 0;
+    let prevMouse = { x: 0, y: 0 };
+
+    let touchMode: 'NONE' | 'ORBIT' | 'PINCH_ROTATE_ZOOM' = 'NONE';
+    let prevTouch = { x: 0, y: 0 };
+    let initialPinchDist = 0;
+    let initialRadius = 17;
+    let prevMidpoint = { x: 0, y: 0 };
+    let prevPinchAngle = 0;
+
+    const onMouseDown = (e: MouseEvent) => {
+      isMouseDown = true;
+      mouseButton = e.button;
+      prevMouse = { x: e.clientX, y: e.clientY };
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isMouseDown) return;
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      prevMouse = { x: e.clientX, y: e.clientY };
+
+      const cam = camSphericalRef.current;
+      const target = targetOffsetRef.current;
+
+      if (mouseButton === 2 || mouseButton === 1 || (mouseButton === 0 && e.shiftKey)) {
+        const panSpeed = cam.radius * 0.0016;
+        const rightX = Math.cos(cam.theta);
+        const rightZ = -Math.sin(cam.theta);
+        target.x -= rightX * dx * panSpeed;
+        target.z -= rightZ * dx * panSpeed;
+        target.y += dy * panSpeed;
+        requestRender();
+      } else if (mouseButton === 0 && (is3DGizmoDragModeRef.current || e.altKey)) {
+        if (inspectTargetTypeRef.current === 'dip_surface') {
+          setIsHingeRotationActive(false);
+        }
+        if (!isStrikeLineHingeLockedRef.current) {
+          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+        }
+        setDipAmount((prev) => {
+          const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+          setHingeDipDeg(next);
+          return next;
+        });
+      } else if (mouseButton === 0) {
+        cam.theta -= dx * 0.007;
+        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+        requestRender();
+      }
+    };
+
+    const onMouseUp = () => {
+      isMouseDown = false;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const cam = camSphericalRef.current;
+      cam.radius = Math.max(3, Math.min(55, cam.radius + e.deltaY * 0.015));
+      requestRender();
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchMode = 'ORBIT';
+        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length >= 2) {
+        touchMode = 'PINCH_ROTATE_ZOOM';
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        initialRadius = camSphericalRef.current.radius;
+        prevMidpoint = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+        prevPinchAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchMode === 'NONE') return;
+      if (e.cancelable) e.preventDefault();
+      const cam = camSphericalRef.current;
+
+      if (e.touches.length === 1 && touchMode === 'ORBIT') {
+        const t = e.touches[0];
+        const dx = t.clientX - prevTouch.x;
+        const dy = t.clientY - prevTouch.y;
+        prevTouch = { x: t.clientX, y: t.clientY };
+
+        if (is3DGizmoDragModeRef.current) {
+          if (inspectTargetTypeRef.current === 'dip_surface') {
+            setIsHingeRotationActive(false);
+          }
+          if (!isStrikeLineHingeLockedRef.current) {
+            setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+          }
+          setDipAmount((prev) => {
+            const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+            setHingeDipDeg(next);
+            return next;
+          });
+        } else {
+          cam.theta -= dx * 0.007;
+          cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
+          requestRender();
+        }
+      } else if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const currentMidpoint = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+        const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
+
+        if (initialPinchDist > 0) {
+          const scale = initialPinchDist / Math.max(10, currentDist);
+          cam.radius = Math.max(3, Math.min(55, initialRadius * scale));
+        }
+
+        const dMidX = currentMidpoint.x - prevMidpoint.x;
+        const dMidY = currentMidpoint.y - prevMidpoint.y;
+        let dAngle = currentAngle - prevPinchAngle;
+        if (dAngle > Math.PI) dAngle -= Math.PI * 2;
+        if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+
+        cam.theta -= dMidX * 0.0075 + dAngle * 0.45;
+        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dMidY * 0.0075));
+
+        prevMidpoint = currentMidpoint;
+        prevPinchAngle = currentAngle;
+        requestRender();
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (touchMode === 'NONE') return;
+      if (e.touches.length === 1) {
+        touchMode = 'ORBIT';
+        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 0) {
+        touchMode = 'NONE';
+      }
+    };
+
+    const handleResize = () => {
+      if (!threeMountRef.current || !rendererRef.current || !cameraRef.current) return;
+      const wNow = threeMountRef.current.clientWidth || 600;
+      const hNow = threeMountRef.current.clientHeight || 450;
+      if (wNow > 0 && hNow > 0) {
+        cameraRef.current.aspect = wNow / hNow;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(wNow, hNow);
+        requestRender();
+      }
+    };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && threeMountRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(threeMountRef.current);
+    }
+
+    container.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('contextmenu', onContextMenu);
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      if (resizeObserver) resizeObserver.disconnect();
+      container.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('contextmenu', onContextMenu);
+      container.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('resize', handleResize);
+      scene.traverse((obj: any) => {
+        if (obj.geometry) obj.geometry.dispose?.();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((m: any) => m.dispose?.());
+          } else {
+            obj.material.dispose?.();
+          }
+        }
+      });
+      renderer.dispose();
+    };
+  }, [activeTab]);
+
+  // -------------------------------------------------------------------------
+  // 2. UPDATE TUNNEL / SHAFT / SURFACE SHELL GROUP WITHOUT RECREATING WEBGL
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (activeTab !== 'VIEW_3D' || !tunnelGroupRef.current) return;
+
+    const tunnelGroup = tunnelGroupRef.current;
+    while (tunnelGroup.children.length > 0) {
+      const child = tunnelGroup.children[0] as any;
+      if (child.geometry) child.geometry.dispose?.();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((m: any) => m.dispose?.());
+        else child.material.dispose?.();
+      }
+      tunnelGroup.remove(child);
+    }
 
     // Tunnel / Shaft Dimensions
     const w = tunnelGeometry.widthM || 8.5;
@@ -1268,8 +1717,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const cx = w / 2;
     const cy = isVertShaft ? pullL / 2 : h / 2;
     const cz = isVertShaft ? w / 2 : pullL / 2;
-
-    const tunnelGroup = new THREE.Group();
+    cameraCenterRef.current = { cx, cy, cz };
 
     if (isVertShaft) {
       // =========================================================================
@@ -1708,7 +2156,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           side: THREE.DoubleSide,
         });
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-        scene.add(floorMesh);
+        tunnelGroup.add(floorMesh);
       }
 
       // A. Clean Hollow 3D Tunnel Shell Mesh
@@ -1843,252 +2291,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       tunnelGroup.add(railsLines);
     }
 
-    scene.add(tunnelGroup);
-
-    // 7. Dynamic Joint Group (rebuilt only when orientation changes)
-    const jointGroup = new THREE.Group();
-    jointGroupRef.current = jointGroup;
-    scene.add(jointGroup);
-
-    // 8. Animation Render Loop (with target panning and live compass sync)
-    const render = () => {
-      const cam = camSphericalRef.current;
-      const target = targetOffsetRef.current;
-      const targetX = cx + target.x;
-      const targetY = cy + target.y;
-      const targetZ = cz + target.z;
-
-      const x = targetX + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
-      const y = targetY + cam.radius * Math.cos(cam.phi);
-      const z = targetZ + cam.radius * Math.sin(cam.phi) * Math.cos(cam.theta);
-
-      camera.position.set(x, y, z);
-      camera.lookAt(targetX, targetY, targetZ);
-
-      // Real-time camera theta sync for Compass Rose (sub-degree precision)
-      const thetaDeg = Math.round((cam.theta * 180 / Math.PI) * 10) / 10;
-      if (Math.abs(thetaDeg - lastThetaDegRef.current) >= 0.5) {
-        lastThetaDegRef.current = thetaDeg;
-        setCameraTheta((prev) => (Math.abs(prev - cam.theta) < 1e-4 ? prev : cam.theta));
-      }
-
-      renderer.render(scene, camera);
-      animFrameIdRef.current = requestAnimationFrame(render);
-    };
-    render();
-
-    // 9. HIGH-PERFORMANCE MOUSE & TOUCH CONTROLS (ORBIT, PINCH-ZOOM & PAN MOVE)
-    let isMouseDown = false;
-    let mouseButton = 0;
-    let prevMouse = { x: 0, y: 0 };
-
-    // Pinch & Multi-Touch State
-    let touchMode: 'NONE' | 'ORBIT' | 'PINCH_ROTATE_ZOOM' = 'NONE';
-    let prevTouch = { x: 0, y: 0 };
-    let initialPinchDist = 0;
-    let initialRadius = 17;
-    let prevMidpoint = { x: 0, y: 0 };
-    let prevPinchAngle = 0;
-
-    const onMouseDown = (e: MouseEvent) => {
-      isMouseDown = true;
-      mouseButton = e.button;
-      prevMouse = { x: e.clientX, y: e.clientY };
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isMouseDown) return;
-      const dx = e.clientX - prevMouse.x;
-      const dy = e.clientY - prevMouse.y;
-      prevMouse = { x: e.clientX, y: e.clientY };
-
-      const cam = camSphericalRef.current;
-      const target = targetOffsetRef.current;
-
-      // Right-click (2), Middle-click (1), or Shift+Left-click (0 with shiftKey) -> MOVE / PAN
-      if (mouseButton === 2 || mouseButton === 1 || (mouseButton === 0 && e.shiftKey)) {
-        const panSpeed = cam.radius * 0.0016;
-        const rightX = Math.cos(cam.theta);
-        const rightZ = -Math.sin(cam.theta);
-        target.x -= rightX * dx * panSpeed;
-        target.z -= rightZ * dx * panSpeed;
-        target.y += dy * panSpeed;
-      } else if (mouseButton === 0 && (is3DGizmoDragModeRef.current || e.altKey)) {
-        // 3D Plane Gizmo Drag Mode: keep trace-anchored hinge active for joints while smoothly adjusting Dip Direction and Dip Amount
-        if (inspectTargetType === 'dip_surface') {
-          setIsHingeRotationActive(false);
-        }
-        if (!isStrikeLineHingeLocked) {
-          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
-        }
-        setDipAmount((prev) => {
-          const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
-          setHingeDipDeg(next);
-          return next;
-        });
-      } else if (mouseButton === 0) {
-        // Left-click -> ORBIT 3D Tunnel Outline
-        cam.theta -= dx * 0.007;
-        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
-      }
-    };
-
-    const onMouseUp = () => {
-      isMouseDown = false;
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const cam = camSphericalRef.current;
-      cam.radius = Math.max(3, Math.min(55, cam.radius + e.deltaY * 0.015));
-    };
-
-    const onContextMenu = (e: MouseEvent) => {
-      e.preventDefault(); // allow right-drag pan without opening browser context menu
-    };
-
-    // Touch Event Handlers: 1-finger Orbit (or 3D Gizmo Drag when explicitly enabled), 2-finger Pinch Zoom & 3D Tunnel Orbit Rotation
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        touchMode = 'ORBIT';
-        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      } else if (e.touches.length >= 2) {
-        touchMode = 'PINCH_ROTATE_ZOOM';
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        initialPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        initialRadius = camSphericalRef.current.radius;
-        prevMidpoint = {
-          x: (t1.clientX + t2.clientX) / 2,
-          y: (t1.clientY + t2.clientY) / 2,
-        };
-        prevPinchAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (touchMode === 'NONE') return;
-      if (e.cancelable) e.preventDefault();
-      const cam = camSphericalRef.current;
-
-      if (e.touches.length === 1 && touchMode === 'ORBIT') {
-        const t = e.touches[0];
-        const dx = t.clientX - prevTouch.x;
-        const dy = t.clientY - prevTouch.y;
-        prevTouch = { x: t.clientX, y: t.clientY };
-
-        if (is3DGizmoDragModeRef.current) {
-          if (inspectTargetType === 'dip_surface') {
-            setIsHingeRotationActive(false);
-          }
-          if (!isStrikeLineHingeLocked) {
-            setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
-          }
-          setDipAmount((prev) => {
-            const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
-            setHingeDipDeg(next);
-            return next;
-          });
-        } else {
-          cam.theta -= dx * 0.007;
-          cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dy * 0.007));
-        }
-      } else if (e.touches.length >= 2) {
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const currentMidpoint = {
-          x: (t1.clientX + t2.clientX) / 2,
-          y: (t1.clientY + t2.clientY) / 2,
-        };
-        const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
-
-        // 1. Pinch Zoom
-        if (initialPinchDist > 0) {
-          const scale = initialPinchDist / Math.max(10, currentDist);
-          cam.radius = Math.max(3, Math.min(55, initialRadius * scale));
-        }
-
-        // 2. Two-Finger Pinch & Drag -> Always Rotate 3D Tunnel Outline (even if 3D Gizmo Drag mode is on)
-        const dMidX = currentMidpoint.x - prevMidpoint.x;
-        const dMidY = currentMidpoint.y - prevMidpoint.y;
-        let dAngle = currentAngle - prevPinchAngle;
-        if (dAngle > Math.PI) dAngle -= Math.PI * 2;
-        if (dAngle < -Math.PI) dAngle += Math.PI * 2;
-
-        cam.theta -= dMidX * 0.0075 + dAngle * 0.45;
-        cam.phi = Math.max(0.04, Math.min(Math.PI - 0.04, cam.phi - dMidY * 0.0075));
-
-        prevMidpoint = currentMidpoint;
-        prevPinchAngle = currentAngle;
-      }
-    };
-
-    const onTouchEnd = (e: TouchEvent) => {
-      if (touchMode === 'NONE') return;
-      if (e.touches.length === 1) {
-        touchMode = 'ORBIT';
-        prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      } else if (e.touches.length === 0) {
-        touchMode = 'NONE';
-      }
-    };
-
-    const handleResize = () => {
-      if (!threeMountRef.current || !rendererRef.current || !cameraRef.current) return;
-      const wNow = threeMountRef.current.clientWidth || 600;
-      const hNow = threeMountRef.current.clientHeight || 450;
-      if (wNow > 0 && hNow > 0) {
-        cameraRef.current.aspect = wNow / hNow;
-        cameraRef.current.updateProjectionMatrix();
-        rendererRef.current.setSize(wNow, hNow);
-      }
-    };
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && threeMountRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        handleResize();
-      });
-      resizeObserver.observe(threeMountRef.current);
-    }
-
-    container.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    container.addEventListener('wheel', onWheel, { passive: false });
-    container.addEventListener('contextmenu', onContextMenu);
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
-    window.addEventListener('touchcancel', onTouchEnd);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
-      if (resizeObserver) resizeObserver.disconnect();
-      container.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      container.removeEventListener('wheel', onWheel);
-      container.removeEventListener('contextmenu', onContextMenu);
-      container.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
-      window.removeEventListener('touchcancel', onTouchEnd);
-      window.removeEventListener('resize', handleResize);
-      scene.traverse((obj: any) => {
-        if (obj.geometry) obj.geometry.dispose?.();
-        if (obj.material) {
-          if (Array.isArray(obj.material)) {
-            obj.material.forEach((m: any) => m.dispose?.());
-          } else {
-            obj.material.dispose?.();
-          }
-        }
-      });
-      renderer.dispose();
-    };
+    requestRenderRef.current();
   }, [activeTab, tunnelGeometry, showLegendOverlay, isSurfaceMapping, activePortionPanel]);
 
   // Handle immediate Three.js canvas re-layout when switching orientation or layout mode
@@ -2101,6 +2304,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         cameraRef.current.aspect = wNow / hNow;
         cameraRef.current.updateProjectionMatrix();
         rendererRef.current.setSize(wNow, hNow);
+        requestRenderRef.current();
       }
     }, 60);
     return () => clearTimeout(timer);
@@ -2553,14 +2757,35 @@ const NatmJoint3DInspectorModalContent: React.FC<
               opacity: 0.65,
             });
             group.add(new THREE.Line(drawnGeo, drawnMat));
-          } else if (currentJoint.points && currentJoint.points.length >= 2) {
-            const polyPts = currentJoint.points.map((pt) => {
+          } else if (activeTracePoints && activeTracePoints.length >= 2) {
+            const polyPts = activeTracePoints.map((pt) => {
               const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
               return new THREE.Vector3(m.y, m.z, m.x);
             });
             const polyGeo = new THREE.BufferGeometry().setFromPoints(polyPts);
             const polyMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 4 });
             group.add(new THREE.Line(polyGeo, polyMat));
+
+            // If trace was pivoted around Starting (P1) or Ending (P2) point, also show original trace for reference
+            if (
+              tracePivotEndpoint &&
+              (isDipAmountEdited || isStrikeDirEdited) &&
+              currentJoint.points &&
+              currentJoint.points.length >= 2
+            ) {
+              const origPts = currentJoint.points.map((pt) => {
+                const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
+                return new THREE.Vector3(m.y, m.z, m.x);
+              });
+              const origGeo = new THREE.BufferGeometry().setFromPoints(origPts);
+              const origMat = new THREE.LineBasicMaterial({
+                color: 0x94a3b8,
+                linewidth: 2,
+                transparent: true,
+                opacity: 0.5,
+              });
+              group.add(new THREE.Line(origGeo, origMat));
+            }
           }
         }
       } else if (planeDisplayMode === 'EXTENDED') {
@@ -2885,20 +3110,42 @@ const NatmJoint3DInspectorModalContent: React.FC<
         hingeCyl.position.copy(v1.clone().add(v2).multiplyScalar(0.5));
         group.add(hingeCyl);
 
-        // Terminal Gold Spheres
-        const hingeSphereGeo = new THREE.SphereGeometry(0.1, 16, 16);
-        const hingeSphereMat = new THREE.MeshStandardMaterial({
-          color: 0xfde047,
-          emissive: 0xf59e0b,
-          emissiveIntensity: 0.9,
+        // Terminal Spheres: Highlight selected Starting Point (P1) or Ending Point (P2)
+        const isStartSelected = tracePivotEndpoint === 'start';
+        const isEndSelected = tracePivotEndpoint === 'end';
+
+        const sp1Geo = new THREE.SphereGeometry(isStartSelected ? 0.16 : 0.1, 20, 20);
+        const sp1Mat = new THREE.MeshStandardMaterial({
+          color: isStartSelected ? 0x10b981 : 0xfde047,
+          emissive: isStartSelected ? 0x059669 : 0xf59e0b,
+          emissiveIntensity: 0.95,
         });
-        const sp1 = new THREE.Mesh(hingeSphereGeo, hingeSphereMat);
+        const sp1 = new THREE.Mesh(sp1Geo, sp1Mat);
         sp1.position.copy(v1);
         group.add(sp1);
 
-        const sp2 = new THREE.Mesh(hingeSphereGeo, hingeSphereMat);
+        const sp2Geo = new THREE.SphereGeometry(isEndSelected ? 0.16 : 0.1, 20, 20);
+        const sp2Mat = new THREE.MeshStandardMaterial({
+          color: isEndSelected ? 0x06b6d4 : 0xfde047,
+          emissive: isEndSelected ? 0x0284c7 : 0xf59e0b,
+          emissiveIntensity: 0.95,
+        });
+        const sp2 = new THREE.Mesh(sp2Geo, sp2Mat);
         sp2.position.copy(v2);
         group.add(sp2);
+
+        if (tracePivotEndpoint) {
+          const pivotVec = isStartSelected ? v1 : v2;
+          const pivotBadge = createBillboardLabel(
+            isStartSelected ? 'P1 START (BASE)' : 'P2 END (BASE)',
+            '#0f172a',
+            isStartSelected ? '#6ee7b7' : '#67e8f9',
+            1.45,
+            0.28
+          );
+          pivotBadge.position.set(pivotVec.x, pivotVec.y + 0.28, pivotVec.z);
+          group.add(pivotBadge);
+        }
       }
     }
 
@@ -3036,6 +3283,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         }
       }
     }
+    requestRenderRef.current();
   }, [
     activeTab,
     clippedVertices,
@@ -3050,6 +3298,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
     planeExtensionM,
     currentJoint,
     currentJoint.panel,
+    activeTracePoints,
+    tracePivotEndpoint,
+    isDipAmountEdited,
+    isStrikeDirEdited,
+    dipHalfCircleSense,
     hingePlaneResult,
     crownCurvedData,
     hingeDipDeg,
@@ -3121,13 +3374,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
     const nextPoints =
       applyMode === 'ALIGN_TRACE'
-        ? recomputeAlignedCanvasTracePoints(
-            currentJoint.points,
-            currentJoint.panel,
-            strikeInfo.dipDirectionDeg,
-            strikeInfo.dipDeg,
-            tunnelGeometry
-          )
+        ? tracePivotEndpoint && (isDipAmountEdited || isStrikeDirEdited)
+          ? currentJoint.panel === 'crown' && !tunnelGeometry.isVerticalShaft && crownCurvedData
+            ? crownCurvedData.editedCanvasPoints
+            : activeTracePoints
+          : recomputeAlignedCanvasTracePoints(
+              activeTracePoints,
+              currentJoint.panel,
+              strikeInfo.dipDirectionDeg,
+              strikeInfo.dipDeg,
+              tunnelGeometry
+            )
         : currentJoint.points;
 
     const updated: FieldJointTrace = {
@@ -3149,6 +3406,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
     setSaveStatus('SAVED');
     setTimeout(() => setSaveStatus('IDLE'), 2400);
   };
+
+  // Automatic Zero-Lag Debounced Reflection to 2D Canvas when orientation or endpoint pivot is edited
+  useEffect(() => {
+    if (!isDipAmountEdited && !isStrikeDirEdited && !hasUnsavedChanges) return;
+    const timer = window.setTimeout(() => {
+      const mode: 'TEXT_ONLY' | 'ALIGN_TRACE' =
+        tracePivotEndpoint && (isDipAmountEdited || isStrikeDirEdited) ? 'ALIGN_TRACE' : 'TEXT_ONLY';
+      handleSaveInspection(mode);
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [dipDirection, dipAmount, dipHalfCircleSense, jointSetId, tracePivotEndpoint, isDipAmountEdited, isStrikeDirEdited]);
 
   // Export Inspection CSV
   const handleExportCsv = () => {
@@ -3920,12 +4188,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       </div>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5 pt-1 border-t border-slate-700/70">
                       <NumericStepperInput
                         label={
                           isCrownOrSurface
                             ? 'Dip Amount Around Strike Trace (0°–90°)'
-                            : 'Dip Amount (0°–90° · Vertical/Horizontal Tilt)'
+                            : 'Dip Amount (0°–90° · Inwards / Outwards Half-Circle)'
                         }
                         value={dipAmount ?? 60}
                         min={0}
@@ -3937,16 +4205,229 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           handleRequestDipAmountChange(val);
                         }}
                       />
-                      <input
-                        type="range"
-                        min={0}
-                        max={90}
-                        value={dipAmount ?? 60}
-                        onChange={(e) => {
-                          handleRequestDipAmountChange(Number(e.target.value));
-                        }}
-                        className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-900 rounded-lg"
-                      />
+
+                      {/* DIP INWARDS vs DIP OUTWARDS BUTTONS */}
+                      <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleDipHalfCircleSenseChange('inwards')}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-mono font-bold cursor-pointer border transition-colors flex items-center justify-center gap-1 ${
+                            dipHalfCircleSense === 'inwards'
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black shadow-sm'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                          title="Dip Inwards into rock mass / heading (0°–90° Inwards half of semicircle)"
+                        >
+                          <span>↙ Dip Inwards</span>
+                          <span className="text-[9px] opacity-85">({dipAmount ?? 60}°)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDipHalfCircleSenseChange('outwards')}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-mono font-bold cursor-pointer border transition-colors flex items-center justify-center gap-1 ${
+                            dipHalfCircleSense === 'outwards'
+                              ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow-sm'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                          title="Dip Outwards toward excavation / collar (90°–0° Outwards half of semicircle)"
+                        >
+                          <span>↘ Dip Outwards</span>
+                          <span className="text-[9px] opacity-85">({dipAmount ?? 60}°)</span>
+                        </button>
+                      </div>
+
+                      {/* INTERACTIVE 180° HALF-CIRCLE DIP AMOUNT PROTRACTOR (INWARDS 0°..90°..0° OUTWARDS) */}
+                      <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-700/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-[9.5px] font-mono">
+                          <span className="text-emerald-400 font-bold">◀ 0° Inwards</span>
+                          <span className="text-amber-300 font-black">
+                            180° Half-Circle: {dipAmount ?? 60}° {dipHalfCircleSense === 'inwards' ? 'INWARDS' : 'OUTWARDS'}
+                          </span>
+                          <span className="text-amber-400 font-bold">0° Outwards ▶</span>
+                        </div>
+                        {(() => {
+                          const hCx = 110;
+                          const hCy = 16;
+                          const hR = 76;
+                          // Map halfCircleProtractorAngle (0..180) to semi-circle below horizontal baseline:
+                          // 0° Inwards = Left (180°), 90° Vertical = Bottom (90°), 180° (0° Outwards) = Right (0°)
+                          const thetaRad = ((180 - halfCircleProtractorAngle) * Math.PI) / 180;
+                          const tipX = hCx + hR * Math.cos(thetaRad);
+                          const tipY = hCy + hR * Math.sin(thetaRad);
+
+                          const updateFromHalfCirclePointer = (e: React.PointerEvent<SVGSVGElement>) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const px = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 220;
+                            const py = Math.max(hCy, ((e.clientY - rect.top) / Math.max(1, rect.height)) * 106);
+                            const dx = px - hCx;
+                            const dy = Math.max(0, py - hCy);
+                            // Angle from left horizontal (180°) through bottom (90°) to right horizontal (0°)
+                            const rawDeg = (Math.atan2(dy, dx) * 180) / Math.PI; // 0..180
+                            const angle0to180 = Math.round(180 - Math.max(0, Math.min(180, rawDeg)));
+                            handleHalfCircleProtractorChange(angle0to180);
+                          };
+
+                          return (
+                            <svg
+                              viewBox="0 0 220 106"
+                              className="w-full h-24 cursor-pointer touch-none select-none"
+                              onPointerDown={(e) => {
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                updateFromHalfCirclePointer(e);
+                              }}
+                              onPointerMove={(e) => {
+                                if (e.buttons > 0) {
+                                  updateFromHalfCirclePointer(e);
+                                }
+                              }}
+                            >
+                              {/* Inwards Quadrant Fill (Left Half: 0° Inwards to 90° Vertical) */}
+                              <path
+                                d={`M ${hCx} ${hCy} L ${hCx - hR} ${hCy} A ${hR} ${hR} 0 0 0 ${hCx} ${hCy + hR} Z`}
+                                fill={dipHalfCircleSense === 'inwards' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(15, 23, 42, 0.7)'}
+                                stroke="#1e293b"
+                                strokeWidth="1"
+                              />
+                              {/* Outwards Quadrant Fill (Right Half: 90° Vertical to 0° Outwards) */}
+                              <path
+                                d={`M ${hCx} ${hCy} L ${hCx} ${hCy + hR} A ${hR} ${hR} 0 0 0 ${hCx + hR} ${hCy} Z`}
+                                fill={dipHalfCircleSense === 'outwards' ? 'rgba(245, 158, 11, 0.18)' : 'rgba(15, 23, 42, 0.7)'}
+                                stroke="#1e293b"
+                                strokeWidth="1"
+                              />
+                              {/* Outer Half-Circle Protractor Arc */}
+                              <path
+                                d={`M ${hCx - hR} ${hCy} A ${hR} ${hR} 0 0 0 ${hCx + hR} ${hCy}`}
+                                fill="none"
+                                stroke="#38bdf8"
+                                strokeWidth="1.75"
+                              />
+                              {/* Horizontal Top Baseline (0° Inwards <-> Pivot <-> 0° Outwards) */}
+                              <line
+                                x1={hCx - hR - 8}
+                                y1={hCy}
+                                x2={hCx + hR + 8}
+                                y2={hCy}
+                                stroke="#475569"
+                                strokeWidth="1.5"
+                              />
+                              {/* 90° Vertical Plumb Line */}
+                              <line
+                                x1={hCx}
+                                y1={hCy}
+                                x2={hCx}
+                                y2={hCy + hR}
+                                stroke="#64748b"
+                                strokeWidth="1.2"
+                                strokeDasharray="3,2"
+                              />
+                              {/* Protractor Degree Ticks every 30° */}
+                              {[0, 30, 60, 90, 120, 150, 180].map((ang180) => {
+                                const rRad = ((180 - ang180) * Math.PI) / 180;
+                                const x1 = hCx + (hR - 5) * Math.cos(rRad);
+                                const y1 = hCy + (hR - 5) * Math.sin(rRad);
+                                const x2 = hCx + hR * Math.cos(rRad);
+                                const y2 = hCy + hR * Math.sin(rRad);
+                                const lx = hCx + (hR + 11) * Math.cos(rRad);
+                                const ly = hCy + (hR + 10) * Math.sin(rRad);
+                                const dispDeg = ang180 <= 90 ? ang180 : 180 - ang180;
+                                return (
+                                  <g key={ang180}>
+                                    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#94a3b8" strokeWidth="1.3" />
+                                    <text
+                                      x={lx}
+                                      y={ly + 2}
+                                      textAnchor="middle"
+                                      fill={ang180 === 90 ? '#f8fafc' : ang180 < 90 ? '#6ee7b7' : '#fcd34d'}
+                                      fontSize="7.5"
+                                      fontWeight="bold"
+                                    >
+                                      {dispDeg}°
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                              {/* Active Dip Vector Ray from Base Pivot */}
+                              <line
+                                x1={hCx}
+                                y1={hCy}
+                                x2={tipX}
+                                y2={tipY}
+                                stroke={dipHalfCircleSense === 'inwards' ? '#10b981' : '#f59e0b'}
+                                strokeWidth="3"
+                              />
+                              {/* Base Pivot Point (P1 Start or P2 End) */}
+                              <circle cx={hCx} cy={hCy} r="4.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.5" />
+                              {/* Draggable Dip Handle on Half-Circle */}
+                              <circle
+                                cx={tipX}
+                                cy={tipY}
+                                r="6"
+                                fill={dipHalfCircleSense === 'inwards' ? '#10b981' : '#f59e0b'}
+                                stroke="#ffffff"
+                                strokeWidth="2"
+                              />
+                              <text x={hCx - 42} y={hCy + 28} textAnchor="middle" fill="#6ee7b7" fontSize="8" fontWeight="bold">
+                                INWARDS
+                              </text>
+                              <text x={hCx + 42} y={hCy + 28} textAnchor="middle" fill="#fcd34d" fontSize="8" fontWeight="bold">
+                                OUTWARDS
+                              </text>
+                            </svg>
+                          );
+                        })()}
+
+                        {/* Continuous 180° Half-Circle Slider (0° Inwards -> 90° Vertical -> 0° Outwards) */}
+                        <input
+                          type="range"
+                          min={0}
+                          max={180}
+                          value={halfCircleProtractorAngle}
+                          onChange={(e) => handleHalfCircleProtractorChange(Number(e.target.value))}
+                          className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-900 rounded-lg"
+                          title="Sweep across full 180° Half-Circle: Left (0°–90° Dip Inwards) ↔ Center (90° Vertical) ↔ Right (90°–0° Dip Outwards)"
+                        />
+
+                        {/* Quick Base Point (P1 Start / P2 End) Selector Strip */}
+                        {inspectTargetType !== 'dip_surface' && (
+                          <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800 text-[9.5px]">
+                            <span className="text-slate-400 font-bold">Base Pivot:</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTracePivotEndpoint('start');
+                                  if (!isStrikeMeasuredPanel) setIsDipAmountEdited(true);
+                                  else setIsStrikeDirEdited(true);
+                                }}
+                                className={`px-2 py-0.5 rounded font-mono font-bold cursor-pointer border ${
+                                  tracePivotEndpoint === 'start'
+                                    ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                                }`}
+                              >
+                                P1 Start
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTracePivotEndpoint('end');
+                                  if (!isStrikeMeasuredPanel) setIsDipAmountEdited(true);
+                                  else setIsStrikeDirEdited(true);
+                                }}
+                                className={`px-2 py-0.5 rounded font-mono font-bold cursor-pointer border ${
+                                  tracePivotEndpoint === 'end'
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-black'
+                                    : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                                }`}
+                              >
+                                P2 End
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="flex items-center justify-between gap-1">
                         {[15, 30, 45, 60, 75, 90].map((deg) => (
                           <button
@@ -5498,15 +5979,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     return (
                       <div
                         onClick={snapToTunnelDrive}
-                        className={`absolute top-2.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full backdrop-blur-md shadow-md pointer-events-auto cursor-pointer z-20 flex items-center gap-2 font-mono text-[11px] font-bold transition-all border select-none ${
+                        className={`absolute top-2.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full shadow-md pointer-events-auto cursor-pointer z-20 flex items-center gap-2 font-mono text-[11px] font-bold transition-colors border select-none ${
                           isLight
-                            ? 'bg-white/90 border-slate-300 text-slate-800'
-                            : 'bg-slate-950/85 border-slate-700 text-slate-100'
+                            ? 'bg-white/95 border-slate-300 text-slate-800'
+                            : 'bg-slate-950/95 border-slate-700 text-slate-100'
                         }`}
                         title="Click to align 3D view with heading"
                       >
                         <div
-                          className="w-4 h-4 flex items-center justify-center transition-transform duration-75"
+                          className="w-4 h-4 flex items-center justify-center"
                           style={{ transform: `rotate(${driveAngleDeg}deg)` }}
                         >
                           <Navigation className="w-3.5 h-3.5 text-cyan-500 fill-cyan-500/40" />
@@ -5533,7 +6014,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
                     return (
                       <div className="absolute top-12 right-3 z-20 font-mono select-none">
-                        <div className="p-2.5 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-cyan-500/40 shadow-2xl space-y-1.5 w-36 text-center text-xs">
+                        <div className="p-2.5 rounded-2xl bg-slate-950/95 border border-cyan-500/40 shadow-2xl space-y-1.5 w-36 text-center text-xs">
                           <div className="flex items-center justify-between border-b border-slate-800 pb-1">
                             <span className="font-bold text-[9.5px] text-cyan-300 uppercase flex items-center gap-1">
                               <Compass className="w-3 h-3 text-cyan-400" />
@@ -5612,9 +6093,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   })()}
 
                   {/* SINGLE COMPACT BOTTOM STATUS PILL */}
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-slate-950/90 border border-amber-400/70 text-white shadow-lg backdrop-blur-md flex items-center gap-2.5 font-mono text-[11px] z-20 select-none pointer-events-auto">
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-slate-950/95 border border-amber-400/70 text-white shadow-lg flex items-center gap-2.5 font-mono text-[11px] z-20 select-none pointer-events-auto">
                     <span className="text-amber-400 font-black">
-                      Dip {dipAmount ?? 60}°
+                      Dip {dipAmount ?? 60}° ({dipHalfCircleSense === 'inwards' ? 'Inwards' : 'Outwards'})
                     </span>
                     <span className="text-slate-600">·</span>
                     <span className="text-cyan-300 font-bold">
@@ -5628,7 +6109,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
                   {/* OPTIONAL GEOLOGICAL VECTORS LEGEND OVERLAY (HIDDEN BY DEFAULT FOR CLEAN CANVAS) */}
                   {showLegendOverlay && (
-                    <div className="absolute top-12 left-3 p-2.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 font-mono text-[10px] space-y-1 shadow-xl pointer-events-none z-10">
+                    <div className="absolute top-12 left-3 p-2.5 rounded-xl bg-slate-950/95 border border-slate-800 font-mono text-[10px] space-y-1 shadow-xl pointer-events-none z-10">
                       <div className="font-bold text-amber-400 uppercase text-[10.5px]">
                         3D Vectors &amp; Anchor
                       </div>
@@ -6235,91 +6716,168 @@ const NatmJoint3DInspectorModalContent: React.FC<
         </div>
       )}
 
-      {/* INDICATION WARNING MODAL BEFORE CHANGING FACE DIP AMOUNT OR CROWN/SURFACE STRIKE DIRECTION */}
+      {/* SELECT STARTING POINT (P1) OR ENDING POINT (P2) MODAL FOR DIP AMOUNT OR STRIKE DIRECTION */}
       {hingeIndicationModal && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-          <div className="max-w-lg w-full p-5 rounded-2xl bg-slate-900 border-2 border-amber-500/70 shadow-2xl font-mono text-xs text-slate-100 space-y-4">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/90">
+          <div className="max-w-lg w-full p-5 rounded-2xl bg-slate-900 border-2 border-cyan-500/70 shadow-2xl font-mono text-xs text-slate-100 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
-                <AlertTriangle className="w-6 h-6" />
+              <div className="p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 shrink-0">
+                <Crosshair className="w-6 h-6" />
               </div>
-              <div className="space-y-1">
-                <div className="font-black text-amber-300 text-sm uppercase tracking-wide">
+              <div className="space-y-1.5">
+                <div className="font-black text-cyan-300 text-sm uppercase tracking-wide">
                   {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
-                    ? 'Indication Notice: Changing Dip Amount on Face / Wall'
-                    : `Indication Notice: Rotating Strike Direction on ${isSurfaceMapping ? 'Surface Mapping' : 'Crown'}`}
+                    ? 'Select Base Point & Dip Inwards / Outwards Sense'
+                    : 'Select Base Point for Strike / Dip Direction Change'}
                 </div>
                 <p className="text-slate-300 text-[11px] leading-relaxed">
                   {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT' ? (
                     <>
-                      On the <strong className="text-amber-300">Excavation Face / Sidewall</strong>, the 3D discontinuity plane uses your{' '}
-                      <strong className="text-emerald-300">drawn joint trace as its stationary axis hinge</strong> and rotates based only on that trace.
-                      <br />
-                      <br />
-                      If you change the <strong className="text-amber-300">Dip Amount</strong> directly (from{' '}
+                      Choose which endpoint of <strong className="text-amber-300">Joint {currentJoint.id}</strong> should stay fixed as the base point while dipping from{' '}
                       <strong className="text-white">{hingeIndicationModal.currentValue}°</strong> to{' '}
-                      <strong className="text-amber-300">{hingeIndicationModal.targetValue}°</strong>), the 3D plane will tilt toward{' '}
-                      <strong className="text-cyan-300">Vertical (90°) or Horizontal (0°)</strong> and detach from the drawn trace inclination.
+                      <strong className="text-amber-300">{hingeIndicationModal.targetValue}°</strong> across the{' '}
+                      <strong className="text-emerald-300">180° Half-Circle (Inwards / Outwards)</strong>:
+                      <br />
+                      <br />
+                      • Once you select <strong className="text-emerald-300">Starting Point (P1)</strong> or{' '}
+                      <strong className="text-cyan-300">Ending Point (P2)</strong>, the joint trace and 3D plane will dip directly around that point.
+                      <br />
+                      • Once completed, you can rotate <strong className="text-amber-300">Dip Direction</strong> hinge-based around the new trace line.
                     </>
                   ) : (
                     <>
-                      In <strong className="text-cyan-300">{isSurfaceMapping ? 'Surface Mapping' : 'Crown Mapping'}</strong> (vice versa to Face), your drawn joint trace is the{' '}
-                      <strong className="text-emerald-300">fixed Strike trace hinge</strong>: changing <strong className="text-sky-300">Dip Amount</strong> tilts the plane around that Strike trace without rotating it.
-                      <br />
-                      <br />
-                      Changing <strong className="text-amber-300">Strike / Dip Direction</strong> (from{' '}
+                      On this <strong className="text-cyan-300">Strike-Measured Surface</strong> (vice versa rule), choose which endpoint of{' '}
+                      <strong className="text-amber-300">Joint {currentJoint.id}</strong> should stay fixed as the base point while rotating Strike / Dip Direction from{' '}
                       <strong className="text-white">{hingeIndicationModal.currentValue}°</strong> to{' '}
-                      <strong className="text-amber-300">{hingeIndicationModal.targetValue}°</strong>) will rotate the 3D plane horizontally away from your drawn Strike trace.
+                      <strong className="text-cyan-300">{hingeIndicationModal.targetValue}°</strong>:
+                      <br />
+                      <br />
+                      • Once you select <strong className="text-emerald-300">Starting Point (P1)</strong> or{' '}
+                      <strong className="text-cyan-300">Ending Point (P2)</strong>, the Strike trace will pivot around that point.
+                      <br />
+                      • Once completed, you can change <strong className="text-amber-300">Dip Amount (Inwards / Outwards)</strong> hinge-based around that Strike trace.
                     </>
                   )}
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setHingeIndicationModal(null)}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold cursor-pointer"
-              >
-                {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
-                  ? 'Keep Locked to Trace Hinge (Cancel)'
-                  : 'Keep Locked to Strike Trace (Cancel)'}
-              </button>
-              {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const target = Math.max(1, Math.min(90, hingeIndicationModal.targetValue));
-                    setIsHingeRotationActive(true);
-                    setHingeDipDeg(target);
-                    setHingeIndicationModal(null);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-md cursor-pointer"
-                >
-                  Rotate Around Trace Hinge Only
-                </button>
-              )}
+            {/* Dip Inwards / Dip Outwards Half-Circle Selector inside Modal */}
+            {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT' && (
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="text-[10px] font-bold text-slate-400 uppercase">
+                  Choose Dip Half-Circle Sense (Inwards vs Outwards):
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDipHalfCircleSense('inwards');
+                      setHingeDipSide('heading');
+                      setHingeIndicationModal((prev) =>
+                        prev ? { ...prev, targetSense: 'inwards' } : null
+                      );
+                    }}
+                    className={`py-2 px-3 rounded-lg font-bold text-xs cursor-pointer border transition-colors ${
+                      (hingeIndicationModal.targetSense || dipHalfCircleSense) === 'inwards'
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-black'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    ↙ Dip Inwards ({hingeIndicationModal.targetValue}°)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDipHalfCircleSense('outwards');
+                      setHingeDipSide('collar');
+                      setHingeIndicationModal((prev) =>
+                        prev ? { ...prev, targetSense: 'outwards' } : null
+                      );
+                    }}
+                    className={`py-2 px-3 rounded-lg font-bold text-xs cursor-pointer border transition-colors ${
+                      (hingeIndicationModal.targetSense || dipHalfCircleSense) === 'outwards'
+                        ? 'bg-amber-500 text-slate-950 border-amber-300 font-black'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    ↘ Dip Outwards ({hingeIndicationModal.targetValue}°)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => {
+                  const chosenSense = hingeIndicationModal.targetSense || dipHalfCircleSense;
+                  setTracePivotEndpoint('start');
+                  setIsPrimaryStepCompleted(false);
                   if (hingeIndicationModal.mode === 'FACE_DIP_AMOUNT') {
-                    setFaceDipChangeConfirmedForJointId(currentJoint.id);
+                    setDipHalfCircleSense(chosenSense);
+                    setHingeDipSide(chosenSense === 'inwards' ? 'heading' : 'collar');
+                    setIsDipAmountEdited(true);
                     setIsHingeRotationActive(true);
                     setDipAmount(hingeIndicationModal.targetValue);
                     setHingeDipDeg(Math.max(1, hingeIndicationModal.targetValue));
                   } else {
-                    setCrownStrikeChangeConfirmedForJointId(currentJoint.id);
+                    setIsStrikeDirEdited(true);
                     setIsStrikeLineHingeLocked(false);
+                    setIsHingeRotationActive(true);
                     setDipDirection(hingeIndicationModal.targetValue);
                   }
                   setHingeIndicationModal(null);
                 }}
-                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-md cursor-pointer"
+                className="px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-lg cursor-pointer flex flex-col items-center justify-center gap-0.5 border border-emerald-300"
               >
-                {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
-                  ? `Proceed & Change Dip Amount (${hingeIndicationModal.targetValue}°)`
-                  : `Proceed & Rotate Plane Strike (${hingeIndicationModal.targetValue}°)`}
+                <span className="text-xs uppercase">1. Starting Point (P1)</span>
+                <span className="text-[10px] font-bold opacity-85">
+                  {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
+                    ? `Keep P1 Fixed · Dip ${hingeIndicationModal.targetValue}° (${(hingeIndicationModal.targetSense || dipHalfCircleSense) === 'inwards' ? 'Inwards' : 'Outwards'})`
+                    : `Keep P1 Fixed · Rotate to ${hingeIndicationModal.targetValue}°`}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const chosenSense = hingeIndicationModal.targetSense || dipHalfCircleSense;
+                  setTracePivotEndpoint('end');
+                  setIsPrimaryStepCompleted(false);
+                  if (hingeIndicationModal.mode === 'FACE_DIP_AMOUNT') {
+                    setDipHalfCircleSense(chosenSense);
+                    setHingeDipSide(chosenSense === 'inwards' ? 'heading' : 'collar');
+                    setIsDipAmountEdited(true);
+                    setIsHingeRotationActive(true);
+                    setDipAmount(hingeIndicationModal.targetValue);
+                    setHingeDipDeg(Math.max(1, hingeIndicationModal.targetValue));
+                  } else {
+                    setIsStrikeDirEdited(true);
+                    setIsStrikeLineHingeLocked(false);
+                    setIsHingeRotationActive(true);
+                    setDipDirection(hingeIndicationModal.targetValue);
+                  }
+                  setHingeIndicationModal(null);
+                }}
+                className="px-4 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black shadow-lg cursor-pointer flex flex-col items-center justify-center gap-0.5 border border-cyan-300"
+              >
+                <span className="text-xs uppercase">2. Ending Point (P2)</span>
+                <span className="text-[10px] font-bold opacity-85">
+                  {hingeIndicationModal.mode === 'FACE_DIP_AMOUNT'
+                    ? `Keep P2 Fixed · Dip ${hingeIndicationModal.targetValue}° (${(hingeIndicationModal.targetSense || dipHalfCircleSense) === 'inwards' ? 'Inwards' : 'Outwards'})`
+                    : `Keep P2 Fixed · Rotate to ${hingeIndicationModal.targetValue}°`}
+                </span>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setHingeIndicationModal(null)}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold cursor-pointer"
+              >
+                Cancel
               </button>
             </div>
           </div>
