@@ -6044,16 +6044,24 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
     const faceDetails = computeFaceTunnelOutlineDetails(effectiveLocation, boxX, boxY, boxW, boxH);
     const leftWallMidY = (faceDetails.splLeftPt.y + bottom) / 2;
     const rightWallMidY = (faceDetails.splRightPt.y + bottom) / 2;
-    const leftWallLenM = faceDetails.hasLeftWall
+    const isRectOutline = isSurface || effectiveLocation.shape === 'rectangular';
+    const showFaceLeftEdge = faceDetails.hasLeftWall || isSurface;
+    const showFaceRightEdge = faceDetails.hasRightWall || isSurface;
+    const showFaceTopEdge = faceDetails.hasCrown || isSurface;
+    const leftWallLenM = isSurface
+      ? tunnelH
+      : faceDetails.hasLeftWall
       ? geom.leftWallLengthM || effectiveLocation.leftWallLengthM || splHeightM
       : 0;
-    const rightWallLenM = faceDetails.hasRightWall
+    const rightWallLenM = isSurface
+      ? tunnelH
+      : faceDetails.hasRightWall
       ? geom.rightWallLengthM || effectiveLocation.rightWallLengthM || splHeightM
       : 0;
     const totalPerimM =
-      (faceDetails.hasLeftWall ? leftWallLenM : 0) +
-      (faceDetails.hasCrown ? crownLengthM : 0) +
-      (faceDetails.hasRightWall ? rightWallLenM : 0);
+      (showFaceLeftEdge ? leftWallLenM : 0) +
+      (showFaceTopEdge ? (isSurface ? tunnelW : crownLengthM) : 0) +
+      (showFaceRightEdge ? rightWallLenM : 0);
 
     return (
       <g className="pointer-events-none select-none" fontFamily="IBM Plex Mono, monospace">
@@ -6114,7 +6122,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         })}
 
         {/* LEFT SPL / CREST Marker & Label - Strictly OUTSIDE the perimeter */}
-        {faceDetails.hasLeftWall && effectiveLocation.shape !== 'circular' && (
+        {showFaceLeftEdge && effectiveLocation.shape !== 'circular' && (
           <g>
             <line
               x1={faceDetails.splLeftPt.x - 24}
@@ -6135,7 +6143,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             />
             <text
               x={faceDetails.splLeftPt.x - 28}
-              y={faceDetails.splLeftPt.y + 3.5}
+              y={faceDetails.splLeftPt.y + (isRectOutline ? -12 : 3.5)}
               textAnchor="end"
               fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
@@ -6152,7 +6160,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         )}
 
         {/* RIGHT SPL / CREST Marker & Label - Strictly OUTSIDE the perimeter */}
-        {faceDetails.hasRightWall && effectiveLocation.shape !== 'circular' && (
+        {showFaceRightEdge && effectiveLocation.shape !== 'circular' && (
           <g>
             <line
               x1={faceDetails.splRightPt.x}
@@ -6173,7 +6181,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
             />
             <text
               x={faceDetails.splRightPt.x + 28}
-              y={faceDetails.splRightPt.y + 3.5}
+              y={faceDetails.splRightPt.y + (isRectOutline ? -12 : 3.5)}
               textAnchor="start"
               fontSize={(11.5 * Math.max(1.0, Math.min(1.2, Math.min(boxW, boxH) / 480))).toFixed(1)}
               fontWeight="800"
@@ -6190,7 +6198,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         )}
 
         {/* CROWN / CREST CENTER (CL) Outer Marker - Strictly OUTSIDE top apex */}
-        {faceDetails.hasCrown && (
+        {showFaceTopEdge && (
           <g>
             <line
               x1={faceDetails.clTopPt.x}
@@ -6221,14 +6229,14 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
               paintOrder="stroke"
             >
               {isSurface
-                ? `▲ FACE DIP DIR ${String(normDrive).padStart(3, '0')}° (CREST C/L) · CREST SPAN = ${crownLengthM.toFixed(2)}m`
+                ? `▲ FACE DIP DIR ${String(normDrive).padStart(3, '0')}° (CREST C/L) · CREST SPAN = ${tunnelW.toFixed(2)}m`
                 : `▲ DRIVE ${String(normDrive).padStart(3, '0')}° (C/L) · CROWN ARC = ${crownLengthM.toFixed(2)}m · ▼ ${String(oppDrive).padStart(3, '0')}°`}
             </text>
           </g>
         )}
 
         {/* Left Wall / Batter Height Label - Omitted completely if Left Wall portion is Open */}
-        {faceDetails.hasLeftWall && (
+        {showFaceLeftEdge && (
           <text
             x={left - 42}
             y={leftWallMidY}
@@ -6248,7 +6256,7 @@ export const FieldCanvasGeometryReferenceOverlay: React.FC<{
         )}
 
         {/* Right Wall / Batter Height Label - Omitted completely if Right Wall portion is Open */}
-        {faceDetails.hasRightWall && (
+        {showFaceRightEdge && (
           <text
             x={right + 42}
             y={rightWallMidY}

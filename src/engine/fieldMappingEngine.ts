@@ -3134,7 +3134,7 @@ export function loadFieldMappingStore(
                     t.panel,
                     isRowVerticalShaft
                   );
-                  if (isStrikePanel && pts.length >= 2) {
+                  if (pts.length >= 2) {
                     const recalc = computeTraceOrientationFromTunnelDrive(
                       pts,
                       t.panel,
@@ -3144,20 +3144,24 @@ export function loadFieldMappingStore(
                       resolvedActiveLocation?.heightM || 7.2,
                       isRowVerticalShaft
                     );
+                    const hasCustomSavedEdit = Boolean(t.editedByCompass || t.inspection3D);
                     const hasCustomSavedDip =
-                      Boolean(t.editedByCompass || t.inspection3D) &&
+                      hasCustomSavedEdit &&
                       typeof t.dipAmount === 'number' &&
-                      t.dipAmount >= 1 &&
+                      t.dipAmount >= 0 &&
                       t.dipAmount <= 90;
                     return {
                       ...t,
                       points: pts,
                       dipDirection:
-                        (t.editedByCompass || t.inspection3D) && typeof t.dipDirection === 'number'
+                        hasCustomSavedEdit && typeof t.dipDirection === 'number'
                           ? t.dipDirection
                           : recalc.dipDirection,
                       dipAmount: hasCustomSavedDip ? t.dipAmount : recalc.dipAmount,
-                      strike: recalc.strike,
+                      strike:
+                        hasCustomSavedEdit && typeof t.strike === 'number'
+                          ? t.strike
+                          : recalc.strike,
                       setId:
                         t.setId && FIELD_JOINT_GROUP_COLORS[t.setId]
                           ? t.setId
@@ -3753,31 +3757,26 @@ export function computeTraceOrientationFromTunnelDrive(
 
   const isStrikeOnly = isStrikeOnlyHorizontalPanel(panel, isVerticalShaft);
 
+  // On vertical panels (Face, Left Wall, Right Wall, or Vertical Shaft quadrant walls),
+  // canvas +Y is downward toward the floor (-Z in 3D). Canonicalize the trace vector so it
+  // always points down-dip (downDy >= 0) regardless of whether the user dragged top-to-bottom or bottom-to-top.
+  const downDx = !isStrikeOnly && rawDy < 0 ? -rawDx : rawDx;
+  const downDy = !isStrikeOnly && rawDy < 0 ? -rawDy : rawDy;
+
   // For horizontal Strike-Only plane (Crown in Tunnel mode, or Shaft Face in Vertical Shaft mode):
   // The trace mapped on the horizontal plane represents the STRIKE AXIS of the discontinuity.
   // Until confirmed in 3D Joint Inspection, it defaults to 90° vertical dip.
   // For vertical wall panels (including all 4 quadrant walls in Vertical Shaft mode), dip amount is directly the inclination angle from horizontal.
   const dipAngleFromHorizontal =
-    (Math.atan2(Math.abs(rawDy), Math.abs(rawDx)) * 180) / Math.PI;
+    (Math.atan2(Math.abs(downDy), Math.abs(downDx)) * 180) / Math.PI;
   const dipAmount = isStrikeOnly
     ? 90
     : Math.max(0, Math.min(90, Math.round(dipAngleFromHorizontal)));
 
-  // Clockwise 360° angle of the backend start-to-end straight reference chord from Top (12 o'clock, -Y)
+  // Clockwise 360° angle of the start-to-end reference chord from Top (12 o'clock, -Y) for horizontal Strike-Only panels
   const traceClockwiseDeg360 =
     ((Math.atan2(rawDx, -rawDy) * 180) / Math.PI + 360) % 360;
 
-  // Panel top (12 o'clock, -Y) azimuth:
-  // - In Vertical Shaft mode:
-  //   * Face: Top (-Y) is 0° North, Right (+X) is 90° East, Bottom (+Y) is 180° South, Left (-X) is 270° West -> Top is 0°
-  //   * 1st Q NE (left_wall): 0° to 90° -> panelBaseAz = 0°
-  //   * 2nd Q ES (crown):     90° to 180° -> panelBaseAz = 90°
-  //   * 3rd Q SW (right_wall):180° to 270° -> panelBaseAz = 180°
-  //   * 4th Q WN (shaft_sn):  270° to 360° -> panelBaseAz = 270°
-  // - In Tunnel mode:
-  //   * Face & Crown: Top is normAz
-  //   * Left Wall:    Top is (normAz + 270) % 360
-  //   * Right Wall:   Top is (normAz + 90) % 360
   const panelBaseAz = isVerticalShaft
     ? panel === 'face'
       ? 0
@@ -3807,8 +3806,29 @@ export function computeTraceOrientationFromTunnelDrive(
       _crownDipSign === '-90'
         ? ((strike - 90) % 360 + 360) % 360
         : ((strike + 90) % 360 + 360) % 360;
+  } else if (isVerticalShaft) {
+    // Vertical Shaft quadrant wall unrolls clockwise from panelBaseAz (left) to panelBaseAz + 90° (right)
+    dipDirection = Math.round(
+      ((downDx >= 0 ? panelBaseAz + 90 : panelBaseAz) % 360 + 360) % 360
+    );
+    strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
+  } else if (panel === 'face') {
+    // On Face: Left (-X) is normAz - 90° (Left Wall), Right (+X) is normAz + 90° (Right Wall)
+    dipDirection = Math.round(
+      ((downDx >= 0 ? normAz + 90 : normAz + 270) % 360 + 360) % 360
+    );
+    strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
+  } else if (panel === 'left_wall') {
+    // On Left Wall: Left (-X) is Portal (normAz + 180°), Right (+X) is Face / Drive (normAz)
+    dipDirection = Math.round(
+      ((downDx >= 0 ? normAz : normAz + 180) % 360 + 360) % 360
+    );
+    strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
   } else {
-    dipDirection = traceAzimuth;
+    // On Right Wall: Left (-X) is Face / Drive (normAz), Right (+X) is Portal (normAz + 180°)
+    dipDirection = Math.round(
+      ((downDx <= 0 ? normAz : normAz + 180) % 360 + 360) % 360
+    );
     strike = Math.round(((dipDirection - 90) % 360 + 360) % 360);
   }
 
@@ -3874,15 +3894,15 @@ export function computeTraceScreenDipTickVector(
   } else if (panel === 'face') {
     // On Face, Right (+X) is Drive + 90°, Down (+Y) is down-dip gravity
     targetX = Math.sin(relRad);
-    targetY = 0.8;
+    targetY = 0.25;
   } else if (panel === 'left_wall') {
     // On Left Wall, Right (+X) is Drive, Down (+Y) is down-dip gravity
     targetX = Math.cos(relRad);
-    targetY = 0.8;
+    targetY = 0.25;
   } else {
     // On Right Wall, Left (-X) is Drive, Down (+Y) is down-dip gravity
     targetX = -Math.cos(relRad);
-    targetY = 0.8;
+    targetY = 0.25;
   }
 
   const dot1 = n1x * targetX + n1y * targetY;
@@ -4611,7 +4631,10 @@ export function getLocationSurfaceConfig(
       ? Number(location.wallHeightM)
       : Number(Math.max(0.5, tunnelH - defaultCrownRise).toFixed(2));
 
-  let crownLengthM = Number(tunnelW.toFixed(2));
+  let crownLengthM =
+    location.shape === 'rectangular' && Number((location as any).crownLengthM) > 0
+      ? Number(Number((location as any).crownLengthM).toFixed(2))
+      : Number(tunnelW.toFixed(2));
   if (location.shape !== 'rectangular') {
     const a = tunnelW / 2;
     const b = Math.max(0.4, tunnelH - splHeightM);
@@ -5701,19 +5724,27 @@ export function computeFaceTunnelOutlineDetails(
     ];
   }
 
-  const leftWallTicks = hasLeftWall
-    ? sampleScreenPolylineMeterTicks(leftWallPoly, leftWallLengthM, cx, cy, true)
+  const isRectFace = location.shape === 'rectangular';
+  const faceHasLeftEdge = hasLeftWall || isRectFace;
+  const faceHasRightEdge = hasRightWall || isRectFace;
+  const faceHasTopEdge = hasCrown || isRectFace;
+  const faceLeftEdgeLenM = isRectFace ? tunnelH : leftWallLengthM;
+  const faceRightEdgeLenM = isRectFace ? tunnelH : rightWallLengthM;
+  const faceTopEdgeLenM = isRectFace ? tunnelW : crownLengthM;
+
+  const leftWallTicks = faceHasLeftEdge
+    ? sampleScreenPolylineMeterTicks(leftWallPoly, faceLeftEdgeLenM, cx, cy, true)
     : [];
-  const rightWallTicks = hasRightWall
-    ? sampleScreenPolylineMeterTicks(rightWallPoly, rightWallLengthM, cx, cy, true)
+  const rightWallTicks = faceHasRightEdge
+    ? sampleScreenPolylineMeterTicks(rightWallPoly, faceRightEdgeLenM, cx, cy, true)
     : [];
-  const crownArchTicks = hasCrown
+  const crownArchTicks = faceHasTopEdge
     ? sampleScreenPolylineMeterTicks(
         crownPoly,
-        crownLengthM,
+        faceTopEdgeLenM,
         cx,
         cy,
-        !hasLeftWall && !hasRightWall
+        !faceHasLeftEdge && !faceHasRightEdge
       )
     : [];
 
@@ -5752,7 +5783,12 @@ export function computeFaceTunnelOutlineDetails(
       ? crownPoly[crownPoly.length - 1]
       : { x: right, y: springY };
   const crownPeakPt =
-    crownPoly.length > 0
+    crownPoly.length === 2
+      ? {
+          x: (crownPoly[0].x + crownPoly[1].x) / 2,
+          y: (crownPoly[0].y + crownPoly[1].y) / 2,
+        }
+      : crownPoly.length > 2
       ? crownPoly[Math.floor(crownPoly.length / 2)]
       : { x: cx, y: top };
 
@@ -9281,21 +9317,30 @@ export const estimateTraceOrientationFromGeometry = computeTraceOrientationFromT
 
 export function buildSmoothSvgPath(points: FieldPoint2D[]): string {
   if (!points || points.length === 0) return '';
-  if (points.length === 1) {
-    const p = points[0];
+  const validPoints = points.filter(
+    (p): p is FieldPoint2D =>
+      Boolean(p) &&
+      typeof p.x === 'number' &&
+      Number.isFinite(p.x) &&
+      typeof p.y === 'number' &&
+      Number.isFinite(p.y)
+  );
+  if (validPoints.length === 0) return '';
+  if (validPoints.length === 1) {
+    const p = validPoints[0];
     return `M ${p.x.toFixed(1)} ${p.y.toFixed(1)} L ${(p.x + 0.5).toFixed(1)} ${(p.y + 0.5).toFixed(1)}`;
   }
-  if (points.length === 2) {
-    return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)} L ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
+  if (validPoints.length === 2) {
+    return `M ${validPoints[0].x.toFixed(1)} ${validPoints[0].y.toFixed(1)} L ${validPoints[1].x.toFixed(1)} ${validPoints[1].y.toFixed(1)}`;
   }
   // Smooth midpoint quadratic spline so live & saved joint traces, vein bands, and foliations have zero jagged vibration
-  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const midX = (points[i].x + points[i + 1].x) / 2;
-    const midY = (points[i].y + points[i + 1].y) / 2;
-    d += ` Q ${points[i].x.toFixed(1)} ${points[i].y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+  let d = `M ${validPoints[0].x.toFixed(1)} ${validPoints[0].y.toFixed(1)}`;
+  for (let i = 1; i < validPoints.length - 1; i++) {
+    const midX = (validPoints[i].x + validPoints[i + 1].x) / 2;
+    const midY = (validPoints[i].y + validPoints[i + 1].y) / 2;
+    d += ` Q ${validPoints[i].x.toFixed(1)} ${validPoints[i].y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
   }
-  const last = points[points.length - 1];
+  const last = validPoints[validPoints.length - 1];
   d += ` L ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
   return d;
 }

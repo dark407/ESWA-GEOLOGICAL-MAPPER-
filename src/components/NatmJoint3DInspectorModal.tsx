@@ -55,7 +55,9 @@ import {
   FieldJointGroupingId,
   FIELD_JOINT_GROUP_COLORS,
   buildDipSurfaceOutlineAndCentroid,
+  computeTraceOrientationFromTunnelDrive,
 } from '../engine/fieldMappingEngine';
+import { getSurfacePanelLabelMap, MappingDomainType } from '../engine/surfaceMappingEngine';
 import {
   TunnelSpatialGeometry,
   Joint3DInspectionData,
@@ -78,6 +80,8 @@ import {
   calculateJointFractureIntensityAndArea,
   constructPlaneFromFaceTraceHinge,
   constructPlaneFromTraceHinge,
+  constructTraceAnchoredPlaneFromOrientation,
+  buildTunnelCrossSectionProfileMetric,
   FaceTraceHingePlaneResult,
   TraceHingePlaneResult,
   JointFractureIntensityAndAreaResult,
@@ -453,8 +457,41 @@ const NatmJoint3DInspectorModalContent: React.FC<
     return allRoundJoints.find((j) => j.id === currentJointId) || activeJoint;
   }, [inspectTargetType, currentDipSurface, allRoundJoints, currentJointId, activeJoint]);
 
-  // Editable Orientation Parameters
+  // Editable Orientation Parameters (auto-recalculated from drawn trace geometry if not yet manually edited)
   const isCrown = currentJoint.panel === 'crown';
+  const canonicalTraceEst = useMemo(() => {
+    if (
+      inspectTargetType !== 'dip_surface' &&
+      !currentJoint.editedByCompass &&
+      !currentJoint.inspection3D &&
+      currentJoint.points &&
+      currentJoint.points.length >= 2
+    ) {
+      return computeTraceOrientationFromTunnelDrive(
+        currentJoint.points,
+        currentJoint.panel || 'face',
+        tunnelGeometry.driveAzimuthDeg ?? 0,
+        currentJoint.crownDipSign || '+90',
+        tunnelGeometry.widthM || 8.4,
+        tunnelGeometry.heightM || 7.2,
+        Boolean(tunnelGeometry.isVerticalShaft)
+      );
+    }
+    return null;
+  }, [
+    inspectTargetType,
+    currentJoint.id,
+    currentJoint.editedByCompass,
+    currentJoint.inspection3D,
+    currentJoint.points,
+    currentJoint.panel,
+    currentJoint.crownDipSign,
+    tunnelGeometry.driveAzimuthDeg,
+    tunnelGeometry.widthM,
+    tunnelGeometry.heightM,
+    tunnelGeometry.isVerticalShaft,
+  ]);
+
   const resolvedInitialDip = isCrown
     ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
       typeof currentJoint.dipAmount === 'number' &&
@@ -462,9 +499,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
       currentJoint.dipAmount <= 90
       ? currentJoint.dipAmount
       : 90
-    : (currentJoint.dipAmount ?? 65);
+    : (canonicalTraceEst?.dipAmount ?? currentJoint.dipAmount ?? 65);
 
-  const [dipDirection, setDipDirection] = useState<number>(currentJoint.dipDirection ?? 135);
+  const [dipDirection, setDipDirection] = useState<number>(
+    canonicalTraceEst?.dipDirection ?? currentJoint.dipDirection ?? 135
+  );
   const [dipAmount, setDipAmount] = useState<number>(resolvedInitialDip);
   const [jointSetId, setJointSetId] = useState<FieldJointGroupingId>(currentJoint.setId || 'unassigned');
 
@@ -474,13 +513,37 @@ const NatmJoint3DInspectorModalContent: React.FC<
   const isSurfaceMapping = Boolean(
     tunnelGeometry.mappingDomain && tunnelGeometry.mappingDomain !== 'TUNNEL'
   );
+  const domainPanelMap = useMemo(
+    () =>
+      getSurfacePanelLabelMap(
+        (tunnelGeometry.mappingDomain as MappingDomainType) || 'TUNNEL',
+        Boolean(tunnelGeometry.isVerticalShaft)
+      ),
+    [tunnelGeometry.mappingDomain, tunnelGeometry.isVerticalShaft]
+  );
+  const getPortionEntry = (panelId: FieldPanelId) =>
+    panelId === 'left_wall'
+      ? domainPanelMap.leftWall
+      : panelId === 'right_wall'
+      ? domainPanelMap.rightWall
+      : panelId === 'crown'
+      ? domainPanelMap.crown
+      : domainPanelMap.face;
+  const getPortionTitle = (panelId: FieldPanelId) =>
+    getPortionEntry(panelId)?.fullLabel || panelId.replace('_', ' ');
+  const getPortionShort = (panelId: FieldPanelId) =>
+    getPortionEntry(panelId)?.shortLabel || panelId.replace('_', ' ');
+  const activePortionPanel: FieldPanelId =
+    inspectTargetType === 'dip_surface'
+      ? currentDipSurface?.panel || 'face'
+      : currentJoint.panel || 'face';
+
   const isCrownOrSurface =
-    (!tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown') || isSurfaceMapping;
-  const isFaceTrace = currentJoint.panel === 'face' && !isSurfaceMapping;
+    !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
+  const isFaceTrace = currentJoint.panel === 'face';
   const isWallTrace =
-    (currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall') &&
-    !isSurfaceMapping;
-  const isCrownTrace = currentJoint.panel === 'crown' || isSurfaceMapping;
+    currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
+  const isCrownTrace = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
 
   const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(
     inspectTargetType !== 'dip_surface'
@@ -505,14 +568,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
   const handleRequestDipAmountChange = (nextDip: number) => {
     const clamped = Math.max(0, Math.min(90, Math.round(nextDip)));
-    // In Crown & Surface Mapping (or Dip Surface), Dip Amount tilts the plane around the Strike trace freely:
-    if (inspectTargetType === 'dip_surface' || isCrownOrSurface) {
+    if (inspectTargetType === 'dip_surface') {
+      setIsHingeRotationActive(false);
       setDipAmount(clamped);
-      setHingeDipDeg(Math.max(1, clamped));
+      setHingeDipDeg(clamped);
       return;
     }
-    // On Underground Face / Walls: Changing Dip Amount tilts the plane toward Vertical (90°) or Horizontal (0°) away from the drawn trace hinge. Show Indication Warning Modal first!
-    if (faceDipChangeConfirmedForJointId !== currentJoint.id) {
+    if (
+      !isCrownOrSurface &&
+      isHingeRotationActive &&
+      faceDipChangeConfirmedForJointId !== currentJoint.id &&
+      clamped !== dipAmount
+    ) {
       setHingeIndicationModal({
         mode: 'FACE_DIP_AMOUNT',
         targetValue: clamped,
@@ -520,9 +587,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
       });
       return;
     }
-    setIsHingeRotationActive(false);
     setDipAmount(clamped);
-    setHingeDipDeg(Math.max(1, clamped));
+    setHingeDipDeg(clamped);
   };
 
   const handleRequestDipDirectionOrStrikeChange = (nextDipDir: number) => {
@@ -532,8 +598,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
       setDipDirection(normDir);
       return;
     }
-    // In Crown & Surface Mapping: Plane is hinged on the Strike trace. Changing Strike / Dip Direction rotates the plane horizontally! Show Indication Warning Modal first!
-    if (isCrownOrSurface && isStrikeLineHingeLocked && crownStrikeChangeConfirmedForJointId !== currentJoint.id) {
+    if (
+      isCrownOrSurface &&
+      isStrikeLineHingeLocked &&
+      crownStrikeChangeConfirmedForJointId !== currentJoint.id &&
+      normDir !== dipDirection
+    ) {
       setHingeIndicationModal({
         mode: 'CROWN_SURFACE_STRIKE_DIR',
         targetValue: normDir,
@@ -543,11 +613,39 @@ const NatmJoint3DInspectorModalContent: React.FC<
     }
     if (isCrownOrSurface) {
       setIsStrikeLineHingeLocked(false);
-      setIsHingeRotationActive(false);
       setDipDirection(normDir);
     } else {
-      // On Face / Walls: keep rotating around the drawn trace hinge unless unlocked
+      // On Face & Walls: rotate the 3D plane strictly around the traced joint hinge
+      setIsHingeRotationActive(true);
       setDipDirection(normDir);
+    }
+  };
+
+  const handleTraceHingeAngleOrSideChange = (
+    nextHingeDeg: number,
+    nextSide: 'heading' | 'collar' = hingeDipSide
+  ) => {
+    const clampedHinge = Math.max(0, Math.min(90, Math.round(nextHingeDeg)));
+    const isFlippingSide = nextSide !== hingeDipSide;
+    setHingeDipDeg(clampedHinge);
+    setHingeDipSide(nextSide);
+    if (currentJoint.points && currentJoint.points.length >= 2) {
+      const targetPrefDir = isFlippingSide
+        ? ((dipDirection + 180) % 360 + 360) % 360
+        : dipDirection;
+      const res = constructPlaneFromTraceHinge(
+        currentJoint.points,
+        currentJoint.panel || 'face',
+        clampedHinge,
+        nextSide,
+        tunnelGeometry,
+        isStrikeLineHingeLocked,
+        targetPrefDir
+      );
+      setDipAmount(res.derivedDipDeg);
+      setDipDirection(res.derivedDipDirectionDeg);
+    } else {
+      setDipAmount(clampedHinge);
     }
   };
 
@@ -581,7 +679,23 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
   // When switching currentJointId or currentDipSurfaceId or inspectTargetType, load its orientation parameters
   useEffect(() => {
-    const isCr = currentJoint.panel === 'crown' || isSurfaceMapping;
+    const isCr = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
+    const recalcEst =
+      inspectTargetType !== 'dip_surface' &&
+      !currentJoint.editedByCompass &&
+      !currentJoint.inspection3D &&
+      currentJoint.points &&
+      currentJoint.points.length >= 2
+        ? computeTraceOrientationFromTunnelDrive(
+            currentJoint.points,
+            currentJoint.panel || 'face',
+            tunnelGeometry.driveAzimuthDeg ?? 0,
+            currentJoint.crownDipSign || '+90',
+            tunnelGeometry.widthM || 8.4,
+            tunnelGeometry.heightM || 7.2,
+            Boolean(tunnelGeometry.isVerticalShaft)
+          )
+        : null;
     const resolvedDip = isCr
       ? (currentJoint.editedByCompass || currentJoint.inspection3D) &&
         typeof currentJoint.dipAmount === 'number' &&
@@ -589,8 +703,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
         currentJoint.dipAmount <= 90
         ? currentJoint.dipAmount
         : 90
-      : (currentJoint.dipAmount ?? 65);
-    setDipDirection(currentJoint.dipDirection ?? 135);
+      : (recalcEst?.dipAmount ?? currentJoint.dipAmount ?? 65);
+    setDipDirection(recalcEst?.dipDirection ?? currentJoint.dipDirection ?? 135);
     setDipAmount(resolvedDip);
     setHingeDipDeg(resolvedDip);
     setHingeDipSide(isCr && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading');
@@ -743,28 +857,44 @@ const NatmJoint3DInspectorModalContent: React.FC<
     );
   }, [currentJoint.panel, currentJoint.points, dipDirection, dipAmount, tunnelGeometry]);
 
-  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face & Walls; on Crown only if Strike Hinge Lock is explicitly checked)
+  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face & Walls; on Crown uses Strike Line Hinge when locked)
   const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
     if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
-    if (currentJoint.panel === 'crown' && !tunnelGeometry.isVerticalShaft && !isStrikeLineHingeLocked) {
+    if (isStrikeLineHingeLocked) {
+      return constructPlaneFromTraceHinge(
+        currentJoint.points,
+        currentJoint.panel || 'face',
+        dipAmount ?? hingeDipDeg,
+        hingeDipSide,
+        tunnelGeometry,
+        true,
+        dipDirection
+      );
+    }
+    if (currentJoint.panel === 'crown' && !tunnelGeometry.isVerticalShaft) {
       return null;
     }
-    return constructPlaneFromTraceHinge(
+    return constructTraceAnchoredPlaneFromOrientation(
       currentJoint.points,
       currentJoint.panel || 'face',
-      hingeDipDeg,
-      hingeDipSide,
+      dipDirection ?? 135,
+      dipAmount ?? 60,
       tunnelGeometry,
-      isStrikeLineHingeLocked
+      hingeDipSide,
+      faceDipChangeConfirmedForJointId === currentJoint.id
     );
   }, [
     isHingeRotationActive,
+    currentJoint.id,
     currentJoint.points,
     currentJoint.panel,
+    dipDirection,
+    dipAmount,
     hingeDipDeg,
     hingeDipSide,
     tunnelGeometry,
     isStrikeLineHingeLocked,
+    faceDipChangeConfirmedForJointId,
   ]);
 
   // 1. Strike Convention & Angles (keeps Strike invariant only when rotating around an explicitly locked Strike Line Hinge)
@@ -847,20 +977,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
       currentJoint.panel || 'face'
     );
   }, [currentJoint.points, currentJoint.panel, allRoundJoints, tunnelGeometry]);
-
-  // Synchronize derived dip and dip direction when hinge rotation changes
-  useEffect(() => {
-    if (hingePlaneResult) {
-      if (typeof hingePlaneResult.derivedDipDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDeg)) {
-        const nextDip = hingePlaneResult.derivedDipDeg;
-        setDipAmount((prev) => (Math.abs((prev ?? 0) - nextDip) < 1e-4 ? prev : nextDip));
-      }
-      if (typeof hingePlaneResult.derivedDipDirectionDeg === 'number' && !isNaN(hingePlaneResult.derivedDipDirectionDeg)) {
-        const nextDir = hingePlaneResult.derivedDipDirectionDeg;
-        setDipDirection((prev) => (Math.abs((prev ?? 0) - nextDir) < 1e-4 ? prev : nextDir));
-      }
-    }
-  }, [hingePlaneResult]);
 
   // 3. Mathematical Plane Equation
   const plane = useMemo(() => {
@@ -1370,50 +1486,244 @@ const NatmJoint3DInspectorModalContent: React.FC<
           tunnelGroup.add(sp);
         });
       }
-    } else {
-      // 5. Clean Excavation Invert Floor (Smooth, flat invert between x = 0 and x = w)
-      const floorGeo = new THREE.PlaneGeometry(w, pullL);
-      floorGeo.rotateX(-Math.PI / 2);
-      floorGeo.translate(cx, 0.001, cz);
-      const floorMat = new THREE.MeshStandardMaterial({
-        color: 0xf8fafc,
-        roughness: 0.65,
+    } else if (isSurfaceMapping) {
+      // =====================================================================
+      // SURFACE MAPPING 3D EXCAVATION & ACTIVE PORTION GEOMETRY
+      // Adapts to BENCH, TRENCH, SLOPE, and ROCK_SURFACE and highlights the
+      // active portion (face, crown, left_wall, right_wall)
+      // =====================================================================
+      const domain = tunnelGeometry.mappingDomain || 'BENCH';
+      const isTrench = domain === 'TRENCH';
+      const isSingleRockWindow =
+        domain === 'ROCK_SURFACE' &&
+        tunnelGeometry.hasCrown === false &&
+        tunnelGeometry.hasLeftWall === false &&
+        tunnelGeometry.hasRightWall === false;
+
+      // 1. Lower Toe / Trench Invert Floor at y = 0
+      const toeApronDepth = isTrench ? pullL : Math.min(4.5, Math.max(2.0, pullL * 0.35));
+      const toeGeo = new THREE.PlaneGeometry(w, toeApronDepth);
+      toeGeo.rotateX(-Math.PI / 2);
+      toeGeo.translate(
+        cx,
+        0.002,
+        isTrench ? cz : pullL + toeApronDepth / 2
+      );
+      const toeMat = new THREE.MeshStandardMaterial({
+        color: activePortionPanel === 'left_wall' && !isTrench ? 0xfef3c7 : 0xf1f5f9,
+        transparent: true,
+        opacity: isTrench ? 0.45 : 0.38,
+        roughness: 0.6,
         metalness: 0.02,
         side: THREE.DoubleSide,
       });
-      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-      scene.add(floorMesh);
+      tunnelGroup.add(new THREE.Mesh(toeGeo, toeMat));
 
-      // Dynamic Profile points: strictly in [0, w] (horizontal) and [0, h] (vertical)
-      const profilePts: THREE.Vector2[] = [];
-      const customPoints = tunnelGeometry.crossSectionPoints;
+      // 2. Main Surface Exposure Face / Bench Face / Slope Face / Trench End Face at z = pullL
+      const facePlaneGeo = new THREE.PlaneGeometry(w, h);
+      facePlaneGeo.translate(cx, h / 2, pullL);
+      const isFaceActive = activePortionPanel === 'face';
+      const facePlaneMat = new THREE.MeshStandardMaterial({
+        color: isFaceActive ? 0xbae6fd : 0xe2e8f0,
+        transparent: true,
+        opacity: isFaceActive ? 0.36 : 0.24,
+        roughness: 0.3,
+        metalness: 0.04,
+        side: THREE.DoubleSide,
+      });
+      tunnelGroup.add(new THREE.Mesh(facePlaneGeo, facePlaneMat));
 
-      if (customPoints && customPoints.length >= 3) {
-        const minX = Math.min(...customPoints.map((p) => p.x));
-        const maxX = Math.max(...customPoints.map((p) => p.x));
-        const minY = Math.min(...customPoints.map((p) => p.y));
-        const maxY = Math.max(...customPoints.map((p) => p.y));
-        const spanX = Math.max(0.01, maxX - minX);
-        const spanY = Math.max(0.01, maxY - minY);
+      // Face Contour Outline at z = pullL
+      const faceRectPts = [
+        new THREE.Vector3(0, 0, pullL),
+        new THREE.Vector3(0, h, pullL),
+        new THREE.Vector3(w, h, pullL),
+        new THREE.Vector3(w, 0, pullL),
+        new THREE.Vector3(0, 0, pullL),
+      ];
+      tunnelGroup.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(faceRectPts),
+          new THREE.LineBasicMaterial({
+            color: isFaceActive ? 0x0284c7 : 0x64748b,
+            linewidth: isFaceActive ? 3.5 : 2,
+          })
+        )
+      );
 
-        for (const cp of customPoints) {
-          const tx = ((cp.x - minX) / spanX) * w;
-          const ty = ((cp.y - minY) / spanY) * h;
-          profilePts.push(new THREE.Vector2(tx, ty));
+      // 3. Upper Berm / Crest Ledge / Trench Floor Reference at y = h (crown panel)
+      if (!isSingleRockWindow && (tunnelGeometry.hasCrown !== false || activePortionPanel === 'crown')) {
+        const isCrownActive = activePortionPanel === 'crown';
+        const bermGeo = new THREE.PlaneGeometry(w, pullL);
+        bermGeo.rotateX(-Math.PI / 2);
+        bermGeo.translate(cx, h, cz);
+        const bermMat = new THREE.MeshStandardMaterial({
+          color: isCrownActive ? 0xa7f3d0 : 0xe2e8f0,
+          transparent: true,
+          opacity: isTrench ? (isCrownActive ? 0.28 : 0.1) : isCrownActive ? 0.42 : 0.26,
+          roughness: 0.35,
+          metalness: 0.03,
+          side: THREE.DoubleSide,
+        });
+        tunnelGroup.add(new THREE.Mesh(bermGeo, bermMat));
+
+        const bermOutlinePts = [
+          new THREE.Vector3(0, h, 0),
+          new THREE.Vector3(w, h, 0),
+          new THREE.Vector3(w, h, pullL),
+          new THREE.Vector3(0, h, pullL),
+          new THREE.Vector3(0, h, 0),
+        ];
+        tunnelGroup.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(bermOutlinePts),
+            new THREE.LineBasicMaterial({
+              color: isCrownActive ? 0x059669 : 0x94a3b8,
+              linewidth: isCrownActive ? 3 : 1.5,
+            })
+          )
+        );
+      }
+
+      // 4. Left Flank / Left Trench Wall / Toe Cut Portion at x = 0
+      if (!isSingleRockWindow && (tunnelGeometry.hasLeftWall !== false || activePortionPanel === 'left_wall')) {
+        const isLeftActive = activePortionPanel === 'left_wall';
+        const showFullLeftWall = isTrench || isLeftActive;
+        const leftWallGeo = new THREE.PlaneGeometry(pullL, h);
+        leftWallGeo.rotateY(Math.PI / 2);
+        leftWallGeo.translate(0, h / 2, cz);
+        const leftWallMat = new THREE.MeshStandardMaterial({
+          color: isLeftActive ? 0xfde68a : 0xf1f5f9,
+          transparent: true,
+          opacity: showFullLeftWall ? (isLeftActive ? 0.38 : 0.28) : 0.12,
+          roughness: 0.35,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+        });
+        tunnelGroup.add(new THREE.Mesh(leftWallGeo, leftWallMat));
+
+        const leftOutlinePts = [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, h, 0),
+          new THREE.Vector3(0, h, pullL),
+          new THREE.Vector3(0, 0, pullL),
+          new THREE.Vector3(0, 0, 0),
+        ];
+        tunnelGroup.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(leftOutlinePts),
+            new THREE.LineBasicMaterial({
+              color: isLeftActive ? 0xd97706 : 0x94a3b8,
+              linewidth: isLeftActive ? 3 : 1.5,
+            })
+          )
+        );
+      }
+
+      // 5. Right Flank / Right Trench Wall Portion at x = w
+      if (!isSingleRockWindow && (tunnelGeometry.hasRightWall !== false || activePortionPanel === 'right_wall')) {
+        const isRightActive = activePortionPanel === 'right_wall';
+        const showFullRightWall = isTrench || isRightActive;
+        const rightWallGeo = new THREE.PlaneGeometry(pullL, h);
+        rightWallGeo.rotateY(-Math.PI / 2);
+        rightWallGeo.translate(w, h / 2, cz);
+        const rightWallMat = new THREE.MeshStandardMaterial({
+          color: isRightActive ? 0xfde68a : 0xf1f5f9,
+          transparent: true,
+          opacity: showFullRightWall ? (isRightActive ? 0.38 : 0.28) : 0.12,
+          roughness: 0.35,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+        });
+        tunnelGroup.add(new THREE.Mesh(rightWallGeo, rightWallMat));
+
+        const rightOutlinePts = [
+          new THREE.Vector3(w, 0, 0),
+          new THREE.Vector3(w, h, 0),
+          new THREE.Vector3(w, h, pullL),
+          new THREE.Vector3(w, 0, pullL),
+          new THREE.Vector3(w, 0, 0),
+        ];
+        tunnelGroup.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(rightOutlinePts),
+            new THREE.LineBasicMaterial({
+              color: isRightActive ? 0xd97706 : 0x94a3b8,
+              linewidth: isRightActive ? 3 : 1.5,
+            })
+          )
+        );
+      }
+
+      // 6. 3D Portion Billboard Badges so user sees active portion in 3D
+      if (showLegendOverlay) {
+        const faceBadge = createBillboardLabel(
+          `${domainPanelMap.face.shortLabel.toUpperCase()}${activePortionPanel === 'face' ? ' ★' : ''}`,
+          activePortionPanel === 'face' ? '#0284c7' : '#0f172a',
+          '#ffffff',
+          2.2,
+          0.36
+        );
+        faceBadge.position.set(cx, h + 0.45, pullL);
+        tunnelGroup.add(faceBadge);
+
+        if (!isSingleRockWindow && tunnelGeometry.hasCrown !== false) {
+          const crownBadge = createBillboardLabel(
+            `${domainPanelMap.crown.shortLabel.toUpperCase()}${activePortionPanel === 'crown' ? ' ★' : ''}`,
+            activePortionPanel === 'crown' ? '#059669' : '#0f172a',
+            '#ffffff',
+            2.2,
+            0.34
+          );
+          crownBadge.position.set(cx, h + 0.45, cz);
+          tunnelGroup.add(crownBadge);
         }
-      } else {
-        // High-smoothness D-Shaped / Horseshoe profile (48 smooth segments)
-        const segments = 48;
-        profilePts.push(new THREE.Vector2(0, 0));
-        profilePts.push(new THREE.Vector2(w, 0));
-        profilePts.push(new THREE.Vector2(w, hw));
-        for (let i = 1; i < segments; i++) {
-          const theta = (i / segments) * Math.PI;
-          const x = cx + (w / 2) * Math.cos(theta);
-          const y = hw + archRise * Math.sin(theta);
-          profilePts.push(new THREE.Vector2(x, y));
+
+        if (!isSingleRockWindow && tunnelGeometry.hasLeftWall !== false) {
+          const leftBadge = createBillboardLabel(
+            `${domainPanelMap.leftWall.shortLabel.toUpperCase()}${activePortionPanel === 'left_wall' ? ' ★' : ''}`,
+            activePortionPanel === 'left_wall' ? '#d97706' : '#334155',
+            '#ffffff',
+            2.0,
+            0.32
+          );
+          leftBadge.position.set(-0.35, h * 0.55, cz);
+          tunnelGroup.add(leftBadge);
         }
-        profilePts.push(new THREE.Vector2(0, hw));
+
+        if (!isSingleRockWindow && tunnelGeometry.hasRightWall !== false) {
+          const rightBadge = createBillboardLabel(
+            `${domainPanelMap.rightWall.shortLabel.toUpperCase()}${activePortionPanel === 'right_wall' ? ' ★' : ''}`,
+            activePortionPanel === 'right_wall' ? '#d97706' : '#334155',
+            '#ffffff',
+            2.0,
+            0.32
+          );
+          rightBadge.position.set(w + 0.35, h * 0.55, cz);
+          tunnelGroup.add(rightBadge);
+        }
+      }
+    } else {
+      // Exact Tunnel Cross-Section Profile from configured shape and dimensions
+      const profileData = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
+      const profilePts: THREE.Vector2[] = profileData.points.map(
+        (pt) => new THREE.Vector2(pt.y, pt.z)
+      );
+      const isProfileClosed = profileData.isClosed;
+
+      // 5. Clean Excavation Invert Floor (only when invert is present)
+      if (tunnelGeometry.hasInvert !== false) {
+        const floorGeo = new THREE.PlaneGeometry(w, pullL);
+        floorGeo.rotateX(-Math.PI / 2);
+        floorGeo.translate(cx, 0.001, cz);
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: 0xf8fafc,
+          roughness: 0.65,
+          metalness: 0.02,
+          side: THREE.DoubleSide,
+        });
+        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        scene.add(floorMesh);
       }
 
       // A. Clean Hollow 3D Tunnel Shell Mesh
@@ -1427,7 +1737,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
         shellPositions.push(p.x, p.y, pullL);
       }
 
-      for (let i = 0; i < numPts; i++) {
+      const segLimit = isProfileClosed ? numPts : Math.max(0, numPts - 1);
+      for (let i = 0; i < segLimit; i++) {
         const next = (i + 1) % numPts;
         const v0 = i * 2;
         const v1 = i * 2 + 1;
@@ -1455,60 +1766,64 @@ const NatmJoint3DInspectorModalContent: React.FC<
       tunnelGroup.add(tunnelMesh);
 
       // B. Excavation Face Rock Cap at z = pullL
-      const facePositions: number[] = [];
-      const faceIndices: number[] = [];
+      if (numPts >= 3) {
+        const facePositions: number[] = [];
+        const faceIndices: number[] = [];
 
-      for (let i = 0; i < numPts; i++) {
-        facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
-      }
+        for (let i = 0; i < numPts; i++) {
+          facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
+        }
 
-      try {
-        const triangles = THREE.ShapeUtils.triangulateShape(profilePts, []);
-        if (triangles && triangles.length > 0) {
-          for (const tri of triangles) {
-            faceIndices.push(tri[0], tri[1], tri[2]);
+        try {
+          const triangles = THREE.ShapeUtils.triangulateShape(profilePts, []);
+          if (triangles && triangles.length > 0) {
+            for (const tri of triangles) {
+              faceIndices.push(tri[0], tri[1], tri[2]);
+            }
+          } else {
+            const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
+            const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
+            facePositions.push(avgX, avgY, pullL);
+            for (let i = 0; i < segLimit; i++) {
+              const next = (i + 1) % numPts;
+              faceIndices.push(numPts, i, next);
+            }
           }
-        } else {
+        } catch {
           const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
           const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
           facePositions.push(avgX, avgY, pullL);
-          for (let i = 0; i < numPts; i++) {
+          for (let i = 0; i < segLimit; i++) {
             const next = (i + 1) % numPts;
             faceIndices.push(numPts, i, next);
           }
         }
-      } catch {
-        const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
-        const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
-        facePositions.push(avgX, avgY, pullL);
-        for (let i = 0; i < numPts; i++) {
-          const next = (i + 1) % numPts;
-          faceIndices.push(numPts, i, next);
-        }
+
+        const faceCapGeo = new THREE.BufferGeometry();
+        faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
+        faceCapGeo.setIndex(faceIndices);
+        faceCapGeo.computeVertexNormals();
+
+        const faceCapMat = new THREE.MeshStandardMaterial({
+          color: 0xe0f2fe,
+          transparent: true,
+          opacity: 0.22,
+          roughness: 0.3,
+          metalness: 0.05,
+          side: THREE.DoubleSide,
+        });
+        const faceMesh = new THREE.Mesh(faceCapGeo, faceCapMat);
+        tunnelGroup.add(faceMesh);
       }
-
-      const faceCapGeo = new THREE.BufferGeometry();
-      faceCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(facePositions, 3));
-      faceCapGeo.setIndex(faceIndices);
-      faceCapGeo.computeVertexNormals();
-
-      const faceCapMat = new THREE.MeshStandardMaterial({
-        color: 0xe0f2fe,
-        transparent: true,
-        opacity: 0.22,
-        roughness: 0.3,
-        metalness: 0.05,
-        side: THREE.DoubleSide,
-      });
-      const faceMesh = new THREE.Mesh(faceCapGeo, faceCapMat);
-      tunnelGroup.add(faceMesh);
 
       // C. Excavation Face Contour (z = pullL) in Electric Cyan/Blue
       const faceContourPoints: THREE.Vector3[] = [];
       for (const pt of profilePts) {
         faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
       }
-      faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
+      if (isProfileClosed && profilePts.length > 0) {
+        faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
+      }
       const faceContourGeo = new THREE.BufferGeometry().setFromPoints(faceContourPoints);
       const faceContourMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
       const faceContourLine = new THREE.Line(faceContourGeo, faceContourMat);
@@ -1519,7 +1834,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
       for (const pt of profilePts) {
         prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
       }
-      prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
+      if (isProfileClosed && profilePts.length > 0) {
+        prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
+      }
       const prevContourGeo = new THREE.BufferGeometry().setFromPoints(prevContourPoints);
       const prevContourMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
       const prevContourLine = new THREE.Line(prevContourGeo, prevContourMat);
@@ -1527,18 +1844,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
       // E. Longitudinal Generator Rails along Key Shape Vertices
       const railPositions: number[] = [];
-      if (customPoints && customPoints.length >= 3 && numPts <= 12) {
-        for (const p of profilePts) {
-          railPositions.push(p.x, p.y, 0, p.x, p.y, pullL);
+      const railStep = numPts <= 12 ? 1 : Math.max(1, Math.floor(numPts / 8));
+      for (let idx = 0; idx < numPts; idx += railStep) {
+        const pt = profilePts[idx];
+        if (pt) {
+          railPositions.push(pt.x, pt.y, 0, pt.x, pt.y, pullL);
         }
-      } else {
-        railPositions.push(
-          0, 0.01, 0, 0, 0.01, pullL,
-          w, 0.01, 0, w, 0.01, pullL,
-          0, hw, 0, 0, hw, pullL,
-          w, hw, 0, w, hw, pullL,
-          cx, h, 0, cx, h, pullL
-        );
       }
       const railsGeo = new THREE.BufferGeometry();
       railsGeo.setAttribute('position', new THREE.Float32BufferAttribute(railPositions, 3));
@@ -1618,22 +1929,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
         target.z -= rightZ * dx * panSpeed;
         target.y += dy * panSpeed;
       } else if (mouseButton === 0 && (is3DGizmoDragModeRef.current || e.altKey)) {
-        // 3D Plane Gizmo Drag Mode: For joint traces, rotate strictly around the locked trace hinge; for dip surfaces, allow 360° disk rotation
+        // 3D Plane Gizmo Drag Mode: keep trace-anchored hinge active for joints while smoothly adjusting Dip Direction and Dip Amount
         if (inspectTargetType === 'dip_surface') {
           setIsHingeRotationActive(false);
-          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
-          setDipAmount((prev) => {
-            const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
-            setHingeDipDeg(next);
-            return next;
-          });
-        } else {
-          setHingeDipDeg((prev) => {
-            const next = Math.max(1, Math.min(90, Math.round(prev + (dy + dx * 0.5) * 0.45)));
-            if (isCrownOrSurface) setDipAmount(next);
-            return next;
-          });
         }
+        if (!isStrikeLineHingeLocked) {
+          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+        }
+        setDipAmount((prev) => {
+          const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
+          setHingeDipDeg(next);
+          return next;
+        });
       } else if (mouseButton === 0) {
         // Left-click -> ORBIT 3D Tunnel Outline
         cam.theta -= dx * 0.007;
@@ -1686,8 +1993,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
         prevTouch = { x: t.clientX, y: t.clientY };
 
         if (is3DGizmoDragModeRef.current) {
-          setIsHingeRotationActive(false);
-          setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+          if (inspectTargetType === 'dip_surface') {
+            setIsHingeRotationActive(false);
+          }
+          if (!isStrikeLineHingeLocked) {
+            setDipDirection((prev) => Math.round(((prev + dx * 0.65) % 360 + 360) % 360));
+          }
           setDipAmount((prev) => {
             const next = Math.max(0, Math.min(90, Math.round(prev + dy * 0.45)));
             setHingeDipDeg(next);
@@ -1793,7 +2104,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       });
       renderer.dispose();
     };
-  }, [activeTab, tunnelGeometry, showLegendOverlay]);
+  }, [activeTab, tunnelGeometry, showLegendOverlay, isSurfaceMapping, activePortionPanel]);
 
   // Handle immediate Three.js canvas re-layout when switching orientation or layout mode
   useEffect(() => {
@@ -1854,13 +2165,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const tracedHalfLen = Math.max(0.15, currentTraceLengthM / 2);
     const isCrownNonPenetratingHinge =
       !tunnelGeometry.isVerticalShaft && (currentJoint.panel === 'crown' || isStrikeLineHingeLocked);
-    const wArch = tunnelGeometry.widthM || 8.5;
-    const hArch = tunnelGeometry.heightM || 7.5;
-    const hwArch = tunnelGeometry.wallHeightM || 4.2;
-    const archRiseVal = Math.max(0.5, hArch - hwArch);
+    const roofProfile = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
     const getCrownArchRoofY = (xPos: number): number => {
-      const normX = Math.max(-1, Math.min(1, (xPos - wArch / 2) / Math.max(0.1, wArch / 2)));
-      return hwArch + archRiseVal * Math.sqrt(Math.max(0, 1 - normX * normX));
+      return roofProfile.getRoofZAtY(xPos);
     };
 
     // 1. 3D Joint Cutting Plane Mesh
@@ -2491,12 +2798,28 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const sMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
     group.add(new THREE.LineSegments(sGeo, sMat));
 
-    // 3. Downward Dip Direction Arrow (Vibrant Amber / Gold)
+    // 3. Downward Dip Direction Arrow (Vibrant Amber / Gold — projected onto plane along exact dipDirection)
     const dipArrowLen =
       planeDisplayMode === 'TRACED_LENGTH'
         ? Math.max(0.65, Math.min(2.2, tracedHalfLen * 1.15))
         : 2.4;
-    const rawDipDir = new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x);
+    const relDipRad =
+      (((dipDirection - (tunnelGeometry.driveAzimuthDeg || 0)) % 360) * Math.PI) / 180;
+    const dipRad = (Math.max(1, dipAmount) * Math.PI) / 180;
+    // Target 3D downward dip vector in Three.js coordinates (X = Y_tunnel = sin, Y = Z_tunnel = -sin(dip), Z = X_tunnel = cos)
+    const targetDip3D = new THREE.Vector3(
+      Math.sin(relDipRad) * Math.cos(dipRad),
+      -Math.sin(dipRad),
+      Math.cos(relDipRad) * Math.cos(dipRad)
+    );
+    const planeNorm3D = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x).normalize();
+    const projDip3D = targetDip3D
+      .clone()
+      .sub(planeNorm3D.clone().multiplyScalar(targetDip3D.dot(planeNorm3D)));
+    const rawDipDir =
+      projDip3D.lengthSq() > 1e-4
+        ? projDip3D
+        : new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x);
     const dipArrowOrigin = new THREE.Vector3(
       isNaN(ax) ? 4.25 : ax,
       isNaN(ay) ? 3.75 : ay,
@@ -2929,6 +3252,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 >
                   {tunnelGeometry.isVerticalShaft
                     ? 'VERTICAL SHAFT 3D JOINT INSPECTOR & 4-QUADRANT PERSISTENCE'
+                    : isSurfaceMapping
+                    ? `${domainPanelMap.domainTitle.toUpperCase()} 3D JOINT INSPECTOR · PORTION: ${getPortionShort(activePortionPanel).toUpperCase()}`
                     : 'NATM 3D JOINT INSPECTOR & MULTI-SURFACE PERSISTENCE'}
                 </h2>
               </div>
@@ -3230,7 +3555,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                                     Dip Surface {dp.label || dp.id}
                                   </span>
                                   <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase font-mono">
-                                    {dp.panel.replace('_', ' ')}
+                                    {isSurfaceMapping ? getPortionShort(dp.panel) : dp.panel.replace('_', ' ')}
                                   </span>
                                 </div>
                                 <span className="text-[10px] text-slate-400 font-mono">
@@ -3300,6 +3625,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                                       : j.panel === 'right_wall'
                                       ? '3. SW WALL (180°-270°)'
                                       : '4. WN WALL (270°-360°)'
+                                    : isSurfaceMapping
+                                    ? getPortionShort(j.panel)
                                     : j.panel.replace('_', ' ')}
                                 </span>
                               </div>
@@ -3397,15 +3724,26 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       const cx = 80;
                       const cy = 80;
                       const R = 64;
+                      const driveAz = Math.round(
+                        (((tunnelGeometry.driveAzimuthDeg ?? 0) % 360) + 360) % 360
+                      );
+                      const rightAz = (driveAz + 90) % 360;
+                      const backAz = (driveAz + 180) % 360;
+                      const leftAz = (driveAz + 270) % 360;
+
                       const dipRad = ((dipAmount ?? 60) * Math.PI) / 180;
-                      const dirRad = (((dipDirection ?? 135) - 90) * Math.PI) / 180;
+                      const relDipDir =
+                        ((((dipDirection ?? 135) - driveAz) % 360) + 360) % 360;
+                      const dirRad = ((relDipDir - 90) * Math.PI) / 180;
                       // Dip vector point on disk (radius proportional to dipAmount / 90)
                       const rDip = ((dipAmount ?? 60) / 90) * R;
                       const handleX = cx + rDip * Math.cos(dirRad);
                       const handleY = cy + rDip * Math.sin(dirRad);
 
-                      // Strike endpoints
-                      const strike1Rad = (((strikeInfo.strikeRhrDeg ?? 45) - 90) * Math.PI) / 180;
+                      // Strike endpoints (relative to Tunnel Drive at Top 12 o'clock)
+                      const relStrike1 =
+                        ((((strikeInfo.strikeRhrDeg ?? 45) - driveAz) % 360) + 360) % 360;
+                      const strike1Rad = ((relStrike1 - 90) * Math.PI) / 180;
                       const sx1 = cx + R * Math.cos(strike1Rad);
                       const sy1 = cy + R * Math.sin(strike1Rad);
                       const sx2 = cx - R * Math.cos(strike1Rad);
@@ -3425,7 +3763,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         const dx = px - cx;
                         const dy = py - cy;
                         const dist = Math.min(R, Math.hypot(dx, dy));
-                        const nextDir = Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360);
+                        const relClickDeg =
+                          ((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360;
+                        const nextDir = Math.round((driveAz + relClickDeg) % 360);
                         const nextDip = Math.max(0, Math.min(90, Math.round((dist / R) * 90)));
                         if (inspectTargetType === 'dip_surface') {
                           setIsHingeRotationActive(false);
@@ -3433,14 +3773,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           setDipAmount(nextDip);
                           setHingeDipDeg(nextDip);
                         } else if (isCrownOrSurface) {
-                          // On Crown & Surface Mapping: Dip Amount changes freely around the Strike trace; changing Strike/Dip Direction triggers Indication Modal if locked
                           setDipAmount(nextDip);
                           setHingeDipDeg(Math.max(1, nextDip));
                           if (Math.abs(nextDir - (dipDirection ?? 135)) >= 3) {
                             handleRequestDipDirectionOrStrikeChange(nextDir);
                           }
                         } else {
-                          // On Face & Walls: Plane rotates around the drawn joint trace hinge; changing Dip Amount directly triggers Indication Modal if not confirmed
+                          // On Face & Walls: Plane stays anchored to the drawn joint trace hinge while updating Dip Direction
+                          setDipDirection(nextDir);
                           handleRequestDipAmountChange(nextDip);
                         }
                       };
@@ -3466,10 +3806,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             <circle cx={cx} cy={cy} r={R * 0.33} fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="2,2" />
                             <line x1={cx} y1={cy - R} x2={cx} y2={cy + R} stroke="#1e293b" strokeWidth="1" />
                             <line x1={cx - R} y1={cy} x2={cx + R} y2={cy} stroke="#1e293b" strokeWidth="1" />
-                            <text x={cx} y={11} textAnchor="middle" fill="#f43f5e" fontSize="9" fontWeight="bold">0°</text>
-                            <text x={151} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">90°</text>
-                            <text x={cx} y={156} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">180°</text>
-                            <text x={9} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="8" fontWeight="bold">270°</text>
+                            <text x={cx} y={11} textAnchor="middle" fill="#f43f5e" fontSize="8.5" fontWeight="bold">
+                              {driveAz}°
+                            </text>
+                            <text x={150} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="7.5" fontWeight="bold">
+                              {rightAz}°
+                            </text>
+                            <text x={cx} y={156} textAnchor="middle" fill="#94a3b8" fontSize="7.5" fontWeight="bold">
+                              {backAz}°
+                            </text>
+                            <text x={10} y={cy + 3} textAnchor="middle" fill="#94a3b8" fontSize="7.5" fontWeight="bold">
+                              {leftAz}°
+                            </text>
 
                             {/* Strike Line */}
                             <line
@@ -3507,7 +3855,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             />
                           </svg>
                           <span className="text-[9.5px] text-cyan-300 font-bold text-center mt-0.5">
-                            Drag Gizmo / Stereonet to Rotate 3D Plane
+                            Top = Drive ({driveAz}°) · Drag to Rotate
                           </span>
                         </div>
                       );
@@ -3545,27 +3893,41 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-900 rounded-lg"
                       />
                       <div className="flex items-center justify-between gap-1">
-                        {[
-                          { d: 0, label: '000° FWD' },
-                          { d: 90, label: '090° R' },
-                          { d: 180, label: '180° BACK' },
-                          { d: 270, label: '270° L' },
-                        ].map((btn) => (
-                          <button
-                            key={btn.d}
-                            type="button"
-                            onClick={() => {
-                              handleRequestDipDirectionOrStrikeChange(btn.d);
-                            }}
-                            className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
-                              (dipDirection ?? 135) === btn.d
-                                ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold'
-                                : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            {btn.label}
-                          </button>
-                        ))}
+                        {(() => {
+                          const dAz = Math.round(
+                            (((tunnelGeometry.driveAzimuthDeg ?? 0) % 360) + 360) % 360
+                          );
+                          return [
+                            { d: dAz, label: `${String(dAz).padStart(3, '0')}° FWD` },
+                            {
+                              d: (dAz + 90) % 360,
+                              label: `${String((dAz + 90) % 360).padStart(3, '0')}° R`,
+                            },
+                            {
+                              d: (dAz + 180) % 360,
+                              label: `${String((dAz + 180) % 360).padStart(3, '0')}° BACK`,
+                            },
+                            {
+                              d: (dAz + 270) % 360,
+                              label: `${String((dAz + 270) % 360).padStart(3, '0')}° L`,
+                            },
+                          ].map((btn) => (
+                            <button
+                              key={btn.label}
+                              type="button"
+                              onClick={() => {
+                                handleRequestDipDirectionOrStrikeChange(btn.d);
+                              }}
+                              className={`flex-1 py-0.5 rounded text-[9px] font-mono cursor-pointer border ${
+                                (dipDirection ?? 135) === btn.d
+                                  ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold'
+                                  : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
+                            >
+                              {btn.label}
+                            </button>
+                          ));
+                        })()}
                       </div>
                     </div>
 
@@ -3651,15 +4013,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-slate-200">Rotation Angle Around Trace (Dip δ):</span>
                       <span className="font-mono font-black text-amber-400 bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/50 text-xs shadow-sm">
-                        {hingeDipDeg}°
+                        {dipAmount ?? hingeDipDeg}°
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={1}
+                      min={0}
                       max={90}
-                      value={hingeDipDeg}
-                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      value={dipAmount ?? hingeDipDeg}
+                      onChange={(e) => handleRequestDipAmountChange(Number(e.target.value))}
                       className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
                     />
                     {/* Quick Preset Angles */}
@@ -3668,9 +4030,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         <button
                           key={deg}
                           type="button"
-                          onClick={() => setHingeDipDeg(deg)}
+                          onClick={() => handleRequestDipAmountChange(deg)}
                           className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
-                            hingeDipDeg === deg
+                            (dipAmount ?? hingeDipDeg) === deg
                               ? 'bg-amber-500 text-slate-950 border-amber-300 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
@@ -3692,7 +4054,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setHingeDipSide('heading')}
+                        onClick={() => handleTraceHingeAngleOrSideChange(dipAmount ?? hingeDipDeg, 'heading')}
                         className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                           hingeDipSide === 'heading'
                             ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
@@ -3703,7 +4065,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       </button>
                       <button
                         type="button"
-                        onClick={() => setHingeDipSide('collar')}
+                        onClick={() => handleTraceHingeAngleOrSideChange(dipAmount ?? hingeDipDeg, 'collar')}
                         className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                           hingeDipSide === 'collar'
                             ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-sm'
@@ -3719,18 +4081,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Derived Dip: </span>
-                      <strong className="text-amber-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                      <strong className="text-amber-400 font-bold">{dipAmount}°</strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Dip Dir: </span>
                       <strong className="text-cyan-400 font-bold">
-                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                        {dipDirection}°
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Strike: </span>
                       <strong className="text-emerald-400 font-bold">
-                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                        {strikeInfo.strikeRhrDeg}°
                       </strong>
                     </div>
                   </div>
@@ -3787,7 +4149,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       : currentJoint.panel === 'left_wall'
                       ? 'left sidewall'
                       : 'right sidewall'}{' '}
-                    is locked as the <strong className="text-emerald-300">stationary hinge axis</strong>. Sliding the angle rotates the 3D plane into the rock mass or shaft opening without drifting.
+                    is locked as the <strong className="text-emerald-300">stationary hinge axis</strong>. Sliding Dip Direction or Dip Amount rotates and tilts the 3D plane smoothly around the traced joint.
                   </p>
 
                   {/* Live Dip Angle Slider around Sidewall Traced Line */}
@@ -3795,15 +4157,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-bold text-slate-200">Rotation Angle Around Wall Trace (Dip δ):</span>
                       <span className="font-mono font-black text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-500/50 text-xs shadow-sm">
-                        {hingeDipDeg}°
+                        {dipAmount ?? hingeDipDeg}°
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={1}
+                      min={0}
                       max={90}
-                      value={hingeDipDeg}
-                      onChange={(e) => setHingeDipDeg(Number(e.target.value))}
+                      value={dipAmount ?? hingeDipDeg}
+                      onChange={(e) => handleRequestDipAmountChange(Number(e.target.value))}
                       className="w-full accent-emerald-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
                     />
                     {/* Quick Preset Angles */}
@@ -3812,9 +4174,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         <button
                           key={deg}
                           type="button"
-                          onClick={() => setHingeDipDeg(deg)}
+                          onClick={() => handleRequestDipAmountChange(deg)}
                           className={`flex-1 py-1 rounded text-[9.5px] font-mono cursor-pointer border transition-all ${
-                            hingeDipDeg === deg
+                            (dipAmount ?? hingeDipDeg) === deg
                               ? 'bg-emerald-500 text-slate-950 border-emerald-300 font-bold shadow-sm'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                           }`}
@@ -3838,7 +4200,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setHingeDipSide('heading')}
+                        onClick={() => handleTraceHingeAngleOrSideChange(dipAmount ?? hingeDipDeg, 'heading')}
                         className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                           hingeDipSide === 'heading'
                             ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-sm'
@@ -3849,7 +4211,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       </button>
                       <button
                         type="button"
-                        onClick={() => setHingeDipSide('collar')}
+                        onClick={() => handleTraceHingeAngleOrSideChange(dipAmount ?? hingeDipDeg, 'collar')}
                         className={`py-1.5 px-2 rounded text-[10px] font-bold cursor-pointer transition-all border ${
                           hingeDipSide === 'collar'
                             ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-sm'
@@ -3865,18 +4227,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <div className="p-2 rounded bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between text-[10px] font-mono">
                     <div>
                       <span className="text-slate-400">Derived Dip: </span>
-                      <strong className="text-emerald-400 font-bold">{hingePlaneResult?.derivedDipDeg ?? dipAmount}°</strong>
+                      <strong className="text-emerald-400 font-bold">{dipAmount}°</strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Dip Dir: </span>
                       <strong className="text-cyan-400 font-bold">
-                        {hingePlaneResult?.derivedDipDirectionDeg ?? dipDirection}°
+                        {dipDirection}°
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-400">Strike: </span>
                       <strong className="text-amber-400 font-bold">
-                        {hingePlaneResult?.strikeRhrDeg ?? strikeInfo.strikeRhrDeg}°
+                        {strikeInfo.strikeRhrDeg}°
                       </strong>
                     </div>
                   </div>
@@ -4830,11 +5192,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 {[
                   {
                     id: 'VIEW_3D' as InspectionViewTab,
-                    label: tunnelGeometry.isVerticalShaft ? '1. 3D Shaft Bowl View' : '1. 3D Tunnel View',
+                    label: tunnelGeometry.isVerticalShaft
+                      ? '1. 3D Shaft Bowl View'
+                      : isSurfaceMapping
+                      ? `1. 3D ${getPortionShort(activePortionPanel)} View`
+                      : '1. 3D Tunnel View',
                   },
                   {
                     id: 'VIEW_UNROLLED_COMBINED' as InspectionViewTab,
-                    label: tunnelGeometry.isVerticalShaft ? '2. Unrolled 2D Shaft Quadrant View' : '2. Unrolled 2D Developed View',
+                    label: tunnelGeometry.isVerticalShaft
+                      ? '2. Unrolled 2D Shaft Quadrant View'
+                      : isSurfaceMapping
+                      ? '2. Unrolled 2D Portion Developed View'
+                      : '2. Unrolled 2D Developed View',
                   },
                 ].map((t) => {
                   const isAct = activeTab === t.id;
@@ -5085,8 +5455,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
                                 <line x1="60" y1="60" x2="60" y2="22" stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="3,2" />
                                 <polygon points="60,16 64,26 56,26" fill="#06b6d4" />
                               </g>
+                              {/* Active Plane Dip Direction Vector Arrow (Amber) */}
+                              <g transform={`rotate(${(northAngleDeg + (dipDirection ?? 135)) % 360} 60 60)`}>
+                                <line x1="60" y1="60" x2="60" y2="20" stroke="#f59e0b" strokeWidth="2.6" />
+                                <polygon points="60,14 64.5,24 55.5,24" fill="#f59e0b" />
+                              </g>
                               <circle cx="60" cy="60" r="4.5" fill="#020617" stroke="#38bdf8" strokeWidth="2" />
                             </svg>
+                          </div>
+
+                          <div className="text-[8.5px] font-mono text-center text-amber-300 font-bold">
+                            Dip Dir {String(dipDirection ?? 135).padStart(3, '0')}° / {dipAmount ?? 60}°
                           </div>
 
                           <div className="grid grid-cols-2 gap-1 pt-0.5">
@@ -5174,14 +5553,23 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       <svg viewBox="0 0 500 350" className="w-full max-w-lg h-auto">
                         <rect x="50" y="30" width="400" height="280" rx="4" fill="#0b132b" stroke="#334155" strokeWidth="1.5" />
 
-                        {activeTab === 'VIEW_FACE' && (
-                          <path
-                            d="M 50,310 L 50,150 Q 250,20 450,150 L 450,310 Z"
-                            fill="#1e293b"
-                            stroke="#0ea5e9"
-                            strokeWidth="2"
-                          />
-                        )}
+                        {activeTab === 'VIEW_FACE' && (() => {
+                          const prof = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
+                          const wProf = Math.max(0.5, tunnelGeometry.widthM || 8.0);
+                          const hProf = Math.max(0.5, tunnelGeometry.heightM || 6.5);
+                          const polyStr = prof.points
+                            .map((pt) => {
+                              const sx = 50 + (pt.y / wProf) * 400;
+                              const sy = 310 - (pt.z / hProf) * 280;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            })
+                            .join(' ');
+                          return prof.isClosed ? (
+                            <polygon points={polyStr} fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                          ) : (
+                            <polyline points={polyStr} fill="none" stroke="#0ea5e9" strokeWidth="2.5" />
+                          );
+                        })()}
 
                         {surfaceIntersections.face && activeTab === 'VIEW_FACE' && (
                           <g>
@@ -5320,6 +5708,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       <span className="font-bold text-sm text-cyan-300 uppercase">
                         {tunnelGeometry.isVerticalShaft
                           ? 'Developed 2D Vertical Shaft View (Horizontal Quadrant Walls: Pull 0m Bottom → Pull 3m Top + Bottom Face)'
+                          : isSurfaceMapping
+                          ? `Developed 2D ${domainPanelMap.domainTitle} View (${domainPanelMap.leftWall.shortLabel} + ${domainPanelMap.crown.shortLabel} + ${domainPanelMap.rightWall.shortLabel} + ${domainPanelMap.face.shortLabel})`
                           : 'Developed 2D Tunnel View (Left Wall + Crown + Right Wall + Excavation Face)'}
                       </span>
                       <span className="text-xs text-amber-400 font-bold font-mono">
@@ -5336,6 +5726,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
                               {tunnelGeometry.isVerticalShaft
                                 ? `1. NE WALL (0°–90° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : isSurfaceMapping
+                                ? `1. ${domainPanelMap.leftWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
                                 : `1. LEFT WALL (0..${tunnelGeometry.pullLengthM}m)`}
                             </text>
                             {/* Stationing ticks at 0m, 1m, 2m, pullL */}
@@ -5400,6 +5792,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
                               {tunnelGeometry.isVerticalShaft
                                 ? `2. ES WALL (90°–180° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : isSurfaceMapping
+                                ? `2. ${domainPanelMap.crown.shortLabel.toUpperCase()} (${strikeInfo.strikePairLabel})`
                                 : `2. CROWN ARCH (${strikeInfo.strikePairLabel})`}
                             </text>
                             {/* Crown Centerline */}
@@ -5464,6 +5858,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
                               {tunnelGeometry.isVerticalShaft
                                 ? `3. SW WALL (180°–270° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                : isSurfaceMapping
+                                ? `3. ${domainPanelMap.rightWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
                                 : `3. RIGHT WALL (0..${tunnelGeometry.pullLengthM}m)`}
                             </text>
                             <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
@@ -5533,37 +5929,37 @@ const NatmJoint3DInspectorModalContent: React.FC<
                               </g>
                             );
                           }
-                          const customPts = tunnelGeometry.crossSectionPoints;
-                          if (customPts && customPts.length >= 3) {
-                            const minX = Math.min(...customPts.map((p) => p.x));
-                            const maxX = Math.max(...customPts.map((p) => p.x));
-                            const minY = Math.min(...customPts.map((p) => p.y));
-                            const maxY = Math.max(...customPts.map((p) => p.y));
-                            const spanX = Math.max(0.01, maxX - minX);
-                            const spanY = Math.max(0.01, maxY - minY);
-                            const polyPoints = customPts
-                              .map((p) => {
-                                const sx = 670 + ((p.x - minX) / spanX) * 240;
-                                const sy = 220 - ((p.y - minY) / spanY) * 180;
-                                return `${sx.toFixed(1)},${sy.toFixed(1)}`;
-                              })
-                              .join(' ');
-                            return (
-                              <polygon
-                                points={polyPoints}
-                                fill="#1e293b"
-                                stroke="#0ea5e9"
-                                strokeWidth="2"
-                              />
-                            );
-                          }
-                          return (
-                            <rect x="670" y="40" width="240" height="180" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                          const prof = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
+                          const wProf = Math.max(0.5, tunnelGeometry.widthM || 8.0);
+                          const hProf = Math.max(0.5, tunnelGeometry.heightM || 6.5);
+                          const polyPoints = prof.points
+                            .map((p) => {
+                              const sx = 670 + (p.y / wProf) * 240;
+                              const sy = 220 - (p.z / hProf) * 180;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            })
+                            .join(' ');
+                          return prof.isClosed ? (
+                            <polygon
+                              points={polyPoints}
+                              fill="#1e293b"
+                              stroke="#0ea5e9"
+                              strokeWidth="2"
+                            />
+                          ) : (
+                            <polyline
+                              points={polyPoints}
+                              fill="none"
+                              stroke="#0ea5e9"
+                              strokeWidth="2.5"
+                            />
                           );
                         })()}
                         <text x="790" y="32" fill="#38bdf8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
                           {tunnelGeometry.isVerticalShaft
                             ? `4. SHAFT BOTTOM FACE (PULL 0m · 1m N→S REF)`
+                            : isSurfaceMapping
+                            ? `4. ${domainPanelMap.face.shortLabel.toUpperCase()} (${tunnelGeometry.widthM}m × ${tunnelGeometry.heightM}m)`
                             : `4. EXCAVATION FACE (X = ${tunnelGeometry.pullLengthM}m)`}
                         </text>
                         {/* Centerline on Face */}
@@ -5766,13 +6162,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 onClick={() => {
                   if (hingeIndicationModal.mode === 'FACE_DIP_AMOUNT') {
                     setFaceDipChangeConfirmedForJointId(currentJoint.id);
-                    setIsHingeRotationActive(false);
+                    setIsHingeRotationActive(true);
                     setDipAmount(hingeIndicationModal.targetValue);
                     setHingeDipDeg(Math.max(1, hingeIndicationModal.targetValue));
                   } else {
                     setCrownStrikeChangeConfirmedForJointId(currentJoint.id);
                     setIsStrikeLineHingeLocked(false);
-                    setIsHingeRotationActive(false);
                     setDipDirection(hingeIndicationModal.targetValue);
                   }
                   setHingeIndicationModal(null);

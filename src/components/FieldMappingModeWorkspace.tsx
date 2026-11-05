@@ -753,6 +753,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           : mappingDomain === 'ROCK_SURFACE'
           ? Math.max(1.5, Number(surfaceParams.rockExposureHeightMeters) || 8.0)
           : Math.max(1.5, Number(surfaceParams.benchHeightMeters) || 10.0);
+      const nextCrownLen =
+        mappingDomain === 'TRENCH'
+          ? nextW
+          : Math.max(0.5, Number(surfaceParams.bermWidthMeters) || 5.0);
+      const parsedAz = Number(surfaceParams.faceDipDirectionDeg);
+      const isSinglePanel =
+        mappingDomain === 'ROCK_SURFACE' &&
+        (Boolean(surfaceParams.rockSurfaceSinglePanelOnly) ||
+          surfaceParams.rockSurfaceLayoutMode === 'SINGLE_PANEL' ||
+          surfaceParams.rockSurfaceLayout === 'SINGLE_PANEL');
       return {
         ...rawLoc,
         name: formatLocationNameForDomain(rawLoc.name),
@@ -760,9 +770,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         widthM: nextW,
         heightM: nextH,
         wallHeightM: nextH,
-        defaultDriveAzimuth: Number(surfaceParams.faceDipDirectionDeg) || rawLoc.defaultDriveAzimuth,
-        singlePanelOnly:
-          mappingDomain === 'ROCK_SURFACE' && surfaceParams.rockSurfaceLayoutMode === 'SINGLE_PANEL',
+        crownLengthM: nextCrownLen,
+        defaultDriveAzimuth:
+          surfaceParams.faceDipDirectionDeg !== ('' as unknown as number) && Number.isFinite(parsedAz)
+            ? parsedAz
+            : rawLoc.defaultDriveAzimuth,
+        singlePanelOnly: isSinglePanel,
       } as FieldTunnelLocationItem;
     }
     if (isVerticalShaftMode && rawLoc.undergroundSubMode !== 'vertical_shaft') {
@@ -789,6 +802,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       ) ||
       null;
     if (!found) return null;
+    if (mappingDomain !== 'TUNNEL') {
+      const surfSpan =
+        mappingDomain === 'ROCK_SURFACE'
+          ? Math.max(1.5, Number(surfaceParams.rockExposureWidthMeters) || 12.0)
+          : Math.max(2.0, Number(surfaceParams.exposureLengthMeters) || activeLocation.widthM || 15.0);
+      const parsedAz = Number(surfaceParams.faceDipDirectionDeg);
+      return {
+        ...found,
+        pullLengthMeters:
+          mappingDomain === 'TRENCH'
+            ? found.pullLengthMeters === 3
+              ? Math.max(2.0, Number(surfaceParams.exposureLengthMeters) || 10.0)
+              : found.pullLengthMeters
+            : surfSpan,
+        tunnelDriveDirection:
+          surfaceParams.faceDipDirectionDeg !== ('' as unknown as number) && Number.isFinite(parsedAz)
+            ? parsedAz
+            : found.tunnelDriveDirection,
+      } as FieldExcavationRound;
+    }
     if (isVerticalShaftMode && found.undergroundSubMode !== 'vertical_shaft') {
       return {
         ...found,
@@ -796,7 +829,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       } as FieldExcavationRound;
     }
     return found;
-  }, [store.rounds, store.activeRoundId, activeProject, activeLocation, isVerticalShaftMode]);
+  }, [
+    store.rounds,
+    store.activeRoundId,
+    activeProject,
+    activeLocation,
+    isVerticalShaftMode,
+    mappingDomain,
+    surfaceParams,
+  ]);
 
   const activeRoundRef = useRef(activeRound);
   activeRoundRef.current = activeRound;
@@ -5656,7 +5697,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         newLocHeightInputRef.current?.focus();
         return;
       }
-      const az = parseFloat(newLocAzimuth) || 0;
+      const az = Number.isFinite(parseFloat(newLocAzimuth)) ? parseFloat(newLocAzimuth) : 0;
       const locId = `floc-${Date.now()}`;
       const loc: FieldTunnelLocationItem = {
         id: locId,
@@ -5671,7 +5712,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         defaultExcavationApproach: newLocExcavationApproach.trim() || 'Full Face',
         rememberedRockTypes: [],
       };
-      const newRound = createDefaultExcavationRound(activeProject.id, loc, '', 3.0);
+      const nextSurf: SurfaceGeometryParameters = {
+        ...surfaceParams,
+        faceDipDirectionDeg: az,
+        ...(mappingDomain === 'TRENCH'
+          ? { trenchWidthMeters: w, trenchDepthMeters: h }
+          : mappingDomain === 'ROCK_SURFACE'
+          ? { rockExposureWidthMeters: w, rockExposureHeightMeters: h, exposureLengthMeters: w }
+          : mappingDomain === 'SLOPE'
+          ? { exposureLengthMeters: w, slopeHeightMeters: h }
+          : { exposureLengthMeters: w, benchHeightMeters: h }),
+      };
+      setSurfaceParams(nextSurf);
+      saveSurfaceGeometryParameters(nextSurf);
+      const defaultSpanM = mappingDomain === 'TRENCH' ? (Number(surfaceParams.exposureLengthMeters) || 10.0) : w;
+      const newRound = createDefaultExcavationRound(activeProject.id, loc, '0.0', defaultSpanM);
       setStore((prev) => ({
         ...prev,
         projects: prev.projects.map((p) =>
@@ -5760,8 +5815,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     const crownR = isVerticalShaftMode
       ? Number((w * 0.5).toFixed(2))
       : Number(editLocCrownRadius) || Number((w * 0.5).toFixed(2));
-    const az = Number(editLocAzimuth) || 0;
+    const az = Number.isFinite(Number(editLocAzimuth)) ? Number(editLocAzimuth) : 0;
     const incl = Number(editLocInclination) || 90;
+
+    if (mappingDomain !== 'TUNNEL') {
+      const nextSurf: SurfaceGeometryParameters = {
+        ...surfaceParams,
+        faceDipDirectionDeg: az,
+        ...(mappingDomain === 'TRENCH'
+          ? { trenchWidthMeters: w, trenchDepthMeters: h }
+          : mappingDomain === 'ROCK_SURFACE'
+          ? { rockExposureWidthMeters: w, rockExposureHeightMeters: h, exposureLengthMeters: w }
+          : mappingDomain === 'SLOPE'
+          ? { exposureLengthMeters: w, slopeHeightMeters: h }
+          : { exposureLengthMeters: w, benchHeightMeters: h }),
+      };
+      setSurfaceParams(nextSurf);
+      saveSurfaceGeometryParameters(nextSurf);
+    }
 
     setStore((prev) => ({
       ...prev,
@@ -5774,10 +5845,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             return {
               ...l,
               name: editLocName.trim(),
-              shape: isVerticalShaftMode ? 'circular' : editLocShape,
+              shape: isVerticalShaftMode ? 'circular' : mappingDomain !== 'TUNNEL' ? 'rectangular' : editLocShape,
               widthM: w,
               heightM: h,
-              wallHeightM: wallH,
+              wallHeightM: mappingDomain !== 'TUNNEL' ? h : wallH,
               crownRadiusM: crownR,
               defaultDriveAzimuth: az,
               shaftInclinationDeg: isVerticalShaftMode ? incl : l.shaftInclinationDeg,
@@ -5807,10 +5878,28 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       ...prev,
       activeLocationId: loc.id,
     }));
-    setNewFaceChainageFrom('');
-    setNewFacePullLength('');
+    const existingLocRounds = store.rounds.filter(
+      (r) => r.projectId === activeProject.id && r.locationId === loc.id
+    );
+    const prevChainageTo = existingLocRounds[0]?.chainageTo || '0.0';
+    setNewFaceChainageFrom(mappingDomain !== 'TUNNEL' ? prevChainageTo : '');
+    setNewFacePullLength(
+      mappingDomain !== 'TUNNEL'
+        ? String(
+            mappingDomain === 'TRENCH'
+              ? Number(surfaceParams.exposureLengthMeters) || 10
+              : loc.widthM || Number(surfaceParams.exposureLengthMeters) || 15
+          )
+        : ''
+    );
     setNewFaceGeologist('');
-    setNewFaceExcavationMode(loc.defaultExcavationMode || 'Drill & Blast (Full Face)');
+    setNewFaceExcavationMode(
+      mappingDomain !== 'TUNNEL'
+        ? surfaceParams.excavationMethod ||
+          getDomainExcavationMethodOptions(mappingDomain)[0]?.value ||
+          'Mechanical Excavation'
+        : loc.defaultExcavationMode || 'Drill & Blast (Full Face)'
+    );
     setNewFaceMethod(workflowMode);
     setFaceValidationAttempted(false);
     setSetupWizardToast(null);
@@ -5831,6 +5920,16 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setSetupWizardToast('Pull / Advance Length is required (must be > 0 m).');
       newFacePullInputRef.current?.focus();
       return;
+    }
+
+    if (mappingDomain !== 'TUNNEL') {
+      const nextSurf: SurfaceGeometryParameters = {
+        ...surfaceParams,
+        exposureLengthMeters: pull,
+        ...(mappingDomain === 'ROCK_SURFACE' ? { rockExposureWidthMeters: pull } : {}),
+      };
+      setSurfaceParams(nextSurf);
+      saveSurfaceGeometryParameters(nextSurf);
     }
 
     setFaceValidationAttempted(false);
@@ -8991,11 +9090,48 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                       step={0.5}
                       min={0.5}
                       max={200}
-                      value={activeRound.pullLengthMeters}
+                      value={
+                        mappingDomain === 'TRENCH'
+                          ? activeRound.pullLengthMeters
+                          : mappingDomain === 'ROCK_SURFACE'
+                          ? surfaceParams.rockExposureWidthMeters
+                          : surfaceParams.exposureLengthMeters
+                      }
                       onChange={(e) => {
-                        const val = Number(e.target.value) || 10;
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          const nextSurf = {
+                            ...surfaceParams,
+                            ...(mappingDomain === 'ROCK_SURFACE'
+                              ? { rockExposureWidthMeters: '' as unknown as number }
+                              : { exposureLengthMeters: '' as unknown as number }),
+                          };
+                          setSurfaceParams(nextSurf);
+                          return;
+                        }
+                        const val = parseFloat(raw);
+                        if (!Number.isFinite(val)) return;
                         handleUpdateChainageAndPull(activeRound.chainageFrom, val);
-                        const nextSurf = { ...surfaceParams, exposureLengthMeters: val };
+                        const nextSurf = {
+                          ...surfaceParams,
+                          exposureLengthMeters: val,
+                          ...(mappingDomain === 'ROCK_SURFACE'
+                            ? { rockExposureWidthMeters: val }
+                            : {}),
+                        };
+                        setSurfaceParams(nextSurf);
+                        saveSurfaceGeometryParameters(nextSurf);
+                      }}
+                      onBlur={(e) => {
+                        const val = Math.max(0.5, parseFloat(e.target.value) || 10);
+                        handleUpdateChainageAndPull(activeRound.chainageFrom, val);
+                        const nextSurf = {
+                          ...surfaceParams,
+                          exposureLengthMeters: val,
+                          ...(mappingDomain === 'ROCK_SURFACE'
+                            ? { rockExposureWidthMeters: val }
+                            : {}),
+                        };
                         setSurfaceParams(nextSurf);
                         saveSurfaceGeometryParameters(nextSurf);
                       }}
@@ -9057,9 +9193,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.benchHeightMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              benchHeightMeters: parseFloat(e.target.value) || 10,
+                              benchHeightMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              benchHeightMeters: Math.max(0.5, parseFloat(e.target.value) || 10),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9076,9 +9224,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.bermWidthMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              bermWidthMeters: parseFloat(e.target.value) || 5,
+                              bermWidthMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              bermWidthMeters: Math.max(0.5, parseFloat(e.target.value) || 5),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9095,9 +9255,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.crestElevationRl}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              crestElevationRl: parseFloat(e.target.value) || 280,
+                              crestElevationRl:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              crestElevationRl: Number.isFinite(parseFloat(e.target.value))
+                                ? parseFloat(e.target.value)
+                                : 280,
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9114,9 +9288,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.toeElevationRl}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              toeElevationRl: parseFloat(e.target.value) || 270,
+                              toeElevationRl:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              toeElevationRl: Number.isFinite(parseFloat(e.target.value))
+                                ? parseFloat(e.target.value)
+                                : 270,
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9138,9 +9326,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.2"
                           value={surfaceParams.trenchDepthMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              trenchDepthMeters: parseFloat(e.target.value) || 2.5,
+                              trenchDepthMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              trenchDepthMeters: Math.max(0.5, parseFloat(e.target.value) || 2.5),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9157,9 +9357,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.2"
                           value={surfaceParams.trenchWidthMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              trenchWidthMeters: parseFloat(e.target.value) || 2.0,
+                              trenchWidthMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              trenchWidthMeters: Math.max(0.5, parseFloat(e.target.value) || 2.0),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9176,9 +9388,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.1"
                           value={surfaceParams.overburdenThicknessMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              overburdenThicknessMeters: parseFloat(e.target.value) || 0.5,
+                              overburdenThicknessMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              overburdenThicknessMeters: Math.max(
+                                0,
+                                Number.isFinite(parseFloat(e.target.value))
+                                  ? parseFloat(e.target.value)
+                                  : 0.5
+                              ),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9195,9 +9424,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.toeElevationRl}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              toeElevationRl: parseFloat(e.target.value) || 245,
+                              toeElevationRl:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              toeElevationRl: Number.isFinite(parseFloat(e.target.value))
+                                ? parseFloat(e.target.value)
+                                : 245,
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9219,9 +9462,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="1"
                           value={surfaceParams.slopeHeightMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              slopeHeightMeters: parseFloat(e.target.value) || 20,
+                              slopeHeightMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              slopeHeightMeters: Math.max(1.0, parseFloat(e.target.value) || 20),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9238,9 +9493,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="1"
                           value={surfaceParams.overallSlopeAngleDeg}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              overallSlopeAngleDeg: parseFloat(e.target.value) || 55,
+                              overallSlopeAngleDeg:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              overallSlopeAngleDeg: Math.max(5, Math.min(90, parseFloat(e.target.value) || 55)),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9258,6 +9525,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           min="1"
                           value={surfaceParams.numberOfBenches}
                           onChange={(e) => {
+                            const raw = e.target.value;
+                            const next = {
+                              ...surfaceParams,
+                              numberOfBenches:
+                                raw === ''
+                                  ? ('' as unknown as number)
+                                  : Math.max(1, parseInt(raw, 10) || 1),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseInt(raw, 10))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
                             const next = {
                               ...surfaceParams,
                               numberOfBenches: Math.max(1, parseInt(e.target.value, 10) || 1),
@@ -9277,9 +9558,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.bermWidthMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              bermWidthMeters: parseFloat(e.target.value) || 4,
+                              bermWidthMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              bermWidthMeters: Math.max(0.5, parseFloat(e.target.value) || 4),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9301,11 +9594,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.rockExposureWidthMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              rockExposureWidthMeters: parseFloat(e.target.value) || 12,
+                              rockExposureWidthMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                              ...(raw !== '' && Number.isFinite(parseFloat(raw))
+                                ? { exposureLengthMeters: parseFloat(raw) }
+                                : {}),
                             };
                             setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              handleUpdateChainageAndPull(activeRound.chainageFrom, parseFloat(raw));
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = Math.max(1.0, parseFloat(e.target.value) || 12);
+                            const next = {
+                              ...surfaceParams,
+                              rockExposureWidthMeters: val,
+                              exposureLengthMeters: val,
+                            };
+                            setSurfaceParams(next);
+                            handleUpdateChainageAndPull(activeRound.chainageFrom, val);
                             saveSurfaceGeometryParameters(next);
                           }}
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono font-bold text-white"
@@ -9320,9 +9632,21 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           step="0.5"
                           value={surfaceParams.rockExposureHeightMeters}
                           onChange={(e) => {
+                            const raw = e.target.value;
                             const next = {
                               ...surfaceParams,
-                              rockExposureHeightMeters: parseFloat(e.target.value) || 8,
+                              rockExposureHeightMeters:
+                                raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                            };
+                            setSurfaceParams(next);
+                            if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                              saveSurfaceGeometryParameters(next);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const next = {
+                              ...surfaceParams,
+                              rockExposureHeightMeters: Math.max(1.0, parseFloat(e.target.value) || 8),
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
@@ -9335,14 +9659,26 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           Active Canvas Panels (1-Panel vs Multi-Panel)
                         </label>
                         <select
-                          value={surfaceParams.rockSurfaceSinglePanelOnly ? 'single' : 'multi'}
+                          value={
+                            surfaceParams.rockSurfaceSinglePanelOnly ||
+                            surfaceParams.rockSurfaceLayoutMode === 'SINGLE_PANEL' ||
+                            surfaceParams.rockSurfaceLayout === 'SINGLE_PANEL'
+                              ? 'single'
+                              : 'multi'
+                          }
                           onChange={(e) => {
-                            const next = {
+                            const isSingle = e.target.value === 'single';
+                            const next: SurfaceGeometryParameters = {
                               ...surfaceParams,
-                              rockSurfaceSinglePanelOnly: e.target.value === 'single',
+                              rockSurfaceSinglePanelOnly: isSingle,
+                              rockSurfaceLayoutMode: isSingle ? 'SINGLE_PANEL' : 'MULTI_PANEL',
+                              rockSurfaceLayout: isSingle ? 'SINGLE_PANEL' : 'MULTI_PANEL',
                             };
                             setSurfaceParams(next);
                             saveSurfaceGeometryParameters(next);
+                            if (isSingle && activePanel !== 'face') {
+                              setActivePanel('face');
+                            }
                           }}
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-emerald-300"
                         >
@@ -9412,7 +9748,29 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         max={360}
                         value={surfaceParams.faceDipDirectionDeg}
                         onChange={(e) => {
-                          const dir = Number(e.target.value) || 0;
+                          const raw = e.target.value;
+                          if (raw === '') {
+                            setSurfaceParams({
+                              ...surfaceParams,
+                              faceDipDirectionDeg: '' as unknown as number,
+                            });
+                            return;
+                          }
+                          const dir = parseFloat(raw);
+                          if (!Number.isFinite(dir)) return;
+                          const next = { ...surfaceParams, faceDipDirectionDeg: dir };
+                          setSurfaceParams(next);
+                          saveSurfaceGeometryParameters(next);
+                          updateActiveRound((r) => ({
+                            ...r,
+                            tunnelDriveDirection: dir,
+                          }));
+                        }}
+                        onBlur={(e) => {
+                          const parsed = parseFloat(e.target.value);
+                          const dir = Number.isFinite(parsed)
+                            ? ((parsed % 360) + 360) % 360
+                            : 120;
                           const next = { ...surfaceParams, faceDipDirectionDeg: dir };
                           setSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -9430,7 +9788,19 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                         max={90}
                         value={surfaceParams.faceDipAngleDeg}
                         onChange={(e) => {
-                          const dip = Number(e.target.value) || 75;
+                          const raw = e.target.value;
+                          const next = {
+                            ...surfaceParams,
+                            faceDipAngleDeg:
+                              raw === '' ? ('' as unknown as number) : parseFloat(raw),
+                          };
+                          setSurfaceParams(next);
+                          if (raw !== '' && Number.isFinite(parseFloat(raw))) {
+                            saveSurfaceGeometryParameters(next);
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const dip = Math.max(15, Math.min(90, parseFloat(e.target.value) || 75));
                           const next = { ...surfaceParams, faceDipAngleDeg: dip };
                           setSurfaceParams(next);
                           saveSurfaceGeometryParameters(next);
@@ -17081,25 +17451,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             tunnelGeometry={{
               widthM: fGeom?.tunnelW || activeLocation?.widthM || 8.5,
               heightM: fGeom?.tunnelH || activeLocation?.heightM || 7.5,
-              wallHeightM: activeLocation?.wallHeightM || 4.2,
+              wallHeightM: fGeom?.splHeightM || activeLocation?.wallHeightM || activeLocation?.heightM || 4.2,
               leftWallHeightM: activeLocation?.customGeometry?.leftWallHeight ?? fGeom?.leftWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
               rightWallHeightM: activeLocation?.customGeometry?.rightWallHeight ?? fGeom?.rightWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
+              crownRadiusM: activeLocation?.crownRadiusM,
               pullLengthM: activeRound?.pullLengthMeters || 3.0,
               driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
               currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
               tunnelShape: isVerticalShaftMode
                 ? 'circular'
-                : activeLocation?.shape === 'freeform_custom'
-                ? 'freeform_custom'
-                : activeLocation?.shape === 'horseshoe'
-                ? 'horseshoe'
-                : 'd_shaped',
+                : (activeLocation?.shape || 'd_shaped'),
               crossSectionPoints: crossPts,
               customProfile: activeLocation?.customGeometry?.customProfile,
               hasLeftWall: fGeom?.hasLeftWall ?? true,
               hasRightWall: fGeom?.hasRightWall ?? true,
               hasCrown: fGeom?.hasCrown ?? true,
               hasInvert: fGeom?.hasInvert ?? true,
+              isClosed: fGeom?.isClosed ?? true,
               isVerticalShaft: isVerticalShaftMode,
               mappingDomain,
               excavationApproach: activeRound?.excavationApproach,

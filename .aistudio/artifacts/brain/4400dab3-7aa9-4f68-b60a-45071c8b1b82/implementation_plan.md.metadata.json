@@ -1,6 +1,6 @@
 {
-  "summary": "Comprehensive implementation plan for resolving automatic Face-to-Walls/Crown joint projections and Strip Log filtering, adding a 1-tap Inspection Mode toggle and 3D Dip Surface Inspector/Editor with interactive gizmo and sliders, implementing cross-portion trace boundary continuation with glowing snap markers, fixing the Windows .exe custom icon embedding, and enabling zero-data-loss in-place updates for Windows .exe and Android .apk builds.",
-  "updatedAt": "2026-11-02T19:23:48.243361364Z",
+  "summary": "Implementation plan to fix 3D tunnel shape/size fidelity, trace-anchored hinge rotation for both Dip Direction and Dip Amount on Face and Walls, and 90-degree vertical dip 180-degree azimuth inversion in the 3D Joint Inspector.",
+  "updatedAt": "2026-11-04T22:50:53.560580747Z",
   "requestFeedback": true,
   "userFacing": true
 }

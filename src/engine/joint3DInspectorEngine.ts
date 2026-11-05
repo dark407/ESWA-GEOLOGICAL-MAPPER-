@@ -30,13 +30,24 @@ export interface TunnelSpatialGeometry {
   pullLengthM: number;
   driveAzimuthDeg?: number; // 0..360° from North
   currentChainageM?: number;
-  tunnelShape?: 'd_shaped' | 'horseshoe' | 'circular' | 'rectangular' | 'freeform_custom';
+  tunnelShape?:
+    | 'd_shaped'
+    | 'horseshoe'
+    | 'modified_horseshoe'
+    | 'circular'
+    | 'rectangular'
+    | 'freeform_custom'
+    | 'open_slush_no_left'
+    | 'open_slush_no_right'
+    | 'open_slush_no_crown';
+  crownRadiusM?: number;
   crossSectionPoints?: { x: number; y: number }[];
   customProfile?: any;
   hasLeftWall?: boolean;
   hasRightWall?: boolean;
   hasCrown?: boolean;
   hasInvert?: boolean;
+  isClosed?: boolean;
   leftWallHeightM?: number;
   rightWallHeightM?: number;
   isVerticalShaft?: boolean;
@@ -259,6 +270,7 @@ export function calculateSurfaceApparentTraceAngles(
   const dd = normalizeAngle360(dipDirectionDeg);
   const dip = clampDip(dipDeg);
   const drive = normalizeAngle360(driveAzimuthDeg);
+  const relDd = normalizeAngle360(dd - drive);
   const strikeInfo = calculateStrikeFromDipDirection(dd, dip);
   const strike = strikeInfo.strikeRhrDeg;
 
@@ -270,19 +282,23 @@ export function calculateSurfaceApparentTraceAngles(
 
   const dipRad = degToRad(dip);
   const betaFaceRad = degToRad(betaFace);
-  const tanAppFace = Math.tan(dipRad) * Math.sin(betaFaceRad);
-  const appFaceDeg = Number(radToDeg(Math.atan(tanAppFace)).toFixed(1));
+  const appFaceDeg =
+    dip >= 89.9
+      ? betaFace < 0.5
+        ? 0
+        : 90
+      : Number(radToDeg(Math.atan(Math.tan(dipRad) * Math.sin(betaFaceRad))).toFixed(1));
 
   const isFaceTrueDip = Math.abs(betaFace - 90) < 0.5;
   const isFaceHorizontal = betaFace < 0.5 || dip === 0;
 
   // Determine direction of dip across face (Left to Right looking at Face)
-  // Local Y component of dip vector: dy = sin(alpha) * cos(dip)
-  const dy = Math.sin(degToRad(dd)) * Math.cos(dipRad);
+  // Local Y component in tunnel-relative frame: dy = sin(relDd)
+  const dy = Math.sin(degToRad(relDd)) * (dip >= 89.9 ? 1 : Math.cos(dipRad));
   let faceDirLabel = 'Horizontal (0° trace)';
   if (!isFaceHorizontal) {
-    if (Math.abs(dy) < 0.02) {
-      faceDirLabel = `Symmetrical / Steep ${appFaceDeg}°`;
+    if (dip >= 89.9 || Math.abs(dy) < 0.02) {
+      faceDirLabel = `Vertical / Steep (${appFaceDeg}°)`;
     } else if (dy > 0) {
       faceDirLabel = `Dips to the Right (${appFaceDeg}° Apparent)`;
     } else {
@@ -311,18 +327,22 @@ export function calculateSurfaceApparentTraceAngles(
   // Since Face is perpendicular to Sidewall: betaWall = 90° - betaFace
   const betaWall = Math.max(0, Math.min(90, 90 - betaFace));
   const betaWallRad = degToRad(betaWall);
-  const tanAppWall = Math.tan(dipRad) * Math.sin(betaWallRad);
-  const appWallDeg = Number(radToDeg(Math.atan(tanAppWall)).toFixed(1));
+  const appWallDeg =
+    dip >= 89.9
+      ? betaWall < 0.5
+        ? 0
+        : 90
+      : Number(radToDeg(Math.atan(Math.tan(dipRad) * Math.sin(betaWallRad))).toFixed(1));
 
   const isWallTrueDip = Math.abs(betaWall - 90) < 0.5;
   const isWallHorizontal = betaWall < 0.5 || dip === 0;
 
   // Plunge along sidewall (Forward toward Face vs Backward toward Portal)
-  // Local X component: dx = cos(alpha) * cos(dip)
-  const dx = Math.cos(degToRad(dd)) * Math.cos(dipRad);
+  // Local X component in tunnel-relative frame: dx = cos(relDd)
+  const dx = Math.cos(degToRad(relDd)) * (dip >= 89.9 ? 1 : Math.cos(dipRad));
   let wallPlungeLabel = 'Horizontal trace (0°)';
   if (!isWallHorizontal) {
-    if (Math.abs(dx) < 0.02) {
+    if (dip >= 89.9 || Math.abs(dx) < 0.02) {
       wallPlungeLabel = `Vertical trace (${appWallDeg}°)`;
     } else if (dx > 0) {
       wallPlungeLabel = `Dips Forward toward Face (+X, ${appWallDeg}°)`;
@@ -356,7 +376,8 @@ export function calculateSurfaceApparentTraceAngles(
 
   // 3. Crown Arch / Back: Overhead horizontal plane tangent
   // Intersection with any horizontal plane is ALWAYS the STRIKE line!
-  let crownAngleToAxis = Math.abs(strike - 0) % 180;
+  const relStrike = normalizeAngle360(strike - drive);
+  let crownAngleToAxis = Math.abs(relStrike - 0) % 180;
   if (crownAngleToAxis > 90) crownAngleToAxis = 180 - crownAngleToAxis;
 
   let crownTraceLabel = '';
@@ -414,58 +435,52 @@ export function calculateSurfaceApparentTraceAngles(
  * - Y = Transverse axis (0..widthM, positive to the right looking forward)
  * - Z = Vertical axis (0..heightM, positive upward)
  *
- * Local horizontal azimuth alpha is measured clockwise from +X:
- * - 000° = FORWARD (+X)
- * - 090° = RIGHT (+Y)
- * - 180° = BACKWARD (-X)
- * - 270° = LEFT (-Y)
- *
- * Downward dip vector:
- * v_dip = (cos(alpha) * cos(dip), sin(alpha) * cos(dip), -sin(dip))
- *
- * Strike vectors:
- * s1 = (sin(alpha), -cos(alpha), 0) [pointing along alpha - 90°]
- * s2 = (-sin(alpha), cos(alpha), 0) = -s1 [pointing along alpha + 90°]
- *
- * Upward unit normal vector:
- * n = (cos(alpha) * sin(dip), sin(alpha) * sin(dip), cos(dip))
- *
- * Plane Equation: a*X + b*Y + c*Z + d = 0, where d = -n . p0
+ * When driveAzimuthDeg is provided, geographic dipDirectionDeg is converted to
+ * tunnel-relative horizontal azimuth: alpha = normalizeAngle360(dipDirectionDeg - driveAzimuthDeg).
+ * At dip = 90° (vertical plane), normal n = (cos(alpha), sin(alpha), 0) points strictly
+ * toward dipDirectionDeg with zero 180° flip.
  */
 export function constructJointPlane(
   dipDirectionDeg: number,
   dipDeg: number,
   anchorPoint: Vec3D,
-  _driveAzimuthDeg?: number
+  driveAzimuthDeg?: number
 ): PlaneEquation {
   const dd = normalizeAngle360(dipDirectionDeg ?? 135);
+  const drive = driveAzimuthDeg != null && !isNaN(driveAzimuthDeg) ? normalizeAngle360(driveAzimuthDeg) : 0;
+  const relDd = normalizeAngle360(dd - drive);
   const dip = clampDip(dipDeg ?? 60);
 
-  const alphaRad = degToRad(dd);
+  const alphaRad = degToRad(relDd);
   const deltaRad = degToRad(dip);
+  const cosAlpha = Math.cos(alphaRad);
+  const sinAlpha = Math.sin(alphaRad);
+  // At dip = 90°, enforce exact cos(90°) = 0 and sin(90°) = 1 to avoid floating-point sign noise
+  const cosDelta = dip >= 89.99 ? 0 : Math.cos(deltaRad);
+  const sinDelta = dip >= 89.99 ? 1 : Math.sin(deltaRad);
 
   // Dip vector (downward):
-  const dx = Math.cos(alphaRad) * Math.cos(deltaRad);
-  const dy = Math.sin(alphaRad) * Math.cos(deltaRad);
-  const dz = -Math.sin(deltaRad);
+  const dx = cosAlpha * cosDelta;
+  const dy = sinAlpha * cosDelta;
+  const dz = -sinDelta;
 
-  // Strike vector (horizontal along alpha - 90°):
-  const sx = Math.sin(alphaRad);
-  const sy = -Math.cos(alphaRad);
+  // Strike vector (horizontal along alpha - 90°, Right-Hand Rule):
+  const sx = sinAlpha;
+  const sy = -cosAlpha;
   const sz = 0;
 
   // Upward plane normal n = (a, b, c):
   // For dip=0 (horizontal plane): n = (0, 0, 1) [pointing upward +Z]
-  // For dip=90 (vertical plane): n = (cos alpha, sin alpha, 0)
-  const a = Math.cos(alphaRad) * Math.sin(deltaRad);
-  const b = Math.sin(alphaRad) * Math.sin(deltaRad);
-  const c = Math.cos(deltaRad);
+  // For dip=90 (vertical plane): n = (cos alpha, sin alpha, 0) [pointing strictly toward dipDirection]
+  const a = cosAlpha * sinDelta;
+  const b = sinAlpha * sinDelta;
+  const c = cosDelta;
 
   // Normalize normal vector:
   const len = Math.hypot(a, b, c) || 1;
   const na = a / len;
   const nb = b / len;
-  const nc = c / len;
+  const nc = Math.max(0, c / len);
 
   const ax = anchorPoint?.x != null && !isNaN(anchorPoint.x) ? anchorPoint.x : 3.0;
   const ay = anchorPoint?.y != null && !isNaN(anchorPoint.y) ? anchorPoint.y : 4.25;
@@ -614,9 +629,8 @@ export function deriveAnchorPointFromPoints(
     }
     case 'right_wall': {
       // Right wall: Y = widthM
-      // Metric X: 0 to pullLengthM (along drive)
-      // Metric Z: 0 to wallHeightM (elevation from floor)
-      const mx = uNorm * geom.pullLengthM;
+      // On Right Wall 2D canvas, Left (uNorm = 0) is Face (pullLengthM) and Right (uNorm = 1) is Portal (0m)
+      const mx = (1 - uNorm) * geom.pullLengthM;
       const mz = (1 - vNorm) * geom.wallHeightM;
       return {
         x: Math.max(0, Math.min(geom.pullLengthM, mx)),
@@ -736,6 +750,202 @@ function clipLineToRect(
 }
 
 /**
+ * Builds the exact physical cross-section profile in tunnel-relative metric coordinates:
+ * - Y = transverse horizontal [0, widthM] (Left Wall at 0 to Right Wall at widthM)
+ * - Z = vertical elevation [0, heightM] (Invert at 0 to Crown Apex at heightM)
+ * Supports all configured tunnel shapes: 'd_shaped', 'horseshoe', 'modified_horseshoe',
+ * 'circular', 'rectangular', 'freeform_custom', 'open_slush_*', asymmetric left/right wall heights,
+ * and open/unclosed custom portions.
+ */
+export function buildTunnelCrossSectionProfileMetric(
+  geom: TunnelSpatialGeometry
+): {
+  points: { y: number; z: number }[];
+  isClosed: boolean;
+  getRoofZAtY: (yVal: number) => number;
+} {
+  const w = Math.max(0.5, geom.widthM || 8.0);
+  const h = Math.max(0.5, geom.heightM || 6.5);
+  const baseHw = Math.max(0.2, Math.min(h * 0.92, geom.wallHeightM || h * 0.55));
+  const leftHw = Math.max(0.2, Math.min(h * 0.95, geom.leftWallHeightM ?? baseHw));
+  const rightHw = Math.max(0.2, Math.min(h * 0.95, geom.rightWallHeightM ?? baseHw));
+  const shape = geom.tunnelShape || 'd_shaped';
+  const hasLeftWall = geom.hasLeftWall !== false && shape !== 'open_slush_no_left';
+  const hasRightWall = geom.hasRightWall !== false && shape !== 'open_slush_no_right';
+  const hasCrown = geom.hasCrown !== false && shape !== 'open_slush_no_crown';
+  const hasInvert = geom.hasInvert !== false;
+  const isClosed =
+    geom.isClosed !== undefined
+      ? geom.isClosed
+      : hasLeftWall && hasRightWall && hasCrown && hasInvert;
+
+  const getRoofZAtY = (yVal: number): number => {
+    const clampedY = Math.max(0, Math.min(w, yVal));
+    if (shape === 'rectangular') {
+      return h;
+    }
+    if (shape === 'circular') {
+      const rx = w / 2;
+      const ry = h / 2;
+      const normDy = Math.max(-1, Math.min(1, (clampedY - rx) / Math.max(0.1, rx)));
+      return ry + ry * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+    }
+    const t = clampedY / Math.max(0.1, w);
+    const localSpringZ = leftHw * (1 - t) + rightHw * t;
+    const localRise = Math.max(0.1, h - localSpringZ);
+    const normDy = Math.max(-1, Math.min(1, (clampedY - w / 2) / Math.max(0.1, w / 2)));
+    return localSpringZ + localRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+  };
+
+  // 1. Explicit custom cross-section points (already in metric or normalized space)
+  if (geom.crossSectionPoints && geom.crossSectionPoints.length >= 2) {
+    const rawPts = geom.crossSectionPoints;
+    const minX = Math.min(...rawPts.map((p) => p.x));
+    const maxX = Math.max(...rawPts.map((p) => p.x));
+    const minY = Math.min(...rawPts.map((p) => p.y));
+    const maxY = Math.max(...rawPts.map((p) => p.y));
+    const spanX = Math.max(0.01, maxX - minX);
+    const spanY = Math.max(0.01, maxY - minY);
+
+    const mapped = rawPts.map((pt) => ({
+      y: Number((((pt.x - minX) / spanX) * w).toFixed(3)),
+      z: Number((((pt.y - minY) / spanY) * h).toFixed(3)),
+    }));
+
+    return {
+      points: mapped,
+      isClosed,
+      getRoofZAtY: (yVal: number) => {
+        const clampedY = Math.max(0, Math.min(w, yVal));
+        let maxZ = getRoofZAtY(clampedY);
+        for (let i = 0; i < mapped.length - 1; i++) {
+          const p0 = mapped[i];
+          const p1 = mapped[i + 1];
+          const minSegY = Math.min(p0.y, p1.y);
+          const maxSegY = Math.max(p0.y, p1.y);
+          if (clampedY >= minSegY - 0.05 && clampedY <= maxSegY + 0.05) {
+            const denom = p1.y - p0.y;
+            const frac = Math.abs(denom) > 1e-4 ? Math.max(0, Math.min(1, (clampedY - p0.y) / denom)) : 0.5;
+            const zAt = p0.z + frac * (p1.z - p0.z);
+            if (zAt > h * 0.45) {
+              maxZ = Math.max(zAt, h * 0.5);
+            }
+          }
+        }
+        return Math.min(h, maxZ);
+      },
+    };
+  }
+
+  // 2. Circular tunnel cross-section
+  if (shape === 'circular') {
+    const rx = w / 2;
+    const ry = h / 2;
+    const pts: { y: number; z: number }[] = [];
+    const segments = 64;
+    // Start from bottom-center (w/2, 0), go clockwise up Left Wall, over Crown, down Right Wall
+    for (let i = 0; i < segments; i++) {
+      const ang = -Math.PI / 2 - (i / segments) * Math.PI * 2;
+      pts.push({
+        y: Number((rx + rx * Math.cos(ang)).toFixed(3)),
+        z: Number((ry + ry * Math.sin(ang)).toFixed(3)),
+      });
+    }
+    return { points: pts, isClosed: true, getRoofZAtY };
+  }
+
+  // 3. Rectangular box cross-section
+  if (shape === 'rectangular') {
+    const r = Math.min(0.25, w * 0.04, h * 0.04);
+    const pts: { y: number; z: number }[] = [
+      { y: 0, z: 0 },
+      { y: 0, z: Number((h - r).toFixed(3)) },
+      { y: Number(r.toFixed(3)), z: h },
+      { y: Number((w - r).toFixed(3)), z: h },
+      { y: w, z: Number((h - r).toFixed(3)) },
+      { y: w, z: 0 },
+    ];
+    return { points: pts, isClosed, getRoofZAtY };
+  }
+
+  // 4. Horseshoe or Modified Horseshoe cross-section
+  if (shape === 'horseshoe' || shape === 'modified_horseshoe') {
+    const inset = shape === 'horseshoe' ? Math.min(0.45, w * 0.06) : Math.min(0.22, w * 0.03);
+    const ctrlOffset = shape === 'horseshoe' ? Math.min(0.16, w * 0.015) : Math.min(0.08, w * 0.008);
+    const pts: { y: number; z: number }[] = [];
+    const wallSteps = 20;
+    const archSteps = 44;
+
+    if (hasLeftWall) {
+      for (let i = 0; i <= wallSteps; i++) {
+        const t = i / wallSteps;
+        const mt = 1 - t;
+        const py = mt * mt * inset + 2 * mt * t * (-ctrlOffset) + t * t * 0;
+        const pz = mt * mt * 0 + 2 * mt * t * (leftHw * 0.5) + t * t * leftHw;
+        pts.push({
+          y: Number(Math.max(0, py).toFixed(3)),
+          z: Number(pz.toFixed(3)),
+        });
+      }
+    } else {
+      pts.push({ y: 0, z: leftHw });
+    }
+
+    if (hasCrown) {
+      for (let i = 1; i < archSteps; i++) {
+        const t = i / archSteps;
+        const py = t * w;
+        const pz = getRoofZAtY(py);
+        pts.push({ y: Number(py.toFixed(3)), z: Number(pz.toFixed(3)) });
+      }
+    }
+
+    if (hasRightWall) {
+      for (let i = 0; i <= wallSteps; i++) {
+        const t = i / wallSteps;
+        const mt = 1 - t;
+        const py = mt * mt * w + 2 * mt * t * (w + ctrlOffset) + t * t * (w - inset);
+        const pz = mt * mt * rightHw + 2 * mt * t * (rightHw * 0.5) + t * t * 0;
+        pts.push({
+          y: Number(Math.min(w, py).toFixed(3)),
+          z: Number(pz.toFixed(3)),
+        });
+      }
+    } else {
+      pts.push({ y: w, z: rightHw });
+    }
+
+    return { points: pts, isClosed, getRoofZAtY };
+  }
+
+  // 5. Default D-Shaped ('d_shaped' and 'open_slush_*') with exact left/right wall heights and crown arch
+  const pts: { y: number; z: number }[] = [];
+  if (hasLeftWall) {
+    pts.push({ y: 0, z: 0 }, { y: 0, z: leftHw });
+  } else {
+    pts.push({ y: 0, z: leftHw });
+  }
+
+  if (hasCrown) {
+    const archSteps = 44;
+    for (let i = 1; i < archSteps; i++) {
+      const t = i / archSteps;
+      const py = t * w;
+      const pz = getRoofZAtY(py);
+      pts.push({ y: Number(py.toFixed(3)), z: Number(pz.toFixed(3)) });
+    }
+  }
+
+  if (hasRightWall) {
+    pts.push({ y: w, z: rightHw }, { y: w, z: 0 });
+  } else {
+    pts.push({ y: w, z: rightHw });
+  }
+
+  return { points: pts, isClosed, getRoofZAtY };
+}
+
+/**
  * Normalizes cross-section points to tunnel local frame:
  * Y = transverse horizontal [0, widthM]
  * Z = vertical elevation [0, heightM]
@@ -743,19 +953,7 @@ function clipLineToRect(
 export function getCrossSectionVerticesInTunnelFrame(
   geom: TunnelSpatialGeometry
 ): { y: number; z: number }[] {
-  if (!geom.crossSectionPoints || geom.crossSectionPoints.length < 3) return [];
-  const rawPts = geom.crossSectionPoints;
-  const minX = Math.min(...rawPts.map((p) => p.x));
-  const maxX = Math.max(...rawPts.map((p) => p.x));
-  const minY = Math.min(...rawPts.map((p) => p.y));
-  const maxY = Math.max(...rawPts.map((p) => p.y));
-  const spanX = Math.max(0.01, maxX - minX);
-  const spanY = Math.max(0.01, maxY - minY);
-
-  return rawPts.map((pt) => ({
-    y: Number((((pt.x - minX) / spanX) * geom.widthM).toFixed(3)),
-    z: Number((((pt.y - minY) / spanY) * geom.heightM).toFixed(3)),
-  }));
+  return buildTunnelCrossSectionProfileMetric(geom).points;
 }
 
 /**
@@ -822,11 +1020,12 @@ export function calculatePlaneSurfaceIntersections(
 } {
   const { a, b, c, d } = plane;
   let totalM = 0;
+  const profileMetric = buildTunnelCrossSectionProfileMetric(geom);
 
   // 1. FACE (X = pullLengthM)
   // Equation in (Y, Z): b * Y + c * Z + (a * pullLengthM + d) = 0
   const faceC = a * geom.pullLengthM + d;
-  const customFacePoly = getCrossSectionVerticesInTunnelFrame(geom);
+  const customFacePoly = profileMetric.points;
   const faceClip =
     customFacePoly.length >= 3
       ? clipLineToPolygon(b, c, faceC, customFacePoly)
@@ -903,8 +1102,7 @@ export function calculatePlaneSurfaceIntersections(
       // Parameterize by transverse width Y across [0, w]
       for (let i = 0; i <= nSamples; i++) {
         const yVal = (i / nSamples) * w;
-        const normDy = Math.max(-1, Math.min(1, (yVal - w / 2) / (w / 2)));
-        const zArch = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+        const zArch = profileMetric.getRoofZAtY(yVal);
         const xVal = (-b * yVal - c * zArch - d) / a;
         if (xVal >= -0.02 && xVal <= pullL + 0.02) {
           const cx = Math.max(0, Math.min(pullL, Number(xVal.toFixed(3))));
@@ -940,8 +1138,7 @@ export function calculatePlaneSurfaceIntersections(
           const archFactor = 4 * t * (1 - t); // 0 at ends, 1 at center
           const cx = Math.max(0, Math.min(pullL, p1.x + dx * t + dipDirX * maxSag * archFactor));
           const cy = Math.max(0, Math.min(w, p1.y + dy * t + dipDirY * maxSag * archFactor));
-          const normDy = Math.max(-1, Math.min(1, (cy - w / 2) / (w / 2)));
-          const cz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
+          const cz = profileMetric.getRoofZAtY(cy);
           curvedPts2D.push({ x: Number(cx.toFixed(3)), y: Number(cy.toFixed(3)) });
           curvedPts3D.push({ x: Number(cx.toFixed(3)), y: Number(cy.toFixed(3)), z: Number(cz.toFixed(3)) });
         }
@@ -977,7 +1174,7 @@ export function calculatePlaneSurfaceIntersections(
     rightWall: rightSeg,
     crown: crownSeg,
     totalCalculatedM: Number(totalM.toFixed(2)),
-  };
+  } as any;
 }
 
 // ----------------------------------------------------------------------------
@@ -996,29 +1193,7 @@ export function clipPlaneToTunnelBox(
   const { a, b, c, d } = plane;
   const eps = 1e-6;
 
-  let customPoly = getCrossSectionVerticesInTunnelFrame(geom);
-  if (customPoly.length < 3 && !geom.isVerticalShaft && geom.tunnelShape !== 'rectangular') {
-    // Build a smooth arched D-shaped / horseshoe cross-section polygon so the 3D discontinuity plane
-    // follows the curved crown arch instead of a flat rectangular ceiling
-    const w = Math.max(0.5, geom.widthM || 8.0);
-    const h = Math.max(1.0, geom.heightM || 6.5);
-    const hw = geom.wallHeightM || h * 0.55;
-    const archRise = Math.max(0.4, h - hw);
-    const polyPts: { y: number; z: number }[] = [
-      { y: 0, z: 0 },
-      { y: 0, z: hw },
-    ];
-    const archSteps = 18;
-    for (let i = 1; i < archSteps; i++) {
-      const t = i / archSteps;
-      const py = t * w;
-      const normDy = Math.max(-1, Math.min(1, (py - w / 2) / (w / 2)));
-      const pz = hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy));
-      polyPts.push({ y: Number(py.toFixed(3)), z: Number(pz.toFixed(3)) });
-    }
-    polyPts.push({ y: w, z: hw }, { y: w, z: 0 });
-    customPoly = polyPts;
-  }
+  const customPoly = buildTunnelCrossSectionProfileMetric(geom).points;
 
   // The edges of the tunnel envelope in (X, Y, Z)
   const edges: [{ x: number; y: number; z: number }, { x: number; y: number; z: number }][] = [];
@@ -1689,7 +1864,7 @@ export function pointToTunnel3DMetric(
     }
     case 'right_wall': {
       return {
-        x: Math.max(0, Math.min(geom.pullLengthM || 3.0, uNorm * (geom.pullLengthM || 3.0))),
+        x: Math.max(0, Math.min(geom.pullLengthM || 3.0, (1 - uNorm) * (geom.pullLengthM || 3.0))),
         y: geom.widthM || 8.0,
         z: Math.max(0.05, Math.min(geom.wallHeightM || 3.8, (1 - vNorm) * (geom.wallHeightM || 3.8))),
       };
@@ -1733,7 +1908,8 @@ export function constructPlaneFromTraceHinge(
   hingeDipDeg: number,
   directionSide: 'heading' | 'collar' = 'heading',
   geom: TunnelSpatialGeometry,
-  lockStrikeLineHinge: boolean = false
+  lockStrikeLineHinge: boolean = false,
+  preferredDipDirectionDeg?: number
 ): TraceHingePlaneResult {
   const pFirst = points[0] || { x: 300, y: 300 };
   const pLast = points[points.length - 1] || { x: 700, y: 500 };
@@ -1761,6 +1937,14 @@ export function constructPlaneFromTraceHinge(
 
   const useStrikeLineHinge = (!geom.isVerticalShaft && panel === 'crown') || lockStrikeLineHinge;
 
+  // On vertical panels (Face & Walls), canonicalize the trace hinge vector downward (uz <= 0)
+  // so drawing a trace bottom-to-top vs top-to-bottom never flips the 3D plane 180°.
+  if (!useStrikeLineHinge && uz > 0) {
+    ux = -ux;
+    uy = -uy;
+    uz = -uz;
+  }
+
   if (!geom.isVerticalShaft && panel === 'crown') {
     // On the 2D Crown canvas:
     // -Y (up canvas) is +X (tunnel drive direction), +X (right canvas) is +Y (right wall).
@@ -1777,14 +1961,6 @@ export function constructPlaneFromTraceHinge(
       ux = dx / horizMetricLen;
       uy = dy / horizMetricLen;
       uz = 0;
-    }
-
-    // Canonicalize (ux, uy) so its primary strike azimuth is in [0, 180) regardless of draw order (SPL-to-SPL)
-    const rawRelAz = radToDeg(Math.atan2(uy, ux));
-    const rawGeoStrike = normalizeAngle360(rawRelAz + (geom?.driveAzimuthDeg || 0));
-    if (rawGeoStrike >= 180) {
-      ux = -ux;
-      uy = -uy;
     }
 
     // Recompute true arch roof elevation at midPoint.y so the horizontal strike axis is anchored on the crown arch:
@@ -1821,23 +1997,14 @@ export function constructPlaneFromTraceHinge(
       uy = dy / horizMetricLen;
       uz = 0;
     }
-    const rawRelAz = radToDeg(Math.atan2(uy, ux));
-    const rawGeoStrike = normalizeAngle360(rawRelAz + (geom?.driveAzimuthDeg || 0));
-    if (rawGeoStrike >= 180) {
-      ux = -ux;
-      uy = -uy;
-    }
   }
 
   const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
 
-  const dipAngle =
-    useStrikeLineHinge
-      ? Math.max(1, Math.min(90, hingeDipDeg || 90))
-      : Math.max(0.5, Math.min(89.5, hingeDipDeg));
+  const dipAngle = Math.max(0, Math.min(90, hingeDipDeg ?? 60));
   const thetaRad = degToRad(dipAngle);
-  const cosT = Math.cos(thetaRad);
-  const sinT = Math.sin(thetaRad);
+  const cosT = dipAngle === 90 ? 0 : Math.cos(thetaRad);
+  const sinT = dipAngle === 90 ? 1 : Math.sin(thetaRad);
 
   let nx = 0;
   let ny = 0;
@@ -1849,48 +2016,63 @@ export function constructPlaneFromTraceHinge(
   let crownHorizDipY = 0;
 
   if (!useStrikeLineHinge && panel === 'face') {
-    // Face (X = pullM): Hinge vector (0, uy, uz)
-    const wy = -uz;
-    const wz = uy;
+    // Face (X = pullM): Hinge vector is (0, uy, uz) with uy^2 + uz^2 = 1.
+    // Let w = (0, -uz, uy) be the in-face perpendicular unit vector.
+    // Any unit normal orthogonal to the trace has the form:
+    //   n = cos(phi) * (1, 0, 0) + sin(phi) * (0, -uz, uy)
+    // To keep upward vertical normal nz = sin(phi) * uy >= 0 and achieve dipAngle = 90° when nz = 0 (phi = 0),
+    // and minimum apparent dip when phi = +/- 90° (cosT = 1 -> sin(phi) = sgnUy * cosT):
+    const sgnUy = uy >= 0 ? 1 : -1;
     const sgnX = directionSide === 'heading' ? 1 : -1;
-    vx = sgnX * sinT;
-    vy = wy * cosT;
-    vz = wz * cosT;
+    // At dipAngle = 90° (cosT = 0, sinT = 1): normal is purely along +/- X (vertical plane perpendicular to face)
+    // At dipAngle = 0° (cosT = 1, sinT = 0): normal lies in the YZ plane with nz = |uy| >= 0
+    nx = sgnX * sinT;
+    ny = -uz * sgnUy * cosT;
+    nz = Math.abs(uy) * cosT;
 
-    // Normal = hingeAxis x v
-    nx = uy * vz - uz * vy;
-    ny = uz * vx;
-    nz = -uy * vx;
-  } else if (!useStrikeLineHinge && panel === 'left_wall') {
-    // Left Wall (Y = 0): Hinge vector (ux, 0, uz)
-    const wx = -uz;
-    const wz = ux;
-    // directionSide: 'heading' -> dips into rock mass (+Y away from tunnel)
-    // 'collar' -> dips into tunnel cavity (-Y)
-    const sgnY = directionSide === 'heading' ? 1 : -1;
-    vx = wx * cosT;
-    vy = sgnY * sinT;
-    vz = wz * cosT;
+    // Downward or in-plane dip vector v = (n x hingeAxis) oriented downward:
+    let rawVx = ny * uz - nz * uy;
+    let rawVy = nz * ux - nx * uz;
+    let rawVz = nx * uy - ny * ux;
+    if (rawVz > 1e-6) {
+      rawVx = -rawVx;
+      rawVy = -rawVy;
+      rawVz = -rawVz;
+    }
+    const vLen = Math.hypot(rawVx, rawVy, rawVz) || 1;
+    vx = rawVx / vLen;
+    vy = rawVy / vLen;
+    vz = rawVz / vLen;
+  } else if (!useStrikeLineHinge && (panel === 'left_wall' || panel === 'right_wall')) {
+    // Sidewall (Y = 0 or Y = widthM): Hinge vector is (ux, 0, uz) with ux^2 + uz^2 = 1.
+    // Any unit normal orthogonal to the trace has the form:
+    //   n = sin(phi) * (-uz, 0, ux) + cos(phi) * (0, 1, 0)
+    // To keep upward vertical normal nz = sin(phi) * ux >= 0 and achieve dipAngle = 90° when nz = 0:
+    const sgnUx = ux >= 0 ? 1 : -1;
+    const sgnY =
+      panel === 'left_wall'
+        ? directionSide === 'heading'
+          ? 1
+          : -1
+        : directionSide === 'heading'
+        ? -1
+        : 1;
+    nx = -uz * sgnUx * cosT;
+    ny = sgnY * sinT;
+    nz = Math.abs(ux) * cosT;
 
-    // Normal = hingeAxis x v
-    nx = -uz * vy;
-    ny = uz * vx - ux * vz;
-    nz = ux * vy;
-  } else if (!useStrikeLineHinge && panel === 'right_wall') {
-    // Right Wall (Y = widthM): Hinge vector (ux, 0, uz)
-    const wx = -uz;
-    const wz = ux;
-    // directionSide: 'heading' -> dips into rock mass (-Y away from tunnel)
-    // 'collar' -> dips into tunnel cavity (+Y)
-    const sgnY = directionSide === 'heading' ? -1 : 1;
-    vx = wx * cosT;
-    vy = sgnY * sinT;
-    vz = wz * cosT;
-
-    // Normal = hingeAxis x v
-    nx = -uz * vy;
-    ny = uz * vx - ux * vz;
-    nz = ux * vy;
+    let rawVx = ny * uz - nz * uy;
+    let rawVy = nz * ux - nx * uz;
+    let rawVz = nx * uy - ny * ux;
+    if (rawVz > 1e-6) {
+      rawVx = -rawVx;
+      rawVy = -rawVy;
+      rawVz = -rawVz;
+    }
+    const vLen = Math.hypot(rawVx, rawVy, rawVz) || 1;
+    vx = rawVx / vLen;
+    vy = rawVy / vLen;
+    vz = rawVz / vLen;
   } else {
     // Crown (ceiling arch) or Strike Line Hinge Mode:
     // The mapped trace defines the fixed horizontal STRIKE line hinge (ux, uy, 0).
@@ -1907,6 +2089,18 @@ export function constructPlaneFromTraceHinge(
       crownHorizDipY = sgnSide;
     }
 
+    // If preferredDipDirectionDeg is supplied, ensure crownHorizDip points in the same hemisphere
+    // so there is never an unexpected 180° flip when strike vector is canonicalized or vertical (90°):
+    if (typeof preferredDipDirectionDeg === 'number' && !isNaN(preferredDipDirectionDeg)) {
+      const prefRelRad = degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0)));
+      const prefDx = Math.cos(prefRelRad);
+      const prefDy = Math.sin(prefRelRad);
+      if (crownHorizDipX * prefDx + crownHorizDipY * prefDy < -1e-4) {
+        crownHorizDipX = -crownHorizDipX;
+        crownHorizDipY = -crownHorizDipY;
+      }
+    }
+
     // Downward dipVector perpendicular to strikeVector, dipping at dipAngle (ideal = 90°) toward the invert (-Z):
     vx = crownHorizDipX * cosT;
     vy = crownHorizDipY * cosT;
@@ -1919,14 +2113,32 @@ export function constructPlaneFromTraceHinge(
   }
 
   const nLen = Math.hypot(nx, ny, nz) || 1;
-  const na = nx / nLen;
-  const nb = ny / nLen;
-  const nc = nz / nLen;
+  let na = nx / nLen;
+  let nb = ny / nLen;
+  let nc = nz / nLen;
+
+  // Ensure upward normal (nc >= 0), and at vertical dip (nc === 0) preserve preferredDipDirectionDeg hemisphere if provided:
+  if (nc < -1e-7) {
+    na = -na;
+    nb = -nb;
+    nc = -nc;
+  } else if (Math.abs(nc) <= 1e-7) {
+    nc = 0;
+    if (typeof preferredDipDirectionDeg === 'number' && !isNaN(preferredDipDirectionDeg)) {
+      const prefRelRad = degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0)));
+      const prefDx = Math.cos(prefRelRad);
+      const prefDy = Math.sin(prefRelRad);
+      if (na * prefDx + nb * prefDy < -1e-4) {
+        na = -na;
+        nb = -nb;
+      }
+    }
+  }
 
   const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
 
   // Geological Dip Angle: angle between normal and vertical Z
-  const safeNc = Math.min(1, Math.max(-1, Math.abs(nc)));
+  const safeNc = Math.min(1, Math.max(0, Math.abs(nc)));
   const derivedDipDeg = useStrikeLineHinge ? Math.round(dipAngle) : clampDip(radToDeg(Math.acos(safeNc)));
 
   // Dip direction azimuth in tunnel-relative coordinates:
@@ -1936,25 +2148,16 @@ export function constructPlaneFromTraceHinge(
     gradX = crownHorizDipX;
     gradY = crownHorizDipY;
   } else {
-    const signZ = nc >= 0 ? 1 : -1;
-    gradX = na * signZ;
-    gradY = nb * signZ;
+    gradX = na;
+    gradY = nb;
   }
   let relAz = radToDeg(Math.atan2(gradY, gradX));
   if (isNaN(relAz)) relAz = 0;
   if (relAz < 0) relAz += 360;
   const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom?.driveAzimuthDeg || 0));
 
-  // Keep Strike strictly invariant to dip amount when rotating around the Strike Line Hinge
-  let strikeRhrDeg: number;
-  if (useStrikeLineHinge) {
-    let strikeRelAz = radToDeg(Math.atan2(uy, ux));
-    if (isNaN(strikeRelAz)) strikeRelAz = 0;
-    if (strikeRelAz < 0) strikeRelAz += 360;
-    strikeRhrDeg = normalizeAngle360(strikeRelAz + (geom?.driveAzimuthDeg || 0));
-  } else {
-    strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
-  }
+  // Keep Strike strictly consistent with Right-Hand Rule (DipDir - 90°)
+  const strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
 
   return {
     panel,
@@ -1973,6 +2176,357 @@ export function constructPlaneFromTraceHinge(
     hingeDipDeg: dipAngle,
     derivedDipDeg,
     derivedDipDirectionDeg,
+    strikeRhrDeg,
+    directionSide,
+  };
+}
+
+/**
+ * Constructs a 3D discontinuity plane anchored at the mapped 2D trace midpoint on any panel
+ * (`face`, `left_wall`, `right_wall`, or `crown`) that satisfies BOTH the user's exact
+ * `(dipDirectionDeg, dipDeg)` orientation AND stays anchored/hinged to the traced joint line.
+ * - Changing Dip Direction (0°–359°) rotates the plane smoothly around the traced joint center.
+ * - Changing Dip Amount (0°–90°) tilts the plane smoothly around the in-plane trace hinge axis.
+ * - At 90° vertical dip, preserves the exact `dipDirectionDeg` without any 180° flip.
+ */
+export function constructTraceAnchoredPlaneFromOrientation(
+  points: FieldPoint2D[],
+  panel: FieldPanelId,
+  dipDirectionDeg: number,
+  dipDeg: number,
+  geom: TunnelSpatialGeometry,
+  directionSide: 'heading' | 'collar' = 'heading',
+  overrideHingeDipAmount: boolean = false
+): TraceHingePlaneResult {
+  const pFirst = points[0] || { x: 300, y: 300 };
+  const pLast = points[points.length - 1] || { x: 700, y: 500 };
+
+  const p1 = pointToTunnel3DMetric(pFirst, panel, geom);
+  const p2 = pointToTunnel3DMetric(pLast, panel, geom);
+
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const dz = p2.z - p1.z;
+  const traceLen = Math.hypot(dx, dy, dz) || 1e-4;
+
+  let ux = dx / traceLen;
+  let uy = dy / traceLen;
+  let uz = dz / traceLen;
+
+  // Canonicalize vertical panel trace vector downward (uz <= 0) so drawing bottom-to-top vs top-to-bottom
+  // always gives the exact same down-dip hinge orientation:
+  if ((geom.isVerticalShaft || panel !== 'crown') && uz > 0) {
+    ux = -ux;
+    uy = -uy;
+    uz = -uz;
+  }
+
+  const midPoint: Vec3D = {
+    x: (p1.x + p2.x) / 2,
+    y: (p1.y + p2.y) / 2,
+    z: (p1.z + p2.z) / 2,
+  };
+
+  let traceStartPt: Vec3D = p1;
+  let traceEndPt: Vec3D = p2;
+
+  const safeDipDir = normalizeAngle360(dipDirectionDeg ?? 135);
+  const safeDip = clampDip(dipDeg ?? 60);
+  const drive =
+    geom.driveAzimuthDeg != null && !isNaN(geom.driveAzimuthDeg)
+      ? normalizeAngle360(geom.driveAzimuthDeg)
+      : 0;
+  const relDd = normalizeAngle360(safeDipDir - drive);
+  const alphaRad = degToRad(relDd);
+  const cosA = Math.cos(alphaRad);
+  const sinA = Math.sin(alphaRad);
+
+  if (!geom.isVerticalShaft && panel === 'crown') {
+    const rawDx = pLast.x - pFirst.x;
+    const rawDy = pLast.y - pFirst.y;
+    const rawCanvasLen = Math.hypot(rawDx, rawDy);
+    if (rawCanvasLen > 1e-4) {
+      ux = -rawDy / rawCanvasLen;
+      uy = rawDx / rawCanvasLen;
+      uz = 0;
+    } else {
+      const horizMetricLen = Math.hypot(dx, dy) || 1;
+      ux = dx / horizMetricLen;
+      uy = dy / horizMetricLen;
+      uz = 0;
+    }
+    const w = geom.widthM || 8.0;
+    const cx = w / 2;
+    const hw = geom.wallHeightM || (geom.heightM || 6.5) * 0.55;
+    const archRise = Math.max(0.5, (geom.heightM || 6.5) - hw);
+    const normDy = Math.max(-1, Math.min(1, (midPoint.y - cx) / Math.max(0.1, w / 2)));
+    midPoint.z = Number((hw + archRise * Math.sqrt(Math.max(0, 1 - normDy * normDy))).toFixed(3));
+
+    const halfLen = traceLen / 2;
+    traceStartPt = {
+      x: Number((midPoint.x - ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y - uy * halfLen).toFixed(3)),
+      z: midPoint.z,
+    };
+    traceEndPt = {
+      x: Number((midPoint.x + ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y + uy * halfLen).toFixed(3)),
+      z: midPoint.z,
+    };
+  } else if (overrideHingeDipAmount && !geom.isVerticalShaft) {
+    // User confirmed changing Dip Amount on Face or Wall: tilt the trace hinge in the Face/Wall plane
+    // to the new Dip Amount while keeping the trace as the plane's rotational hinge!
+    const deltaRad = degToRad(safeDip);
+    const cosD = safeDip >= 89.99 ? 0 : Math.cos(deltaRad);
+    const sinD = safeDip >= 89.99 ? 1 : Math.sin(deltaRad);
+    const halfLen = traceLen / 2;
+    if (panel === 'face') {
+      const sY = uy >= 0 ? 1 : -1;
+      ux = 0;
+      uy = sY * cosD;
+      uz = -sinD;
+    } else if (panel === 'left_wall' || panel === 'right_wall') {
+      const sX = ux >= 0 ? 1 : -1;
+      ux = sX * cosD;
+      uy = 0;
+      uz = -sinD;
+    }
+    traceStartPt = {
+      x: Number((midPoint.x - ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y - uy * halfLen).toFixed(3)),
+      z: Number((midPoint.z - uz * halfLen).toFixed(3)),
+    };
+    traceEndPt = {
+      x: Number((midPoint.x + ux * halfLen).toFixed(3)),
+      y: Number((midPoint.y + uy * halfLen).toFixed(3)),
+      z: Number((midPoint.z + uz * halfLen).toFixed(3)),
+    };
+  }
+
+  const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
+
+  if (!geom.isVerticalShaft && panel === 'face') {
+    // Strictly hinge the 3D plane on the Face trace vector u = (0, uy, uz) with uy^2 + uz^2 = 1.
+    // Orthonormal basis of u^perp:
+    //   e1 = (1, 0, 0)
+    //   nYZ = (0, sY * |uz|, |uy|)
+    const sY = uy >= 0 ? 1 : -1;
+    const absUy = Math.abs(uy);
+    const absUz = Math.abs(uz);
+
+    const c1 = cosA;
+    const c2 = sY * sinA;
+
+    const rawNx = c1;
+    const rawNy = c2 * sY * absUz; // = sinA * |uz|
+    const rawNz = c2 * absUy; // = sY * sinA * |uy|
+
+    let vx = -c2;
+    let vy = c1 * sY * absUz;
+    let vz = c1 * absUy;
+
+    if (Math.abs(vz) > 1e-5) {
+      if (vz > 0) {
+        vx = -vx;
+        vy = -vy;
+        vz = -vz;
+      }
+    } else if (vx * cosA + vy * sinA < 0) {
+      vx = -vx;
+      vy = -vy;
+      vz = -vz;
+    }
+
+    const nLen = Math.hypot(rawNx, rawNy, rawNz) || 1;
+    let na = rawNx / nLen;
+    let nb = rawNy / nLen;
+    let nc = rawNz / nLen;
+
+    if (nc < -1e-7) {
+      na = -na;
+      nb = -nb;
+      nc = -nc;
+    } else if (Math.abs(nc) <= 1e-7) {
+      nc = 0;
+      if (na * cosA + nb * sinA < -1e-4) {
+        na = -na;
+        nb = -nb;
+      }
+    }
+
+    const vLen = Math.hypot(vx, vy, vz) || 1;
+    const inPlaneDipVector: Vec3D = {
+      x: vx / vLen,
+      y: vy / vLen,
+      z: vz / vLen,
+    };
+
+    const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
+    const strikeRhrDeg = normalizeAngle360(safeDipDir - 90);
+
+    return {
+      panel,
+      a: na,
+      b: nb,
+      c: nc,
+      d,
+      normal: { x: na, y: nb, z: nc },
+      dipVector: inPlaneDipVector,
+      strikeVector: hingeAxis,
+      hingeAxis,
+      traceStartPoint: traceStartPt,
+      traceEndPoint: traceEndPt,
+      traceMidPoint: midPoint,
+      traceLengthM: Number(traceLen.toFixed(2)),
+      hingeDipDeg: safeDip,
+      derivedDipDeg: safeDip,
+      derivedDipDirectionDeg: safeDipDir,
+      strikeRhrDeg,
+      directionSide,
+    };
+  }
+
+  if (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall')) {
+    // Strictly hinge the 3D plane on the Wall trace vector u = (ux, 0, uz) with ux^2 + uz^2 = 1.
+    // Orthonormal basis of u^perp:
+    //   e1 = (0, 1, 0)
+    //   nXZ = (sX * |uz|, 0, |ux|)
+    const sX = ux >= 0 ? 1 : -1;
+    const absUx = Math.abs(ux);
+    const absUz = Math.abs(uz);
+
+    const c1 = sinA;
+    const c2 = sX * cosA;
+
+    const rawNx = c2 * sX * absUz; // = cosA * |uz|
+    const rawNy = c1; // = sinA
+    const rawNz = c2 * absUx; // = sX * cosA * |ux|
+
+    let vx = c1 * sX * absUz;
+    let vy = -c2;
+    let vz = c1 * absUx;
+
+    if (Math.abs(vz) > 1e-5) {
+      if (vz > 0) {
+        vx = -vx;
+        vy = -vy;
+        vz = -vz;
+      }
+    } else if (vx * cosA + vy * sinA < 0) {
+      vx = -vx;
+      vy = -vy;
+      vz = -vz;
+    }
+
+    const nLen = Math.hypot(rawNx, rawNy, rawNz) || 1;
+    let na = rawNx / nLen;
+    let nb = rawNy / nLen;
+    let nc = rawNz / nLen;
+
+    if (nc < -1e-7) {
+      na = -na;
+      nb = -nb;
+      nc = -nc;
+    } else if (Math.abs(nc) <= 1e-7) {
+      nc = 0;
+      if (na * cosA + nb * sinA < -1e-4) {
+        na = -na;
+        nb = -nb;
+      }
+    }
+
+    const vLen = Math.hypot(vx, vy, vz) || 1;
+    const inPlaneDipVector: Vec3D = {
+      x: vx / vLen,
+      y: vy / vLen,
+      z: vz / vLen,
+    };
+
+    const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
+    const strikeRhrDeg = normalizeAngle360(safeDipDir - 90);
+
+    return {
+      panel,
+      a: na,
+      b: nb,
+      c: nc,
+      d,
+      normal: { x: na, y: nb, z: nc },
+      dipVector: inPlaneDipVector,
+      strikeVector: hingeAxis,
+      hingeAxis,
+      traceStartPoint: traceStartPt,
+      traceEndPoint: traceEndPt,
+      traceMidPoint: midPoint,
+      traceLengthM: Number(traceLen.toFixed(2)),
+      hingeDipDeg: safeDip,
+      derivedDipDeg: safeDip,
+      derivedDipDirectionDeg: safeDipDir,
+      strikeRhrDeg,
+      directionSide,
+    };
+  }
+
+  // Fallback for Crown or Vertical Shaft:
+  const geoPlane = constructJointPlane(safeDipDir, safeDip, midPoint, geom.driveAzimuthDeg);
+  const n = geoPlane.normal;
+  const dotUN = ux * n.x + uy * n.y + uz * n.z;
+  let projX = ux - dotUN * n.x;
+  let projY = uy - dotUN * n.y;
+  let projZ = uz - dotUN * n.z;
+  let projLen = Math.hypot(projX, projY, projZ);
+
+  if (projLen < 1e-4) {
+    projX = geoPlane.strikeVector.x;
+    projY = geoPlane.strikeVector.y;
+    projZ = geoPlane.strikeVector.z;
+    projLen = Math.hypot(projX, projY, projZ) || 1;
+  }
+
+  const projHingeAxis: Vec3D = {
+    x: projX / projLen,
+    y: projY / projLen,
+    z: projZ / projLen,
+  };
+
+  let inPlaneDipX = n.y * projHingeAxis.z - n.z * projHingeAxis.y;
+  let inPlaneDipY = n.z * projHingeAxis.x - n.x * projHingeAxis.z;
+  let inPlaneDipZ = n.x * projHingeAxis.y - n.y * projHingeAxis.x;
+  const dotWithTrueDip =
+    inPlaneDipX * geoPlane.dipVector.x +
+    inPlaneDipY * geoPlane.dipVector.y +
+    inPlaneDipZ * geoPlane.dipVector.z;
+  if (dotWithTrueDip < 0) {
+    inPlaneDipX = -inPlaneDipX;
+    inPlaneDipY = -inPlaneDipY;
+    inPlaneDipZ = -inPlaneDipZ;
+  }
+  const inPlaneLen = Math.hypot(inPlaneDipX, inPlaneDipY, inPlaneDipZ) || 1;
+  const inPlaneDipVector: Vec3D = {
+    x: inPlaneDipX / inPlaneLen,
+    y: inPlaneDipY / inPlaneLen,
+    z: inPlaneDipZ / inPlaneLen,
+  };
+
+  const strikeRhrDeg = normalizeAngle360(safeDipDir - 90);
+
+  return {
+    panel,
+    a: geoPlane.a,
+    b: geoPlane.b,
+    c: geoPlane.c,
+    d: geoPlane.d,
+    normal: geoPlane.normal,
+    dipVector: inPlaneDipVector,
+    strikeVector: projHingeAxis,
+    hingeAxis,
+    traceStartPoint: traceStartPt,
+    traceEndPoint: traceEndPt,
+    traceMidPoint: midPoint,
+    traceLengthM: Number(traceLen.toFixed(2)),
+    hingeDipDeg: safeDip,
+    derivedDipDeg: safeDip,
+    derivedDipDirectionDeg: safeDipDir,
     strikeRhrDeg,
     directionSide,
   };
@@ -2038,8 +2592,11 @@ export function tunnel3DMetricToCanvasPoint(
   } else if (panel === 'face' && !isVertShaft) {
     uNorm = Math.max(0.02, Math.min(0.98, pt3D.y / Math.max(0.5, geom.widthM || 8.0)));
     vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.z / Math.max(0.5, geom.heightM || 6.5)));
-  } else if ((panel === 'left_wall' || panel === 'right_wall') && !isVertShaft) {
+  } else if (panel === 'left_wall' && !isVertShaft) {
     uNorm = Math.max(0.02, Math.min(0.98, pt3D.x / Math.max(0.5, geom.pullLengthM || 3.0)));
+    vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.z / Math.max(0.5, geom.wallHeightM || 4.0)));
+  } else if (panel === 'right_wall' && !isVertShaft) {
+    uNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.x / Math.max(0.5, geom.pullLengthM || 3.0)));
     vNorm = Math.max(0.02, Math.min(0.98, 1 - pt3D.z / Math.max(0.5, geom.wallHeightM || 4.0)));
   }
 
@@ -2224,12 +2781,20 @@ export function recomputeAlignedCanvasTracePoints(
       targetDx = plane.c / len;
       targetDy = plane.b / len;
     }
-  } else if (panel === 'left_wall' || panel === 'right_wall') {
-    // Wall plane is Y = 0 or Y = widthM: a*X + c*Z + const = 0 => tangent in (X, Z) is (c, -a)
-    // On canvas: +X_canvas is +X_tunnel, +Y_canvas is -Z_tunnel => canvas tangent is (c, a)
+  } else if (panel === 'left_wall') {
+    // Left wall plane is Y = 0: a*X + c*Z + const = 0 => tangent in (X, Z) is (c, -a)
+    // On Left Wall canvas: +X_canvas is +X_tunnel, +Y_canvas is -Z_tunnel => canvas tangent is (c, a)
     const len = Math.hypot(plane.c, plane.a);
     if (len > 1e-4) {
       targetDx = plane.c / len;
+      targetDy = plane.a / len;
+    }
+  } else if (panel === 'right_wall') {
+    // Right wall plane is Y = widthM: a*X + c*Z + const = 0 => tangent in (X, Z) is (c, -a)
+    // On Right Wall canvas: +X_canvas is -X_tunnel (Left=Face, Right=Portal), +Y_canvas is -Z_tunnel => canvas tangent is (-c, a)
+    const len = Math.hypot(plane.c, plane.a);
+    if (len > 1e-4) {
+      targetDx = -plane.c / len;
       targetDy = plane.a / len;
     }
   }
