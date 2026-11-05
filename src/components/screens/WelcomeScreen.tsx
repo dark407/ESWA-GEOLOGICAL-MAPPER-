@@ -220,9 +220,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
       </div>
 
-      {/* Top-Right Controls: Settings, Feedback & Master Software Access Control */}
+      {/* Top-Right Controls: Auto-Update Notification Toggle & Badge, Feedback, Settings & Master Software Access Control */}
       {!isContinuous3DLoggerOpen && !isProjectMemoryModalOpen && (
         <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
+          {!isMasterSoftware && (
+            <DeviceIdAndNotificationHeaderWidget
+              currentUser={googleUser}
+              onUserChanged={setGoogleUser}
+              industryMode={industryMode}
+              onlyAutoUpdate
+            />
+          )}
+
           {/* Simple Feedback Toggle (Only for User Edition, hidden in Master Application) */}
           {!isMasterSoftware && (
             <button

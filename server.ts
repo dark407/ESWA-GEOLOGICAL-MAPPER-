@@ -2769,6 +2769,7 @@ ${safeJsContent}
     tombstones: Record<string, string>
   ): boolean => {
     if (!rec) return false;
+    const recTime = String(rec.lastSeenAtIso || rec.createdAtIso || '').trim();
     const candidateKeys = [
       rec.requestId,
       rec.userId,
@@ -2779,7 +2780,12 @@ ${safeJsContent}
     ]
       .map((v) => String(v || '').trim().toLowerCase())
       .filter(Boolean);
-    return candidateKeys.some((k) => Boolean(tombstones[k]));
+    return candidateKeys.some((k) => {
+      const tIso = tombstones[k];
+      if (!tIso) return false;
+      if (recTime && recTime > tIso) return false;
+      return true;
+    });
   };
 
   app.get('/api/licensing/state', (_req, res) => {
@@ -2826,6 +2832,7 @@ ${safeJsContent}
         store.deleted_tombstones = {};
       }
       const recObj = record as Record<string, unknown>;
+      const recTime = String(recObj.lastSeenAtIso || recObj.createdAtIso || '').trim();
       const candidateKeys = [
         id,
         recObj.requestId,
@@ -2842,12 +2849,24 @@ ${safeJsContent}
         for (const k of candidateKeys) {
           delete store.deleted_tombstones[k];
         }
-      } else if (
-        (collection === 'access_requests' || collection === 'software_licenses') &&
-        candidateKeys.some((k) => Boolean(store.deleted_tombstones?.[k]))
-      ) {
-        res.json({ ok: true, ignoredTombstoned: true });
-        return;
+      } else if (collection === 'access_requests' || collection === 'software_licenses') {
+        const isStillTombstoned = candidateKeys.some((k) => {
+          const tIso = store.deleted_tombstones?.[k];
+          if (!tIso) return false;
+          if (recTime && recTime > tIso) return false;
+          return true;
+        });
+        if (isStillTombstoned) {
+          res.json({ ok: true, ignoredTombstoned: true });
+          return;
+        }
+        // If record timestamp is strictly newer than any old tombstone, clear old tombstones
+        for (const k of candidateKeys) {
+          const tIso = store.deleted_tombstones?.[k];
+          if (tIso && recTime && recTime > tIso) {
+            delete store.deleted_tombstones[k];
+          }
+        }
       }
 
       const targetMap = store[collection as 'access_requests' | 'software_licenses' | 'software_releases' | 'master_pcs'];

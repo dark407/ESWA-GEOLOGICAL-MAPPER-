@@ -81,8 +81,14 @@ try {
   dbInstance = getFirestore(app, resolvedDatabaseId);
 }
 
+export let firestoreCloudPermissionDenied = false;
+
+export function markFirestoreCloudPermissionDenied(): void {
+  firestoreCloudPermissionDenied = true;
+}
+
 if (typeof window !== 'undefined') {
-  // Global catch for Firestore internal SDK assertion failures (e.g. ca9 / b815)
+  // Global catch for Firestore internal SDK assertion failures (e.g. ca9 / b815) and background permission rejections
   window.addEventListener(
     'error',
     (event) => {
@@ -93,8 +99,16 @@ if (typeof window !== 'undefined') {
           msg.includes('ID: ca9') ||
           msg.includes('ID: b815') ||
           msg.includes('INTERNAL ASSERTION FAILED') ||
+          msg.includes('Missing or insufficient permissions') ||
+          msg.includes('permission-denied') ||
           msg.includes('Unexpected state'))
       ) {
+        if (
+          msg.includes('Missing or insufficient permissions') ||
+          msg.includes('permission-denied')
+        ) {
+          firestoreCloudPermissionDenied = true;
+        }
         event.preventDefault();
         event.stopImmediatePropagation?.();
         return true;
@@ -115,8 +129,16 @@ if (typeof window !== 'undefined') {
           reasonMsg.includes('ID: ca9') ||
           reasonMsg.includes('ID: b815') ||
           reasonMsg.includes('INTERNAL ASSERTION FAILED') ||
+          reasonMsg.includes('Missing or insufficient permissions') ||
+          reasonMsg.includes('permission-denied') ||
           reasonMsg.includes('Unexpected state'))
       ) {
+        if (
+          reasonMsg.includes('Missing or insufficient permissions') ||
+          reasonMsg.includes('permission-denied')
+        ) {
+          firestoreCloudPermissionDenied = true;
+        }
         event.preventDefault();
         event.stopImmediatePropagation?.();
       }
@@ -128,17 +150,19 @@ if (typeof window !== 'undefined') {
 export const db = dbInstance;
 export const auth = getAuth(app);
 
-async function testConnection() {
+export async function testConnection(): Promise<void> {
+  if (firestoreCloudPermissionDenied) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase configuration notice: the client is offline.');
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.toLowerCase().includes('permission') ||
+      msg.toLowerCase().includes('insufficient')
+    ) {
+      firestoreCloudPermissionDenied = true;
     }
   }
-}
-if (typeof window !== 'undefined') {
-  void testConnection();
 }
 
 export const SCOPES = ['openid', 'email', 'profile'];
@@ -521,7 +545,7 @@ export function handleFirestoreError(
     errMsg.toLowerCase().includes('permission') ||
     errMsg.toLowerCase().includes('insufficient')
   ) {
-    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    firestoreCloudPermissionDenied = true;
   }
   throw new Error(JSON.stringify(errInfo));
 }

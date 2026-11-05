@@ -9,7 +9,7 @@ import {
   generateOnePcLicenseKey,
   getGoogleDriveSyncConfig,
   GoogleDrivePermanentSyncConfig,
-  overwriteGoogleDriveFileInPlace,
+  overwriteAllGoogleDriveInstallersInPlace,
   publishSoftwareUpdateRelease,
   rejectAccessRequestAdmin,
   saveGoogleDriveSyncConfig,
@@ -39,6 +39,7 @@ import {
 } from '../engine/windowsDesktopEngine';
 import {
   ArrowLeft,
+  Bell,
   CheckCircle2,
   Download,
   Eye,
@@ -69,8 +70,8 @@ interface MasterAdminPortalWebsiteProps {
 export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> = ({
   onSwitchToSoftware,
 }) => {
-  // 1. Direct Master Gmail + Fixed Password Login Gate State (No OTP — Always loads when opening Software Access Control)
-  const [isVerified, setIsVerified] = useState<boolean>(false);
+  // 1. Direct Master Gmail + Fixed Password Login Gate State (Asked only once per calendar day)
+  const [isVerified, setIsVerified] = useState<boolean>(() => isMasterLocallyVerified());
   const [emailInput, setEmailInput] = useState<string>(TARGET_MASTER_EMAIL);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -95,6 +96,23 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
   const [userSearchTerm, setUserSearchTerm] = useState<string>('');
   const [userFilterStatus, setUserFilterStatus] = useState<'all' | 'pending' | 'approved' | 'revoked'>('all');
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    hardwareId: string;
+    rawReq?: AccessRequestRecord;
+    rawLic?: SoftwareLicenseRecord;
+  } | null>(null);
+  const [newUserAlert, setNewUserAlert] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    position: string;
+    date: string;
+  } | null>(null);
 
   // 4. Feedback Management State
   const [feedbackItems, setFeedbackItems] = useState<UserFeedbackItem[]>([]);
@@ -127,7 +145,17 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     const unsub = subscribeAdminLicensingData({
       onRequests: (reqList) => setRequests(reqList || []),
       onLicenses: (licList) => setLicenses(licList || []),
-      onReleases: (relList) => setReleases(relList || []),
+      onReleases: (relList) => {
+        setReleases(relList || []);
+        const latestGd = getGoogleDriveSyncConfig();
+        setDriveCfg((prev) =>
+          !prev.userApkFileId &&
+          !prev.userExeFileId &&
+          (latestGd.userApkFileId || latestGd.userExeFileId)
+            ? latestGd
+            : prev
+        );
+      },
       onMasterPcs: () => {},
     });
     return () => unsub();
@@ -207,7 +235,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     setActionBusyId(busyKey);
     try {
       const targetUserId =
-        lic?.userId || req?.assignedUserId || req?.requestId.replace(/^req_/, '');
+        lic?.userId || req?.assignedUserId || (req?.requestId || '').replace(/^req_/, '');
       if (targetUserId) {
         await updateSoftwareLicenseAdmin(targetUserId, {
           status: 'REVOKED',
@@ -236,6 +264,34 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           ].filter((x): x is string => Boolean(x))
         )
       );
+      const targetEmail = (u.rawLic?.email || u.rawReq?.email || '').trim().toLowerCase();
+      const targetHw = (
+        u.rawLic?.boundPcHardwareId ||
+        u.rawReq?.pcHardwareId ||
+        ''
+      )
+        .trim()
+        .toLowerCase();
+
+      // Immediately remove from React state so the card disappears in 0ms
+      setLicenses((prev) =>
+        prev.filter(
+          (l) =>
+            !idsToPurge.includes(l.userId) &&
+            (!targetEmail || (l.email || '').trim().toLowerCase() !== targetEmail) &&
+            (!targetHw || (l.boundPcHardwareId || '').trim().toLowerCase() !== targetHw)
+        )
+      );
+      setRequests((prev) =>
+        prev.filter(
+          (r) =>
+            !idsToPurge.includes(r.requestId) &&
+            (!r.assignedUserId || !idsToPurge.includes(r.assignedUserId)) &&
+            (!targetEmail || (r.email || '').trim().toLowerCase() !== targetEmail) &&
+            (!targetHw || (r.pcHardwareId || '').trim().toLowerCase() !== targetHw)
+        )
+      );
+
       for (const targetId of idsToPurge) {
         await deleteSoftwareLicenseAdmin(targetId);
       }
@@ -272,18 +328,27 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       return 'Geologist';
     };
 
+    const pickNewestDate = (...dates: Array<string | undefined>): string => {
+      const valid = dates.filter((d): d is string => Boolean(d && d.trim()));
+      if (valid.length === 0) return new Date().toISOString();
+      return valid.reduce((newest, cur) => (cur > newest ? cur : newest), valid[0]);
+    };
+
     // 1. Add requests and link any matching license strictly by userId or exact device hardwareId
     requests.forEach((r) => {
+      if (!r) return;
+      const reqIdStr = String(r.requestId || '');
       const matchedLic = licenses.find(
         (l) =>
-          (r.assignedUserId && l.userId === r.assignedUserId) ||
-          l.userId === r.requestId.replace(/^req_/, '') ||
-          (r.pcHardwareId &&
-            r.pcHardwareId !== 'N/A' &&
-            l.boundPcHardwareId &&
-            l.boundPcHardwareId !== 'N/A' &&
-            r.pcHardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
-            (!r.email || !l.email || r.email.toLowerCase() === l.email.toLowerCase()))
+          l &&
+          ((r.assignedUserId && l.userId === r.assignedUserId) ||
+            (reqIdStr && l.userId === reqIdStr.replace(/^req_/, '')) ||
+            (r.pcHardwareId &&
+              r.pcHardwareId !== 'N/A' &&
+              l.boundPcHardwareId &&
+              l.boundPcHardwareId !== 'N/A' &&
+              r.pcHardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
+              (!r.email || !l.email || r.email.toLowerCase() === l.email.toLowerCase())))
       );
 
       const resolvedStatus: 'pending' | 'approved' | 'revoked' = matchedLic
@@ -297,7 +362,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         : 'pending';
 
       list.push({
-        id: matchedLic?.userId || r.requestId,
+        id: matchedLic?.userId || reqIdStr || `req_${ list.length }`,
         isRequest: !matchedLic,
         name: matchedLic?.fullName || r.fullName || 'Unnamed User',
         email: matchedLic?.email || r.email || '',
@@ -306,7 +371,11 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         organization: matchedLic?.organization || r.organization || 'Tunnel Project',
         hardwareId: matchedLic?.boundPcHardwareId || r.pcHardwareId || 'N/A',
         status: resolvedStatus,
-        date: matchedLic?.createdAtIso || r.createdAtIso,
+        date: pickNewestDate(
+          matchedLic?.lastSeenAtIso,
+          matchedLic?.createdAtIso,
+          r.createdAtIso
+        ),
         rawReq: r,
         rawLic: matchedLic,
       });
@@ -314,6 +383,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
 
     // 2. Add licenses that did not have a matching request entry
     licenses.forEach((l) => {
+      if (!l) return;
       const alreadyIncluded = list.some(
         (item) =>
           item.rawLic?.userId === l.userId ||
@@ -327,7 +397,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       );
       if (!alreadyIncluded) {
         list.push({
-          id: l.userId,
+          id: l.userId || `lic_${list.length}`,
           isRequest: false,
           name: l.fullName || 'Licensed User',
           email: l.email || '',
@@ -336,28 +406,73 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           organization: l.organization || 'Field Office',
           hardwareId: l.boundPcHardwareId || 'N/A',
           status: l.status === 'ACTIVE' ? 'approved' : 'revoked',
-          date: l.createdAtIso,
+          date: pickNewestDate(l.lastSeenAtIso, l.createdAtIso),
           rawLic: l,
         });
       }
     });
+
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     return list.filter((u) => {
       if (userFilterStatus !== 'all' && u.status !== userFilterStatus) return false;
       if (userSearchTerm.trim()) {
         const q = userSearchTerm.toLowerCase();
         return (
-          u.name.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q) ||
-          u.phone.toLowerCase().includes(q) ||
-          u.position.toLowerCase().includes(q) ||
-          u.hardwareId.toLowerCase().includes(q) ||
-          u.organization.toLowerCase().includes(q)
+          (u.name || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q) ||
+          (u.phone || '').toLowerCase().includes(q) ||
+          (u.position || '').toLowerCase().includes(q) ||
+          (u.hardwareId || '').toLowerCase().includes(q) ||
+          (u.organization || '').toLowerCase().includes(q)
         );
       }
       return true;
     });
   }, [requests, licenses, userFilterStatus, userSearchTerm]);
+
+  // Detect newly registered (or newly re-registered) users and show a live notification alert
+  useEffect(() => {
+    if (!isVerified || filteredUsers.length === 0) return;
+    const SEEN_KEY = 'eswa_master_seen_user_registrations_v1';
+    try {
+      const raw = localStorage.getItem(SEEN_KEY);
+      const seenMap: Record<string, string> = raw ? JSON.parse(raw) : {};
+      const hadExistingMap = Boolean(raw);
+      let newestUnseen: (typeof filteredUsers)[number] | null = null;
+      let changed = false;
+
+      for (const u of filteredUsers) {
+        const prevSeenDate = seenMap[u.id];
+        if (!prevSeenDate || (u.date && u.date > prevSeenDate)) {
+          seenMap[u.id] = u.date || new Date().toISOString();
+          changed = true;
+          const ageMs = u.date ? Date.now() - new Date(u.date).getTime() : Infinity;
+          if (hadExistingMap || ageMs <= 15 * 60 * 1000) {
+            if (!newestUnseen || (u.date || '') > (newestUnseen.date || '')) {
+              newestUnseen = u;
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        localStorage.setItem(SEEN_KEY, JSON.stringify(seenMap));
+      }
+      if (newestUnseen) {
+        setNewUserAlert({
+          id: newestUnseen.id,
+          name: newestUnseen.name,
+          email: newestUnseen.email,
+          phone: newestUnseen.phone,
+          position: newestUnseen.position,
+          date: newestUnseen.date,
+        });
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [isVerified, filteredUsers]);
 
   // Filtered Feedback List
   const filteredFeedback = useMemo(() => {
@@ -571,30 +686,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           </button>
         </div>
 
-        {/* Master Only APK & EXE Update Controls + Lock Button */}
+        {/* Lock Button */}
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => downloadMasterAndroidApk()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
-            title="Download Updated Master Android App (ESWA-GEOLOGICAL-MAPPER-Master-Android.apk)"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <Download className="w-3 h-3" />
-            <span>Master .APK</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => downloadMasterEditionDesktopExe()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition-colors cursor-pointer"
-            title="Download Updated Master Windows Software (ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe)"
-          >
-            <Monitor className="w-3.5 h-3.5" />
-            <Download className="w-3 h-3" />
-            <span>Master .EXE</span>
-          </button>
-
           <button
             type="button"
             onClick={handleMasterSignOut}
@@ -609,6 +702,46 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
 
       {/* Main Content Area */}
       <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 max-w-6xl w-full mx-auto space-y-4">
+        {/* Live New User Registration Alert inside Master Portal */}
+        {newUserAlert && (
+          <div className="bg-emerald-950/90 border-2 border-emerald-500/80 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 shrink-0">
+                <Bell className="w-4 h-4 animate-bounce" />
+              </div>
+              <div>
+                <div className="text-[11px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                  New User Registered ({new Date(newUserAlert.date).toLocaleString()})
+                </div>
+                <div className="text-xs sm:text-sm font-bold text-white">
+                  {newUserAlert.name} ·{' '}
+                  <span className="text-amber-300">{newUserAlert.position}</span> ·{' '}
+                  <span className="text-cyan-300 font-mono">{newUserAlert.phone}</span>
+                  {newUserAlert.email ? ` (${newUserAlert.email})` : ''}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeTab !== 'users' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('users')}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer"
+                >
+                  View User
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setNewUserAlert(null)}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs cursor-pointer"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* =================================================================== */}
         {/* TAB 1: MANAGE USERS */}
         {/* =================================================================== */}
@@ -746,7 +879,17 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => void handleDeleteUser(u)}
+                          onClick={() =>
+                            setPendingDeleteUser({
+                              id: u.id,
+                              name: u.name,
+                              email: u.email,
+                              phone: u.phone,
+                              hardwareId: u.hardwareId,
+                              rawReq: u.rawReq,
+                              rawLic: u.rawLic,
+                            })
+                          }
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
                           title="Delete user record"
                         >
@@ -1060,14 +1203,14 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
               )}
             </div>
 
-            {/* SECTION B: Permanent Google Drive File-ID Overwrite Automation */}
+            {/* SECTION B: Permanent Google Drive File-ID Overwrite Automation (User .APK & User .EXE Only) */}
             <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-5 space-y-4">
               <div>
                 <h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider">
-                  2. Permanent Google Drive File-ID Overwrite (Keep LinkedIn &amp; Website Links Unchanged Forever)
+                  2. Permanent User Google Drive File-ID Overwrite (Keep LinkedIn &amp; Website User Links Unchanged Forever)
                 </h3>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Paste your existing Google Drive share links or File IDs once below. Both <strong>GitHub Actions (`build-installer.yml`)</strong> and the <strong>1-Click Sync</strong> button overwrite the <em>exact same File IDs in-place</em> (`PATCH /upload/drive/v3/files/&#123;fileId&#125;?uploadType=media`), so you never have to re-upload files or change links on LinkedIn or your website!
+                  Paste your existing <strong>User Android App (.APK)</strong> and <strong>User Windows Software (.EXE)</strong> Google Drive share links or File IDs once below. Both <strong>GitHub Actions (`build-installer.yml`)</strong> and the <strong>1-Click Sync</strong> button overwrite these exact User File IDs in-place (`PATCH /upload/drive/v3/files/&#123;fileId&#125;?uploadType=media`), so your User download links on LinkedIn and your website never change. <em>(Master builds are downloaded directly from GitHub by the Master Owner.)</em>
                 </p>
               </div>
 
@@ -1088,6 +1231,11 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                     placeholder="Paste Drive link or File ID (GDRIVE_USER_APK_FILE_ID)"
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
                   />
+                  {driveCfg.userApkFileId && (
+                    <div className="mt-1 text-[10px] font-mono text-slate-400 truncate">
+                      Permanent Link: https://drive.google.com/file/d/{driveCfg.userApkFileId}/view?usp=sharing
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 mb-1">
@@ -1105,40 +1253,11 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                     placeholder="Paste Drive link or File ID (GDRIVE_USER_EXE_FILE_ID)"
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
                   />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                    Master Android App (.APK) — Drive Link or File ID
-                  </label>
-                  <input
-                    type="text"
-                    value={driveCfg.masterApkFileId}
-                    onChange={(e) =>
-                      setDriveCfg((prev) => ({
-                        ...prev,
-                        masterApkFileId: extractGoogleDriveFileId(e.target.value),
-                      }))
-                    }
-                    placeholder="Paste Drive link or File ID (GDRIVE_MASTER_APK_FILE_ID)"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                    Master Windows Software (.EXE) — Drive Link or File ID
-                  </label>
-                  <input
-                    type="text"
-                    value={driveCfg.masterExeFileId}
-                    onChange={(e) =>
-                      setDriveCfg((prev) => ({
-                        ...prev,
-                        masterExeFileId: extractGoogleDriveFileId(e.target.value),
-                      }))
-                    }
-                    placeholder="Paste Drive link or File ID (GDRIVE_MASTER_EXE_FILE_ID)"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
-                  />
+                  {driveCfg.userExeFileId && (
+                    <div className="mt-1 text-[10px] font-mono text-slate-400 truncate">
+                      Permanent Link: https://drive.google.com/file/d/{driveCfg.userExeFileId}/view?usp=sharing
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1162,7 +1281,7 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                       const saved = saveGoogleDriveSyncConfig(driveCfg);
                       setDriveCfg(saved);
                       setDriveSyncStatus(
-                        '✓ Saved Permanent Google Drive File IDs! Your LinkedIn & Website share links will remain identical across all updates.'
+                        '✓ Saved Permanent User Google Drive File IDs (User .APK & User .EXE) to Local & Cloud! Your LinkedIn & Website share links will remain identical across all updates.'
                       );
                     }}
                     className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-white cursor-pointer"
@@ -1181,30 +1300,31 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                           lastSyncedAtIso: new Date().toISOString(),
                         });
                         setDriveCfg(saved);
-                        if (driveAccessToken.trim() && saved.userExeFileId) {
-                          const res = await overwriteGoogleDriveFileInPlace({
-                            fileId: saved.userExeFileId,
+
+                        await publishSoftwareUpdateRelease({
+                          version: newRelVersion.trim(),
+                          title: newRelTitle.trim() || `ESWA Update v${newRelVersion.trim()}`,
+                          releaseNotes: newRelNotes.trim(),
+                          downloadUrl: saved.userExeFileId
+                            ? `https://drive.google.com/uc?export=download&id=${saved.userExeFileId}`
+                            : 'GITHUB_USER_EXE',
+                          targetScope: 'ALL_PCS',
+                          targetIdentifierCsv: 'ALL',
+                          isMandatory: false,
+                        });
+
+                        if (driveAccessToken.trim()) {
+                          const res = await overwriteAllGoogleDriveInstallersInPlace({
+                            config: saved,
                             accessToken: driveAccessToken.trim(),
-                            content: JSON.stringify({
-                              version: newRelVersion,
-                              updatedAtIso: new Date().toISOString(),
-                            }),
-                          });
-                          setDriveSyncStatus(res.message);
-                        } else {
-                          await publishSoftwareUpdateRelease({
                             version: newRelVersion.trim(),
-                            title: newRelTitle.trim() || `ESWA Update v${newRelVersion.trim()}`,
-                            releaseNotes: newRelNotes.trim(),
-                            downloadUrl: saved.userExeFileId
-                              ? `https://drive.google.com/uc?export=download&id=${saved.userExeFileId}`
-                              : 'GITHUB_USER_EXE',
-                            targetScope: 'ALL_PCS',
-                            targetIdentifierCsv: 'ALL',
-                            isMandatory: false,
                           });
                           setDriveSyncStatus(
-                            `✓ Permanent Google Drive File IDs saved & Release v${newRelVersion} synced! GitHub Actions (scripts/update-google-drive-files.mjs) automatically overwrites these exact File IDs on every push.`
+                            `${res.summary} Broadcasted v${newRelVersion} to all User Main Screens!`
+                          );
+                        } else {
+                          setDriveSyncStatus(
+                            `✓ Permanent Google Drive File IDs saved to Cloud & Release v${newRelVersion} broadcasted to all User Main Screens! GitHub Actions (scripts/update-google-drive-files.mjs) automatically overwrites these exact File IDs on every push.`
                           );
                         }
                       } finally {
@@ -1222,6 +1342,70 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           </div>
         )}
       </main>
+
+      {/* Confirm Delete User Modal (Ask OK Button before deleting user) */}
+      {pendingDeleteUser && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
+          <div className="max-w-md w-full bg-slate-900 border-2 border-rose-500/70 rounded-2xl p-5 shadow-2xl space-y-4 text-slate-100">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white">
+                    Confirm User Deletion
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Please press OK to permanently delete this user
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingDeleteUser(null)}
+                className="p-1 text-slate-400 hover:text-white rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1 font-mono">
+              <div className="text-white font-bold text-sm">{pendingDeleteUser.name}</div>
+              <div className="text-slate-400">
+                Email: <span className="text-slate-200">{pendingDeleteUser.email || 'N/A'}</span>
+              </div>
+              <div className="text-slate-400">
+                Mobile: <span className="text-cyan-300">{pendingDeleteUser.phone}</span>
+              </div>
+              <div className="text-slate-400">
+                Device ID: <span className="text-amber-300">{pendingDeleteUser.hardwareId}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteUser(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = pendingDeleteUser;
+                  setPendingDeleteUser(null);
+                  void handleDeleteUser(target);
+                }}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black cursor-pointer shadow-lg"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Full-Screen Photo Preview Lightbox */}
       {previewPhotoUrl && (

@@ -106,7 +106,7 @@ jobs:
           git tag -fa latest -m "Latest Master & User Windows .EXE + Android .APK Build #${{ github.run_number }}"
           git push origin latest --force || true
 
-      - name: Overwrite Permanent Google Drive File IDs In-Place & Broadcast Main Screen Auto-Update
+      - name: Overwrite Permanent User Google Drive File IDs In-Place & Broadcast User Main Screen Auto-Update
         continue-on-error: true
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
@@ -117,8 +117,6 @@ jobs:
           GDRIVE_ACCESS_TOKEN: ${{ secrets.GDRIVE_ACCESS_TOKEN }}
           GDRIVE_USER_APK_FILE_ID: ${{ secrets.GDRIVE_USER_APK_FILE_ID }}
           GDRIVE_USER_EXE_FILE_ID: ${{ secrets.GDRIVE_USER_EXE_FILE_ID }}
-          GDRIVE_MASTER_APK_FILE_ID: ${{ secrets.GDRIVE_MASTER_APK_FILE_ID }}
-          GDRIVE_MASTER_EXE_FILE_ID: ${{ secrets.GDRIVE_MASTER_EXE_FILE_ID }}
         run: node scripts/update-google-drive-files.mjs
 
       - name: Publish 4 Installers (Master .EXE, User .EXE, Master .APK, User .APK) to GitHub Releases

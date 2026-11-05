@@ -63,6 +63,7 @@ import {
   isVerticalShaftLocation,
   normalizeVerticalShaftHalfSide,
 } from '../engine/verticalShaftEngine';
+import { getSurfacePanelLabelMap } from '../engine/surfaceMappingEngine';
 
 export type Field3DViewSubMode = 'open_heading' | 'origami_fold';
 
@@ -2892,13 +2893,21 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     const invLFace = projectTunnel3DPoint(leftInvertNode.nx, leftInvertNode.ny, 0, 'left_wall');
     const invRFace = projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, 0, 'right_wall');
     const invRPortal = projectTunnel3DPoint(rightInvertNode.nx, rightInvertNode.ny, 1, 'right_wall');
-    const invertFloorPts = isVerticalShaft
+    const isSurfaceMappingLoc = Boolean(
+      (activeLocation.mappingDomain && activeLocation.mappingDomain !== 'TUNNEL') ||
+        (activeRound.mappingDomain && activeRound.mappingDomain !== 'TUNNEL')
+    );
+    const hideInvertFloor =
+      isVerticalShaft ||
+      isSurfaceMappingLoc ||
+      (!perimeterData.hasLeftWall && !perimeterData.hasRightWall);
+    const invertFloorPts = hideInvertFloor
       ? ''
       : `${invLPortal.x.toFixed(1)},${invLPortal.y.toFixed(1)} ${invLFace.x.toFixed(1)},${invLFace.y.toFixed(1)} ${invRFace.x.toFixed(1)},${invRFace.y.toFixed(1)} ${invRPortal.x.toFixed(1)},${invRPortal.y.toFixed(1)}`;
 
     const invCenterPortal = projectTunnel3DPoint(0, 1.0, 1);
     const invCenterFace = projectTunnel3DPoint(0, 1.0, 0);
-    const invertRibs = isVerticalShaft
+    const invertRibs = hideInvertFloor
       ? []
       : meterPullFracs.map(({ m, tPull }) => ({
           m,
@@ -3954,61 +3963,14 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                 })()
               ) : (
                 <>
-                  {surfaceMeshes.leftSplFace && surfaceMeshes.leftSplPortal && (
-                    <>
-                      <line
-                        x1={surfaceMeshes.leftSplFace.x}
-                        y1={surfaceMeshes.leftSplFace.y}
-                        x2={surfaceMeshes.leftSplPortal.x}
-                        y2={surfaceMeshes.leftSplPortal.y}
-                        stroke="#0284c7"
-                        strokeWidth="2.6"
-                        strokeDasharray="7 4"
-                      />
-                      <text
-                        x={surfaceMeshes.leftSplPortal.x - 5}
-                        y={surfaceMeshes.leftSplPortal.y - 4}
-                        textAnchor="end"
-                        fontSize="8.5"
-                        fontWeight="900"
-                        fill="#0284c7"
-                        stroke="#ffffff"
-                        strokeWidth="2.2"
-                        paintOrder="stroke"
-                      >
-                        L-SPL (0m)
-                      </text>
-                    </>
-                  )}
-                  {surfaceMeshes.rightSplFace && surfaceMeshes.rightSplPortal && (
-                    <>
-                      <line
-                        x1={surfaceMeshes.rightSplFace.x}
-                        y1={surfaceMeshes.rightSplFace.y}
-                        x2={surfaceMeshes.rightSplPortal.x}
-                        y2={surfaceMeshes.rightSplPortal.y}
-                        stroke="#0284c7"
-                        strokeWidth="2.6"
-                        strokeDasharray="7 4"
-                      />
-                      <text
-                        x={surfaceMeshes.rightSplPortal.x + 5}
-                        y={surfaceMeshes.rightSplPortal.y - 4}
-                        textAnchor="start"
-                        fontSize="8.5"
-                        fontWeight="900"
-                        fill="#0284c7"
-                        stroke="#ffffff"
-                        strokeWidth="2.2"
-                        paintOrder="stroke"
-                      >
-                        R-SPL (0m)
-                      </text>
-                    </>
-                  )}
-
-                  {/* First Outer Grid = 0m -> Going Inward Through Pull (1m, 2m...) on Left Wall, Crown & Right Wall */}
                   {(() => {
+                    const isSurfaceLoc = Boolean(
+                      (activeLocation.mappingDomain && activeLocation.mappingDomain !== 'TUNNEL') ||
+                        (activeRound.mappingDomain && activeRound.mappingDomain !== 'TUNNEL')
+                    );
+                    const surfLabels = getSurfacePanelLabelMap(
+                      activeLocation.mappingDomain || activeRound.mappingDomain || 'TUNNEL'
+                    );
                     const lwNodes = perimeterData.nodes.filter((n) => n.panel === 'left_wall');
                     const rwNodes = perimeterData.nodes.filter((n) => n.panel === 'right_wall');
                     const lwStart = lwNodes[0] || { nx: -0.48, ny: 0.98 };
@@ -4019,6 +3981,67 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
 
                     return (
                       <>
+                        {!isSurfaceLoc &&
+                          perimeterData.hasLeftWall &&
+                          perimeterData.hasCrown &&
+                          surfaceMeshes.leftSplFace &&
+                          surfaceMeshes.leftSplPortal && (
+                            <>
+                              <line
+                                x1={surfaceMeshes.leftSplFace.x}
+                                y1={surfaceMeshes.leftSplFace.y}
+                                x2={surfaceMeshes.leftSplPortal.x}
+                                y2={surfaceMeshes.leftSplPortal.y}
+                                stroke="#0284c7"
+                                strokeWidth="2.6"
+                                strokeDasharray="7 4"
+                              />
+                              <text
+                                x={surfaceMeshes.leftSplPortal.x - 5}
+                                y={surfaceMeshes.leftSplPortal.y - 4}
+                                textAnchor="end"
+                                fontSize="8.5"
+                                fontWeight="900"
+                                fill="#0284c7"
+                                stroke="#ffffff"
+                                strokeWidth="2.2"
+                                paintOrder="stroke"
+                              >
+                                L-SPL (0m)
+                              </text>
+                            </>
+                          )}
+                        {!isSurfaceLoc &&
+                          perimeterData.hasRightWall &&
+                          perimeterData.hasCrown &&
+                          surfaceMeshes.rightSplFace &&
+                          surfaceMeshes.rightSplPortal && (
+                            <>
+                              <line
+                                x1={surfaceMeshes.rightSplFace.x}
+                                y1={surfaceMeshes.rightSplFace.y}
+                                x2={surfaceMeshes.rightSplPortal.x}
+                                y2={surfaceMeshes.rightSplPortal.y}
+                                stroke="#0284c7"
+                                strokeWidth="2.6"
+                                strokeDasharray="7 4"
+                              />
+                              <text
+                                x={surfaceMeshes.rightSplPortal.x + 5}
+                                y={surfaceMeshes.rightSplPortal.y - 4}
+                                textAnchor="start"
+                                fontSize="8.5"
+                                fontWeight="900"
+                                fill="#0284c7"
+                                stroke="#ffffff"
+                                strokeWidth="2.2"
+                                paintOrder="stroke"
+                              >
+                                R-SPL (0m)
+                              </text>
+                            </>
+                          )}
+
                         {perimeterData.hasCrown && (
                           <text
                             x={crOuter.x}
@@ -4031,7 +4054,9 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                             strokeWidth="2.4"
                             paintOrder="stroke"
                           >
-                            CROWN • 0m (Outer Start)
+                            {isSurfaceLoc
+                              ? `${surfLabels.crown.shortLabel.toUpperCase()} • 0m`
+                              : 'CROWN • 0m (Outer Start)'}
                           </text>
                         )}
 
@@ -4048,7 +4073,9 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                               strokeWidth="2.4"
                               paintOrder="stroke"
                             >
-                              0m (L.Wall Start)
+                              {isSurfaceLoc
+                                ? `0m (${surfLabels.leftWall.shortLabel})`
+                                : '0m (L.Wall Start)'}
                             </text>
                             {show1mGrid &&
                               surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {
@@ -4091,7 +4118,9 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
                               strokeWidth="2.4"
                               paintOrder="stroke"
                             >
-                              0m (R.Wall Start)
+                              {isSurfaceLoc
+                                ? `0m (${surfLabels.rightWall.shortLabel})`
+                                : '0m (R.Wall Start)'}
                             </text>
                             {show1mGrid &&
                               surfaceMeshes.meterPullFracs.map(({ m, tPull }) => {

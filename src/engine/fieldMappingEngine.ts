@@ -4644,10 +4644,14 @@ export function getLocationSurfaceConfig(
   }
 
   const isSinglePanelSurface = Boolean((location as any).singlePanelOnly);
-  const isOpenNoLeft = location.shape === 'open_slush_no_left' || isSinglePanelSurface;
-  const isOpenNoRight = location.shape === 'open_slush_no_right' || isSinglePanelSurface;
-  const isOpenNoCrown = location.shape === 'open_slush_no_crown' || isSinglePanelSurface;
+  const explicitNoLeft = (location as any).hasLeftWall === false;
+  const explicitNoRight = (location as any).hasRightWall === false;
+  const explicitNoCrown = (location as any).hasCrown === false;
+  const isOpenNoLeft = location.shape === 'open_slush_no_left' || isSinglePanelSurface || explicitNoLeft;
+  const isOpenNoRight = location.shape === 'open_slush_no_right' || isSinglePanelSurface || explicitNoRight;
+  const isOpenNoCrown = location.shape === 'open_slush_no_crown' || isSinglePanelSurface || explicitNoCrown;
   const isOpenPreset = isOpenNoLeft || isOpenNoRight || isOpenNoCrown;
+  const isSurfaceDomain = Boolean(location.mappingDomain && location.mappingDomain !== 'TUNNEL');
 
   // Isolated delegation for Vertical Shaft mode (Tunnel mode continues untouched below)
   if (location.undergroundSubMode === 'vertical_shaft') {
@@ -4656,7 +4660,7 @@ export function getLocationSurfaceConfig(
 
   return {
     isCustom: false,
-    isClosed: !isOpenPreset || isSinglePanelSurface,
+    isClosed: !isOpenPreset || isSinglePanelSurface || isSurfaceDomain,
     hasLeftWall: !isOpenNoLeft,
     hasRightWall: !isOpenNoRight,
     hasCrown: !isOpenNoCrown,
@@ -4736,14 +4740,20 @@ export function computePanelCanvasGeometry(
   } = surf;
   const crownRiseM = Number(Math.max(0.2, tunnelH - splHeightM).toFixed(2));
   const splRatio = Math.max(0.15, Math.min(0.88, splHeightM / Math.max(0.5, tunnelH)));
-  const pullM = Math.max(0.5, Number(round.pullLengthMeters) || 3.0);
+  const bermDepthOverride = Number((location as any).bermDepthM);
+  const pullM =
+    (location.mappingDomain === 'BENCH' || location.mappingDomain === 'SLOPE') &&
+    Number.isFinite(bermDepthOverride) &&
+    bermDepthOverride > 0
+      ? Math.max(0.5, bermDepthOverride)
+      : Math.max(0.5, Number(round.pullLengthMeters) || 3.0);
 
   let panelWidthM = tunnelW;
   let panelHeightM = tunnelH;
   if (panel === 'crown') {
-    // Crown arch is horizontal across the tunnel profile:
-    // Width = developed arch length (Left SPL -> Crown Apex -> Right SPL)
-    // Height = advance pull length (0m at bottom / prev round -> 3m on top / face)
+    // Crown arch is horizontal across the tunnel profile (or Upper Berm / Catch Berm / Trench Floor):
+    // Width = developed arch length / bench span
+    // Height = advance pull length / berm width
     panelWidthM = Math.max(0.5, crownLengthM || tunnelW);
     panelHeightM = pullM;
   } else if (panel === 'left_wall') {
@@ -10663,6 +10673,25 @@ export function getExcavationBenchConfig(
   const topHeadingHeightM = Number(Math.max(0.2, totalHeightM - benchHeightM).toFixed(2));
   const benchRatioFromInvert = Math.min(0.95, Math.max(0.05, benchHeightM / totalHeightM));
 
+  // Surface Mapping never divides or hatches the canvas into an "unexcavated" or "top heading" zone
+  const isSurfaceDomain =
+    (round?.mappingDomain && round.mappingDomain !== 'TUNNEL') ||
+    (location?.mappingDomain && location.mappingDomain !== 'TUNNEL');
+  if (isSurfaceDomain) {
+    return {
+      hasBenchDivision: false,
+      methodCategory: 'full_face',
+      hatchZone: 'none',
+      totalHeightM,
+      benchHeightM,
+      topHeadingHeightM,
+      benchRatioFromInvert,
+      activePortionLabel: `FULL SURFACE (H = ${totalHeightM.toFixed(2)}m)`,
+      hatchedPortionLabel: '',
+      benchLineLabel: '',
+    };
+  }
+
   const ap = (round?.excavationApproach || '').trim().toLowerCase();
   if (ap.includes('heading') && ap.includes('bench')) {
     return {
@@ -10750,6 +10779,23 @@ export function getPanelActiveExcavationBounds(
   const geom = computePanelCanvasGeometry(panel, location, round);
   const fullTop = geom.boxY;
   const fullBottom = geom.boxY + geom.boxH;
+
+  if (
+    (round?.mappingDomain && round.mappingDomain !== 'TUNNEL') ||
+    (location?.mappingDomain && location.mappingDomain !== 'TUNNEL')
+  ) {
+    return {
+      hasBenchDivision: false,
+      hatchZone: 'none',
+      isPanelFullyLocked: false,
+      minY: fullTop,
+      maxY: fullBottom,
+      benchY: null,
+      hatchMinY: null,
+      hatchMaxY: null,
+      lockedReasonLabel: '',
+    };
+  }
 
   if (location.undergroundSubMode === 'vertical_shaft') {
     const active = isVerticalShaftPanelActive(panel, round);

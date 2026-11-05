@@ -3842,7 +3842,7 @@ export default function App({
     />
   );
 
-  const probeHoleDrillingModalNode = (
+  const probeHoleDrillingModalNode = isProbeHoleDrillingOpen ? (
     <ProbeHoleDrillingModal
       isOpen={isProbeHoleDrillingOpen}
       onClose={() => setIsProbeHoleDrillingOpen(false)}
@@ -3854,9 +3854,9 @@ export default function App({
       tunnelHeightMeters={geometry.height > 0 ? geometry.height : 8.5}
       onOpenGroutingWindow={() => setIsGroutingModalOpen(true)}
     />
-  );
+  ) : null;
 
-  const groutingModalNode = (
+  const groutingModalNode = isGroutingModalOpen ? (
     <GroutingAnalysisModal
       isOpen={isGroutingModalOpen}
       onClose={() => setIsGroutingModalOpen(false)}
@@ -3866,7 +3866,7 @@ export default function App({
       defaultEngineerName={activeGeologist?.name || settings.mappedBy || 'Senior Geotechnical Engineer'}
       onOpenProbeHoleWindow={() => setIsProbeHoleDrillingOpen(true)}
     />
-  );
+  ) : null;
 
   const continuousLoggingModalsNode = (
     <>

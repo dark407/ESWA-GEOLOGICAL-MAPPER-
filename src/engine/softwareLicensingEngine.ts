@@ -11,7 +11,9 @@ import {
 } from 'firebase/firestore';
 import {
   db,
+  firestoreCloudPermissionDenied,
   handleFirestoreError,
+  markFirestoreCloudPermissionDenied,
   OperationType,
   sendGmailMessage,
 } from '../firebase';
@@ -51,6 +53,7 @@ const LOCAL_MIRROR_LICENSES_KEY = 'eswa_mirror_licenses_v1';
 const LOCAL_MIRROR_RELEASES_KEY = 'eswa_mirror_releases_v1';
 const LOCAL_MIRROR_MASTER_PCS_KEY = 'eswa_mirror_master_pcs_v1';
 const LOCAL_DELETED_TOMBSTONES_KEY = 'eswa_deleted_user_tombstones_v1';
+const CLOUD_TOMBSTONE_REGISTRY_DOC_ID = 'DELETED_USERS_TOMBSTONE_REGISTRY';
 
 function readDeletedTombstones(): Record<string, string> {
   try {
@@ -63,17 +66,38 @@ function readDeletedTombstones(): Record<string, string> {
   }
 }
 
-function markIdsDeletedTombstone(ids: string[]): void {
+function markIdsDeletedTombstone(ids: string[], deletedAtIso?: string): void {
   try {
     const current = readDeletedTombstones();
-    const nowIso = new Date().toISOString();
+    const stamp = deletedAtIso || new Date().toISOString();
     for (const rawId of ids) {
       const clean = (rawId || '').trim().toLowerCase();
       if (clean) {
-        current[clean] = nowIso;
+        current[clean] = stamp;
       }
     }
     localStorage.setItem(LOCAL_DELETED_TOMBSTONES_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function mergeDeletedTombstonesMap(remoteTombstones: Record<string, string>): void {
+  try {
+    const current = readDeletedTombstones();
+    let changed = false;
+    for (const [rawKey, rawStamp] of Object.entries(remoteTombstones || {})) {
+      const clean = (rawKey || '').trim().toLowerCase();
+      const stamp = String(rawStamp || '').trim();
+      if (!clean || !stamp) continue;
+      if (!current[clean] || stamp > current[clean]) {
+        current[clean] = stamp;
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(LOCAL_DELETED_TOMBSTONES_KEY, JSON.stringify(current));
+    }
   } catch {
     // Ignore storage errors
   }
@@ -98,31 +122,48 @@ function unmarkIdsDeletedTombstone(ids: string[]): void {
   }
 }
 
-function isIdDeletedTombstone(id: string | undefined, _createdAtIso?: string): boolean {
+function isIdDeletedTombstone(id: string | undefined, recordTimeIso?: string): boolean {
   if (!id) return false;
   const clean = id.trim().toLowerCase();
   if (!clean) return false;
   const tombstones = readDeletedTombstones();
-  return Boolean(tombstones[clean]);
+  const deletedAtIso = tombstones[clean];
+  if (!deletedAtIso) return false;
+  // If the user genuinely registered again AFTER being deleted, allow the new registration with its new date & time
+  if (recordTimeIso && recordTimeIso > deletedAtIso) {
+    return false;
+  }
+  return true;
 }
 
 function isRequestTombstoned(r: AccessRequestRecord | null | undefined): boolean {
   if (!r) return false;
+  const recTime = r.createdAtIso;
+  const synthDevReqId = sanitizeIdentifier(
+    `req_dev_${r.pcHardwareId || r.email || r.fullName || ''}`
+  );
   return (
-    isIdDeletedTombstone(r.requestId) ||
-    isIdDeletedTombstone(r.assignedUserId) ||
-    isIdDeletedTombstone(r.pcHardwareId) ||
-    isIdDeletedTombstone(r.email)
+    isIdDeletedTombstone(r.requestId, recTime) ||
+    isIdDeletedTombstone(r.assignedUserId, recTime) ||
+    isIdDeletedTombstone(r.pcHardwareId, recTime) ||
+    isIdDeletedTombstone(r.email, recTime) ||
+    isIdDeletedTombstone(synthDevReqId, recTime)
   );
 }
 
 function isLicenseTombstoned(l: SoftwareLicenseRecord | null | undefined): boolean {
   if (!l) return false;
+  const recTime =
+    l.lastSeenAtIso && l.createdAtIso
+      ? l.lastSeenAtIso > l.createdAtIso
+        ? l.lastSeenAtIso
+        : l.createdAtIso
+      : l.lastSeenAtIso || l.createdAtIso;
   return (
-    isIdDeletedTombstone(l.userId) ||
-    isIdDeletedTombstone(`req_${l.userId}`) ||
-    isIdDeletedTombstone(l.boundPcHardwareId) ||
-    isIdDeletedTombstone(l.email)
+    isIdDeletedTombstone(l.userId, recTime) ||
+    isIdDeletedTombstone(`req_${l.userId}`, recTime) ||
+    isIdDeletedTombstone(l.boundPcHardwareId, recTime) ||
+    isIdDeletedTombstone(l.email, recTime)
   );
 }
 
@@ -173,6 +214,10 @@ function removeMirrorItem<T>(
 }
 
 function withFirestoreTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
+  if (firestoreCloudPermissionDenied) {
+    promise.catch(() => {});
+    return Promise.reject(new Error('FIRESTORE_TIMEOUT_OFFLINE_FALLBACK'));
+  }
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const effectiveTimeout = isOffline ? 1200 : ms;
   return new Promise<T>((resolve, reject) => {
@@ -186,6 +231,10 @@ function withFirestoreTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
       })
       .catch((err) => {
         clearTimeout(timer);
+        const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+        if (msg.includes('permission') || msg.includes('insufficient')) {
+          markFirestoreCloudPermissionDenied();
+        }
         reject(err);
       });
   });
@@ -197,6 +246,8 @@ function isOfflineOrTimeoutError(error: unknown): boolean {
     msg.includes('firestore_timeout_offline_fallback') ||
     msg.includes('client is offline') ||
     msg.includes('could not reach cloud firestore') ||
+    msg.includes('permission') ||
+    msg.includes('insufficient') ||
     msg.includes('unavailable') ||
     msg.includes('network')
   );
@@ -258,15 +309,15 @@ function fromFirestoreRestFields<T>(
 }
 
 function getServerRelayUrls(subpath: string): string[] {
-  const urls = new Set<string>();
   if (
     typeof window !== 'undefined' &&
     (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
     window.location.origin &&
     window.location.origin !== 'null'
   ) {
-    urls.add(subpath);
+    return [subpath];
   }
+  const urls = new Set<string>();
   const shareOrigin = getPublicShareOrigin();
   if (shareOrigin) {
     urls.add(`${shareOrigin}${subpath}`);
@@ -344,12 +395,7 @@ async function serverRelayFetchCollection<T>(
         if (!resp.ok) return [] as T[];
         const data = (await resp.json()) as Record<string, unknown>;
         if (data?.deleted_tombstones && typeof data.deleted_tombstones === 'object') {
-          const srvTombstones = Object.keys(
-            data.deleted_tombstones as Record<string, string>
-          );
-          if (srvTombstones.length > 0) {
-            markIdsDeletedTombstone(srvTombstones);
-          }
+          mergeDeletedTombstonesMap(data.deleted_tombstones as Record<string, string>);
         }
         const arr = data?.[collectionName];
         return Array.isArray(arr) ? (arr as T[]) : ([] as T[]);
@@ -365,11 +411,15 @@ async function firestoreRestSetDoc(
   collectionName: string,
   docId: string,
   record: Record<string, unknown>,
-  createOnly = false
+  createOnly = false,
+  clearTombstone = false
 ): Promise<boolean> {
+  if (firestoreCloudPermissionDenied) {
+    return serverRelayUpsert(collectionName, docId, record, clearTombstone);
+  }
   const fields = toFirestoreRestFields(record);
   const [relayOk, ...restResults] = await Promise.all([
-    serverRelayUpsert(collectionName, docId, record),
+    serverRelayUpsert(collectionName, docId, record, clearTombstone),
     ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
       try {
         const maskQuery = createOnly ? '&currentDocument.exists=false' : '';
@@ -381,6 +431,10 @@ async function firestoreRestSetDoc(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields }),
         });
+        if (resp.status === 403 || resp.status === 401) {
+          markFirestoreCloudPermissionDenied();
+          return false;
+        }
         return resp.ok || (createOnly && resp.status === 400);
       } catch {
         return false;
@@ -397,6 +451,9 @@ async function firestoreRestUpdateDoc(
 ): Promise<boolean> {
   const keys = Object.keys(updates).filter((k) => updates[k] !== undefined);
   if (keys.length === 0) return true;
+  if (firestoreCloudPermissionDenied) {
+    return serverRelayUpsert(collectionName, docId, updates);
+  }
   const maskParams = keys
     .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
     .join('&');
@@ -414,6 +471,10 @@ async function firestoreRestUpdateDoc(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields }),
         });
+        if (resp.status === 403 || resp.status === 401) {
+          markFirestoreCloudPermissionDenied();
+          return false;
+        }
         return resp.ok;
       } catch {
         return false;
@@ -435,21 +496,27 @@ async function firestoreRestGetDoc<T>(
         | 'software_releases'
         | 'master_pcs'
     ),
-    ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
-      try {
-        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}/${encodeURIComponent(
-          docId
-        )}?key=${ep.apiKey}`;
-        const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-        if (!resp.ok) return null;
-        const json = (await resp.json()) as {
-          fields?: Record<string, FirestoreRestFieldValue>;
-        };
-        return fromFirestoreRestFields<T>(json.fields);
-      } catch {
-        return null;
-      }
-    }),
+    ...(firestoreCloudPermissionDenied
+      ? []
+      : FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+          try {
+            const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}/${encodeURIComponent(
+              docId
+            )}?key=${ep.apiKey}`;
+            const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+            if (resp.status === 403 || resp.status === 401) {
+              markFirestoreCloudPermissionDenied();
+              return null;
+            }
+            if (!resp.ok) return null;
+            const json = (await resp.json()) as {
+              fields?: Record<string, FirestoreRestFieldValue>;
+            };
+            return fromFirestoreRestFields<T>(json.fields);
+          } catch {
+            return null;
+          }
+        })),
   ]);
 
   const relayMatch =
@@ -480,16 +547,21 @@ async function firestoreRestDeleteDoc(
 ): Promise<void> {
   await Promise.all([
     serverRelayDelete(collectionName, docId, relatedIds),
-    ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
-      try {
-        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}/${encodeURIComponent(
-          docId
-        )}?key=${ep.apiKey}`;
-        await fetch(url, { method: 'DELETE' });
-      } catch {
-        // Ignore
-      }
-    }),
+    ...(firestoreCloudPermissionDenied
+      ? []
+      : FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+          try {
+            const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}/${encodeURIComponent(
+              docId
+            )}?key=${ep.apiKey}`;
+            const resp = await fetch(url, { method: 'DELETE' });
+            if (resp.status === 403 || resp.status === 401) {
+              markFirestoreCloudPermissionDenied();
+            }
+          } catch {
+            // Ignore
+          }
+        })),
   ]);
 }
 
@@ -505,78 +577,92 @@ async function firestoreRestQueryCollection<T>(
         | 'software_releases'
         | 'master_pcs'
     ),
-    ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
-      const parsed: T[] = [];
-      try {
-        // 1. Direct collection list (discovers ALL records even if portalScope was omitted or differs)
-        const listUrl = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}?pageSize=300&key=${ep.apiKey}`;
-        const listResp = await fetch(listUrl, { method: 'GET', cache: 'no-store' });
-        if (listResp.ok) {
-          const listJson = (await listResp.json()) as {
-            documents?: Array<{
-              name?: string;
-              fields?: Record<string, FirestoreRestFieldValue>;
-            }>;
-          };
-          if (Array.isArray(listJson.documents)) {
-            for (const docObj of listJson.documents) {
-              const item = fromFirestoreRestFields<T>(docObj?.fields);
-              if (item) {
-                const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
-                const recAny = item as unknown as Record<string, unknown>;
-                if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
-                  recAny.requestId = docIdTail;
-                } else if (collectionName === 'software_licenses' && !recAny.userId && docIdTail) {
-                  recAny.userId = docIdTail;
-                }
-                if (idGetter(item)) {
-                  parsed.push(item);
+    ...(firestoreCloudPermissionDenied
+      ? []
+      : FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+          const parsed: T[] = [];
+          try {
+            // 1. Direct collection list (discovers ALL records even if portalScope was omitted or differs)
+            const listUrl = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}?pageSize=300&key=${ep.apiKey}`;
+            const listResp = await fetch(listUrl, { method: 'GET', cache: 'no-store' });
+            if (listResp.status === 403 || listResp.status === 401) {
+              markFirestoreCloudPermissionDenied();
+              return parsed;
+            }
+            if (listResp.ok) {
+              const listJson = (await listResp.json()) as {
+                documents?: Array<{
+                  name?: string;
+                  fields?: Record<string, FirestoreRestFieldValue>;
+                }>;
+              };
+              if (Array.isArray(listJson.documents)) {
+                for (const docObj of listJson.documents) {
+                  const item = fromFirestoreRestFields<T>(docObj?.fields);
+                  if (item) {
+                    const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
+                    const recAny = item as unknown as Record<string, unknown>;
+                    if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
+                      recAny.requestId = docIdTail;
+                    } else if (
+                      collectionName === 'software_licenses' &&
+                      !recAny.userId &&
+                      docIdTail
+                    ) {
+                      recAny.userId = docIdTail;
+                    }
+                    if (idGetter(item)) {
+                      parsed.push(item);
+                    }
+                  }
                 }
               }
             }
+          } catch {
+            // Fallback to structuredQuery below
           }
-        }
-      } catch {
-        // Fallback to structuredQuery below
-      }
 
-      if (parsed.length > 0) return parsed;
+          if (parsed.length > 0 || firestoreCloudPermissionDenied) return parsed;
 
-      try {
-        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [{ collectionId: collectionName }],
-              where: {
-                fieldFilter: {
-                  field: { fieldPath: 'portalScope' },
-                  op: 'EQUAL',
-                  value: { stringValue: PORTAL_SCOPE },
+          try {
+            const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              body: JSON.stringify({
+                structuredQuery: {
+                  from: [{ collectionId: collectionName }],
+                  where: {
+                    fieldFilter: {
+                      field: { fieldPath: 'portalScope' },
+                      op: 'EQUAL',
+                      value: { stringValue: PORTAL_SCOPE },
+                    },
+                  },
                 },
-              },
-            },
-          }),
-        });
-        if (!resp.ok) return [] as T[];
-        const rows = (await resp.json()) as Array<{
-          document?: { fields?: Record<string, FirestoreRestFieldValue> };
-        }>;
-        if (!Array.isArray(rows)) return [] as T[];
-        for (const row of rows) {
-          const item = fromFirestoreRestFields<T>(row?.document?.fields);
-          if (item && idGetter(item)) {
-            parsed.push(item);
+              }),
+            });
+            if (resp.status === 403 || resp.status === 401) {
+              markFirestoreCloudPermissionDenied();
+              return [] as T[];
+            }
+            if (!resp.ok) return [] as T[];
+            const rows = (await resp.json()) as Array<{
+              document?: { fields?: Record<string, FirestoreRestFieldValue> };
+            }>;
+            if (!Array.isArray(rows)) return [] as T[];
+            for (const row of rows) {
+              const item = fromFirestoreRestFields<T>(row?.document?.fields);
+              if (item && idGetter(item)) {
+                parsed.push(item);
+              }
+            }
+            return parsed;
+          } catch {
+            return [] as T[];
           }
-        }
-        return parsed;
-      } catch {
-        return [] as T[];
-      }
-    }),
+        })),
   ]);
 
   // Merge records from Server Relay + Primary Firestore (analog-bricolage-rf38q) + Secondary Firestore
@@ -593,15 +679,21 @@ async function firestoreRestQueryCollection<T>(
         const exRec = existing as unknown as {
           status?: string;
           lastSeenAtIso?: string;
+          createdAtIso?: string;
         };
         const newRec = item as unknown as {
           status?: string;
           lastSeenAtIso?: string;
+          createdAtIso?: string;
         };
-        if (
-          exRec.lastSeenAtIso &&
-          newRec.lastSeenAtIso &&
-          newRec.lastSeenAtIso > exRec.lastSeenAtIso
+        const exStamp = exRec.lastSeenAtIso || exRec.createdAtIso || '';
+        const newStamp = newRec.lastSeenAtIso || newRec.createdAtIso || '';
+        if (newStamp && exStamp && newStamp > exStamp) {
+          mergedMap.set(id, item);
+        } else if (
+          newRec.createdAtIso &&
+          exRec.createdAtIso &&
+          newRec.createdAtIso > exRec.createdAtIso
         ) {
           mergedMap.set(id, item);
         } else if (
@@ -1632,7 +1724,17 @@ export async function registerInstantUserAndLogin(input: {
   };
 
   // Save session locally immediately so the user enters the app with 0ms wait
-  unmarkIdsDeletedTombstone([userId, reqId, validHwId, validEmail]);
+  const synthDevReqId = sanitizeIdentifier(`req_dev_${validHwId}`);
+  const synthEmailReqId = sanitizeIdentifier(`req_dev_${validEmail}`);
+  const unmarkList = [
+    userId,
+    reqId,
+    validHwId,
+    validEmail,
+    synthDevReqId,
+    synthEmailReqId,
+  ];
+  unmarkIdsDeletedTombstone(unmarkList);
   const session: ActivatedClientSession = {
     userId: licenseRecord.userId,
     fullName: licenseRecord.fullName,
@@ -1674,26 +1776,50 @@ export async function registerInstantUserAndLogin(input: {
   }
 
   // Sync to all 3 cloud channels (Server Relay + Primary & Secondary Firestore REST + Firebase SDK)
+  // Pass clearTombstone = true so re-registering users clear any previous deletion tombstone and get the new date & time
+  const updatedTombstoneRegistry: SoftwareReleaseRecord = {
+    releaseId: CLOUD_TOMBSTONE_REGISTRY_DOC_ID,
+    portalScope: PORTAL_SCOPE,
+    version: CURRENT_SOFTWARE_VERSION,
+    title: 'DELETED_USERS_TOMBSTONE_REGISTRY',
+    releaseNotes: JSON.stringify(readDeletedTombstones()),
+    downloadUrl: 'INTERNAL_TOMBSTONES',
+    targetScope: 'ALL_PCS',
+    targetIdentifierCsv: 'NONE',
+    isMandatory: false,
+    status: 'ARCHIVED',
+    publishedAtIso: nowIso,
+    adminAuthSig: ADMIN_AUTH_SIG,
+  };
+
   await Promise.all([
-    serverRelayUpsert(
-      'software_licenses',
-      userId,
-      licenseRecord as unknown as Record<string, unknown>,
-      true
-    ),
     firestoreRestSetDoc(
       'software_licenses',
       userId,
-      licenseRecord as unknown as Record<string, unknown>
+      licenseRecord as unknown as Record<string, unknown>,
+      false,
+      true
     ),
-    serverRelayUpsert(
+    firestoreRestSetDoc(
       'access_requests',
       reqId,
       requestRecord as unknown as Record<string, unknown>,
+      false,
       true
+    ),
+    firestoreRestSetDoc(
+      'software_releases',
+      CLOUD_TOMBSTONE_REGISTRY_DOC_ID,
+      updatedTombstoneRegistry as unknown as Record<string, unknown>,
+      false,
+      false
     ),
     withFirestoreTimeout(
       setDoc(doc(db, 'software_licenses', userId), licenseRecord),
+      3500
+    ).catch(() => {}),
+    withFirestoreTimeout(
+      setDoc(doc(db, 'access_requests', reqId), requestRecord),
       3500
     ).catch(() => {}),
   ]);
@@ -1988,22 +2114,24 @@ export function subscribeAccessRequestById(
   window.addEventListener('eswa-licensing-mirror-updated', onLocalEvent);
   window.addEventListener('storage', onLocalEvent);
 
-  const unsub = onSnapshot(
-    doc(db, 'access_requests', cleanId),
-    async (snap) => {
-      if (!snap.exists()) return;
-      const remote = snap.data() as AccessRequestRecord;
-      upsertMirrorItem(LOCAL_MIRROR_REQUESTS_KEY, remote, (x) => x.requestId);
-      const lic =
-        remote.status === 'APPROVED' && remote.assignedUserId
-          ? await getSoftwareLicenseById(remote.assignedUserId)
-          : null;
-      onUpdate(remote, lic);
-    },
-    () => {
-      // Ignore offline snapshot errors
-    }
-  );
+  const unsub = firestoreCloudPermissionDenied
+    ? () => {}
+    : onSnapshot(
+        doc(db, 'access_requests', cleanId),
+        async (snap) => {
+          if (!snap.exists()) return;
+          const remote = snap.data() as AccessRequestRecord;
+          upsertMirrorItem(LOCAL_MIRROR_REQUESTS_KEY, remote, (x) => x.requestId);
+          const lic =
+            remote.status === 'APPROVED' && remote.assignedUserId
+              ? await getSoftwareLicenseById(remote.assignedUserId)
+              : null;
+          onUpdate(remote, lic);
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
 
   return () => {
     window.clearInterval(pollTimer);
@@ -2626,6 +2754,18 @@ export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise
     )
   );
 
+  const synthDeviceIds = Array.from(targetHwIds).flatMap((hw) => [
+    hw,
+    sanitizeIdentifier(hw),
+    sanitizeIdentifier(`req_dev_${hw}`),
+    sanitizeIdentifier(`usr_dev_${hw}`),
+  ]);
+  const synthEmailIds = Array.from(targetEmails).flatMap((em) => [
+    em,
+    sanitizeIdentifier(`req_dev_${em}`),
+    sanitizeIdentifier(`usr_dev_${em}`),
+  ]);
+
   const allTombstoneIds = Array.from(
     new Set(
       [
@@ -2635,14 +2775,16 @@ export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise
         candidateReqId,
         ...allUserIdsToPurge,
         ...allReqIdsToPurge,
-        ...Array.from(targetHwIds),
-        ...Array.from(targetEmails),
+        ...synthDeviceIds,
+        ...synthEmailIds,
       ].filter(Boolean)
     )
   );
 
-  // 1. Record permanent tombstones so background sync never resurrects this person
-  markIdsDeletedTombstone(allTombstoneIds);
+  // 1. Record permanent tombstones with deletion timestamp so background sync never resurrects this person
+  //    (unless they genuinely register again later with a strictly newer timestamp)
+  const deletedAtIso = new Date().toISOString();
+  markIdsDeletedTombstone(allTombstoneIds, deletedAtIso);
 
   // 2. Immediately purge from local mirrors so UI updates in 0ms
   const remainingLics = allLicenses.filter(
@@ -2654,8 +2796,38 @@ export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise
   writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, remainingLics);
   writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, remainingReqs);
 
-  // 3. Delete across Server Relay, Firestore REST API, and Firebase SDK (NO parallel PATCH that could recreate docs!)
+  // Persist tombstone registry to Cloud Firestore so all Master devices and sessions honor the deletion
+  const tombstoneRegistryDoc: SoftwareReleaseRecord = {
+    releaseId: CLOUD_TOMBSTONE_REGISTRY_DOC_ID,
+    portalScope: PORTAL_SCOPE,
+    version: CURRENT_SOFTWARE_VERSION,
+    title: 'DELETED_USERS_TOMBSTONE_REGISTRY',
+    releaseNotes: JSON.stringify(readDeletedTombstones()),
+    downloadUrl: 'INTERNAL_TOMBSTONES',
+    targetScope: 'ALL_PCS',
+    targetIdentifierCsv: 'NONE',
+    isMandatory: false,
+    status: 'ARCHIVED',
+    publishedAtIso: deletedAtIso,
+    adminAuthSig: ADMIN_AUTH_SIG,
+  };
+
+  const rawHwIds = Array.from(
+    new Set(
+      [
+        ...matchingLicenses.map((l) => (l.boundPcHardwareId || '').trim()),
+        ...matchingRequests.map((r) => (r.pcHardwareId || '').trim()),
+      ].filter(Boolean)
+    )
+  );
+
+  // 3. Delete across Server Relay, Firestore REST API, Firebase SDK, and device_directory
   await Promise.all([
+    firestoreRestSetDoc(
+      'software_releases',
+      CLOUD_TOMBSTONE_REGISTRY_DOC_ID,
+      tombstoneRegistryDoc as unknown as Record<string, unknown>
+    ),
     ...allUserIdsToPurge.flatMap((uid) => [
       firestoreRestDeleteDoc('software_licenses', uid, allTombstoneIds),
       withFirestoreTimeout(deleteDoc(doc(db, 'software_licenses', uid)), 3500).catch(
@@ -2665,6 +2837,12 @@ export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise
     ...allReqIdsToPurge.flatMap((reqId) => [
       firestoreRestDeleteDoc('access_requests', reqId, allTombstoneIds),
       withFirestoreTimeout(deleteDoc(doc(db, 'access_requests', reqId)), 3500).catch(
+        () => {}
+      ),
+    ]),
+    ...rawHwIds.flatMap((hwId) => [
+      firestoreRestDeleteDoc('device_directory', hwId, allTombstoneIds),
+      withFirestoreTimeout(deleteDoc(doc(db, 'device_directory', hwId)), 3500).catch(
         () => {}
       ),
     ]),
@@ -3088,13 +3266,17 @@ export function subscribeUserAccountStatus(
         onStatusChange('REVOKED', null);
         return;
       }
-      if (!lic) {
+      if (!lic && !firestoreCloudPermissionDenied) {
         // Check if Firestore REST explicitly returns 404 (deleted by Master Admin)
         const ep = FIRESTORE_REST_ENDPOINTS[0];
         const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/software_licenses/${encodeURIComponent(
           cleanUserId
         )}?key=${ep.apiKey}`;
         const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+        if (resp.status === 403 || resp.status === 401) {
+          markFirestoreCloudPermissionDenied();
+          return;
+        }
         if (resp.status === 404) {
           removeMirrorItem<SoftwareLicenseRecord>(
             LOCAL_MIRROR_LICENSES_KEY,
@@ -3125,41 +3307,43 @@ export function subscribeUserAccountStatus(
   window.addEventListener('focus', handleFocus);
   document.addEventListener('visibilitychange', handleFocus);
 
-  const unsub = onSnapshot(
-    doc(db, 'software_licenses', cleanUserId),
-    (snap) => {
-      const fromCache = Boolean(
-        (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
-      );
-      if (!snap.exists()) {
-        if (!fromCache || hasSeenRemoteExistence) {
-          removeMirrorItem<SoftwareLicenseRecord>(
-            LOCAL_MIRROR_LICENSES_KEY,
-            cleanUserId,
-            (x) => sanitizeIdentifier(x.userId)
+  const unsub = firestoreCloudPermissionDenied
+    ? () => {}
+    : onSnapshot(
+        doc(db, 'software_licenses', cleanUserId),
+        (snap) => {
+          const fromCache = Boolean(
+            (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
           );
-          onStatusChange('REVOKED', null);
+          if (!snap.exists()) {
+            if (!fromCache || hasSeenRemoteExistence) {
+              removeMirrorItem<SoftwareLicenseRecord>(
+                LOCAL_MIRROR_LICENSES_KEY,
+                cleanUserId,
+                (x) => sanitizeIdentifier(x.userId)
+              );
+              onStatusChange('REVOKED', null);
+            }
+            return;
+          }
+          hasSeenRemoteExistence = true;
+          const data = snap.data() as SoftwareLicenseRecord;
+          if (isLicenseTombstoned(data)) {
+            removeMirrorItem<SoftwareLicenseRecord>(
+              LOCAL_MIRROR_LICENSES_KEY,
+              cleanUserId,
+              (x) => sanitizeIdentifier(x.userId)
+            );
+            onStatusChange('REVOKED', null);
+            return;
+          }
+          upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, data, (x) => x.userId);
+          onStatusChange(data.status, data);
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
         }
-        return;
-      }
-      hasSeenRemoteExistence = true;
-      const data = snap.data() as SoftwareLicenseRecord;
-      if (isLicenseTombstoned(data)) {
-        removeMirrorItem<SoftwareLicenseRecord>(
-          LOCAL_MIRROR_LICENSES_KEY,
-          cleanUserId,
-          (x) => sanitizeIdentifier(x.userId)
-        );
-        onStatusChange('REVOKED', null);
-        return;
-      }
-      upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, data, (x) => x.userId);
-      onStatusChange(data.status, data);
-    },
-    () => {
-      // Handled by 2.5s REST poll
-    }
-  );
+      );
 
   return () => {
     window.clearInterval(pollTimer);
@@ -3195,23 +3379,38 @@ function mergeById<T>(
       const exRec = existing as unknown as {
         status?: string;
         lastSeenAtIso?: string;
+        createdAtIso?: string;
       };
       const newRec = item as unknown as {
         status?: string;
         lastSeenAtIso?: string;
+        createdAtIso?: string;
       };
-      if (
-        exRec.lastSeenAtIso &&
-        newRec.lastSeenAtIso &&
-        exRec.lastSeenAtIso > newRec.lastSeenAtIso
-      ) {
+      const exTime = exRec.lastSeenAtIso || exRec.createdAtIso || '';
+      const newTime = newRec.lastSeenAtIso || newRec.createdAtIso || '';
+      if (exTime && newTime && exTime > newTime) {
         // Keep local if it has a newer timestamp (e.g. just suspended/reactivated locally)
         continue;
       }
       if (newRec.status === 'PENDING' && exRec.status && exRec.status !== 'PENDING') {
         continue;
       }
-      map.set(id, { ...existing, ...item });
+      const mergedItem = { ...existing, ...item } as Record<string, unknown>;
+      if (
+        newRec.createdAtIso &&
+        exRec.createdAtIso &&
+        newRec.createdAtIso > exRec.createdAtIso
+      ) {
+        mergedItem.createdAtIso = newRec.createdAtIso;
+      }
+      if (
+        newRec.lastSeenAtIso &&
+        exRec.lastSeenAtIso &&
+        newRec.lastSeenAtIso > exRec.lastSeenAtIso
+      ) {
+        mergedItem.lastSeenAtIso = newRec.lastSeenAtIso;
+      }
+      map.set(id, mergedItem as T);
     }
   }
   return Array.from(map.values());
@@ -3230,7 +3429,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
 }> {
   await syncPendingLocalRequestsToCloud();
 
-  const [cloudReqs, cloudLics, cloudRels, cloudMpcs, cloudDevices] = await Promise.all([
+  const [cloudReqs, cloudLics, cloudRels, cloudMpcs] = await Promise.all([
     firestoreRestQueryCollection<AccessRequestRecord>(
       'access_requests',
       (x) => x.requestId
@@ -3247,48 +3446,24 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
       'master_pcs',
       (x) => x.pcHardwareId
     ),
-    firestoreRestQueryCollection<Record<string, unknown>>(
-      'device_directory',
-      (x) => String(x.deviceId || x.pcHardwareId || x.userId || x.email || '')
-    ),
   ]);
 
-  // Convert any device_directory entries (e.g. Android APK or PC devices that wrote to device_directory)
-  // into AccessRequestRecord entries if not already present so zero users are ever missed
-  for (const dev of cloudDevices) {
-    const devHwId = String(dev.deviceId || dev.pcHardwareId || '').trim();
-    const devName = String(dev.geologistName || dev.fullName || dev.userName || dev.name || '').trim();
-    const devEmail = String(dev.userEmail || dev.email || '').trim();
-    const devPhone = String(dev.phone || dev.mobile || '').trim();
-    const devRole = String(dev.designation || dev.roleTitle || dev.position || 'Geologist').trim();
-    if (!devName && !devEmail) continue;
-    if (devEmail.toLowerCase() === MASTER_ADMIN_DEFAULT_EMAIL.toLowerCase()) continue;
-    const synthReqId = sanitizeIdentifier(`req_dev_${devHwId || devEmail || devName}`);
-    if (isIdDeletedTombstone(synthReqId) || isIdDeletedTombstone(devHwId) || isIdDeletedTombstone(devEmail)) {
-      continue;
-    }
-    const alreadyInReqs = cloudReqs.some(
-      (r) =>
-        r.requestId === synthReqId ||
-        (devHwId && r.pcHardwareId && r.pcHardwareId.toLowerCase() === devHwId.toLowerCase())
-    );
-    if (!alreadyInReqs) {
-      cloudReqs.push({
-        requestId: synthReqId,
-        portalScope: PORTAL_SCOPE,
-        fullName: devName || 'Field Geologist',
-        email: devEmail,
-        phone: devPhone || 'Not provided',
-        organization: String(dev.organization || 'ESWA Geological Mapper'),
-        roleTitle: devRole,
-        pcHardwareId: devHwId || `DEV-${synthReqId.slice(-6).toUpperCase()}`,
-        pcName: String(dev.deviceName || dev.pcName || `Registered Device · ${devRole}`),
-        purposeNotes: 'Auto-synced from Device Directory',
-        status: 'APPROVED',
-        assignedUserId: sanitizeIdentifier(`usr_${synthReqId.replace(/^req_/, '')}`),
-        assignedLicenseKey: 'ESWA-AUTO-ACTIVE',
-        createdAtIso: String(dev.updatedAt || dev.createdAt || new Date().toISOString()),
-      });
+  // First, merge any cloud-persisted deletion tombstones from DELETED_USERS_TOMBSTONE_REGISTRY
+  // so deleted users are never resurrected on any browser, APK, or PC
+  const cloudTombstoneDoc = cloudRels.find(
+    (r) => r.releaseId === CLOUD_TOMBSTONE_REGISTRY_DOC_ID
+  );
+  if (cloudTombstoneDoc && cloudTombstoneDoc.releaseNotes) {
+    try {
+      const parsedMap = JSON.parse(cloudTombstoneDoc.releaseNotes) as Record<
+        string,
+        string
+      >;
+      if (parsedMap && typeof parsedMap === 'object') {
+        mergeDeletedTombstonesMap(parsedMap);
+      }
+    } catch {
+      // Ignore parse error
     }
   }
 
@@ -3337,7 +3512,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
     const matchLic = currentLics.find(
       (l) =>
         (req.assignedUserId && l.userId === req.assignedUserId) ||
-        l.userId === req.requestId.replace(/^req_/, '') ||
+        l.userId === (req.requestId || '').replace(/^req_/, '') ||
         (req.pcHardwareId &&
           req.pcHardwareId !== 'N/A' &&
           l.boundPcHardwareId &&
@@ -3461,9 +3636,42 @@ export function subscribeAdminLicensingData(callbacks: {
         saveConfiguredGithubRepo(ghCfg.title);
       }
     }
+    const gdCfgDoc = allMirrorReleases.find(
+      (r) => r.releaseId === 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+    );
+    if (gdCfgDoc && gdCfgDoc.releaseNotes) {
+      try {
+        const parsedGd = JSON.parse(
+          gdCfgDoc.releaseNotes
+        ) as Partial<GoogleDrivePermanentSyncConfig>;
+        const localGd = getGoogleDriveSyncConfig();
+        if (
+          !localGd.userApkFileId &&
+          !localGd.userExeFileId &&
+          !localGd.masterApkFileId &&
+          !localGd.masterExeFileId &&
+          (parsedGd.userApkFileId ||
+            parsedGd.userExeFileId ||
+            parsedGd.masterApkFileId ||
+            parsedGd.masterExeFileId)
+        ) {
+          localStorage.setItem(
+            GDRIVE_SYNC_CONFIG_STORAGE_KEY,
+            JSON.stringify({ ...localGd, ...parsedGd })
+          );
+        }
+      } catch {
+        // Ignore parse error
+      }
+    }
     callbacks.onReleases(
       allMirrorReleases
-        .filter((r) => r.releaseId !== 'GITHUB_REPO_CONFIG')
+        .filter(
+          (r) =>
+            r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+            r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG' &&
+            r.releaseId !== CLOUD_TOMBSTONE_REGISTRY_DOC_ID
+        )
         .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''))
     );
     callbacks.onMasterPcs(
@@ -3483,51 +3691,57 @@ export function subscribeAdminLicensingData(callbacks: {
   }, 3000);
 
   // Real-time Firestore snapshot listeners on software_licenses and access_requests (merged with local mirror so REST/relay users are never overwritten)
-  const qLicenses = collection(db, 'software_licenses');
-  const unsubLicenses = onSnapshot(
-    qLicenses,
-    (snap) => {
-      if (snap.metadata.fromCache && snap.empty) return;
-      const remoteLics = snap.docs
-        .map((d) => {
-          const data = d.data() as SoftwareLicenseRecord;
-          if (!data.userId) data.userId = d.id;
-          return data;
-        })
-        .filter((l) => !isLicenseTombstoned(l));
-      const mergedLics = mergeById(
-        remoteLics,
-        readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY),
-        (x) => x.userId
-      ).filter((l) => !isLicenseTombstoned(l));
-      writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, mergedLics);
-      pushFromMirror();
-    },
-    () => {}
-  );
+  const unsubLicenses = firestoreCloudPermissionDenied
+    ? () => {}
+    : onSnapshot(
+        collection(db, 'software_licenses'),
+        (snap) => {
+          if (snap.metadata.fromCache && snap.empty) return;
+          const remoteLics = snap.docs
+            .map((d) => {
+              const data = d.data() as SoftwareLicenseRecord;
+              if (!data.userId) data.userId = d.id;
+              return data;
+            })
+            .filter((l) => !isLicenseTombstoned(l));
+          const mergedLics = mergeById(
+            remoteLics,
+            readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY),
+            (x) => x.userId
+          ).filter((l) => !isLicenseTombstoned(l));
+          writeLocalMirror(LOCAL_MIRROR_LICENSES_KEY, mergedLics);
+          pushFromMirror();
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
 
-  const qRequests = collection(db, 'access_requests');
-  const unsubRequests = onSnapshot(
-    qRequests,
-    (snap) => {
-      if (snap.metadata.fromCache && snap.empty) return;
-      const remoteReqs = snap.docs
-        .map((d) => {
-          const data = d.data() as AccessRequestRecord;
-          if (!data.requestId) data.requestId = d.id;
-          return data;
-        })
-        .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
-      const mergedReqs = mergeById(
-        remoteReqs,
-        readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY),
-        (x) => x.requestId
-      ).filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
-      writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, mergedReqs);
-      pushFromMirror();
-    },
-    () => {}
-  );
+  const unsubRequests = firestoreCloudPermissionDenied
+    ? () => {}
+    : onSnapshot(
+        collection(db, 'access_requests'),
+        (snap) => {
+          if (snap.metadata.fromCache && snap.empty) return;
+          const remoteReqs = snap.docs
+            .map((d) => {
+              const data = d.data() as AccessRequestRecord;
+              if (!data.requestId) data.requestId = d.id;
+              return data;
+            })
+            .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
+          const mergedReqs = mergeById(
+            remoteReqs,
+            readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY),
+            (x) => x.requestId
+          ).filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r));
+          writeLocalMirror(LOCAL_MIRROR_REQUESTS_KEY, mergedReqs);
+          pushFromMirror();
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
 
   const handleFocusOrVisible = () => {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -3656,6 +3870,32 @@ export function saveGoogleDriveSyncConfig(
       // Ignore storage error
     }
   }
+  const cloudCfgRecord: SoftwareReleaseRecord = {
+    releaseId: 'GDRIVE_PERMANENT_FILE_IDS_CONFIG',
+    portalScope: PORTAL_SCOPE,
+    version: next.lastSyncedVersion || CURRENT_SOFTWARE_VERSION,
+    title: 'Permanent Google Drive File IDs Config',
+    releaseNotes: JSON.stringify(next),
+    downloadUrl: next.userExeFileId
+      ? `https://drive.google.com/uc?export=download&id=${next.userExeFileId}`
+      : '',
+    targetScope: 'SPECIFIC_PCS',
+    targetIdentifierCsv: 'ADMIN_CONFIG_ONLY',
+    isMandatory: false,
+    status: 'ARCHIVED',
+    publishedAtIso: new Date().toISOString(),
+    adminAuthSig: ADMIN_AUTH_SIG,
+  };
+  upsertMirrorItem(LOCAL_MIRROR_RELEASES_KEY, cloudCfgRecord, (x) => x.releaseId);
+  void firestoreRestSetDoc(
+    'software_releases',
+    'GDRIVE_PERMANENT_FILE_IDS_CONFIG',
+    cloudCfgRecord as unknown as Record<string, unknown>
+  );
+  void withFirestoreTimeout(
+    setDoc(doc(db, 'software_releases', 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'), cloudCfgRecord),
+    4000
+  ).catch(() => {});
   return next;
 }
 
@@ -3713,10 +3953,95 @@ export async function overwriteGoogleDriveFileInPlace(params: {
   }
 }
 
+/**
+ * Overwrites all configured permanent User Google Drive files (User .APK and User .EXE)
+ * in-place using their permanent File IDs so LinkedIn and Website user download links never change.
+ */
+export async function overwriteAllGoogleDriveInstallersInPlace(params: {
+  config: GoogleDrivePermanentSyncConfig;
+  accessToken: string;
+  version: string;
+}): Promise<{ ok: boolean; updatedCount: number; summary: string }> {
+  const targets = [
+    {
+      label: 'User .APK',
+      fileId: extractGoogleDriveFileId(params.config.userApkFileId),
+      urls: ['/release/AKASH-TUNNEL-MAPPER-User-App.apk', '/api/download/user-apk'],
+      mimeType: 'application/vnd.android.package-archive',
+    },
+    {
+      label: 'User .EXE',
+      fileId: extractGoogleDriveFileId(params.config.userExeFileId),
+      urls: ['/release/AKASH-TUNNEL-MAPPER-User-Setup.exe', '/api/download/user-exe'],
+      mimeType: 'application/vnd.microsoft.portable-executable',
+    },
+  ].filter((t) => Boolean(t.fileId));
+
+  if (targets.length === 0) {
+    return {
+      ok: false,
+      updatedCount: 0,
+      summary: 'No Google Drive File IDs configured yet. Paste at least one File ID or share link.',
+    };
+  }
+
+  let updatedCount = 0;
+  const results: string[] = [];
+
+  for (const target of targets) {
+    let payload: Blob | string = JSON.stringify({
+      artifact: target.label,
+      version: params.version,
+      updatedAtIso: new Date().toISOString(),
+    });
+    for (const candidateUrl of target.urls) {
+      try {
+        const binResp = await fetch(candidateUrl, { method: 'GET', cache: 'no-store' });
+        if (binResp.ok) {
+          const blob = await binResp.blob();
+          if (blob.size > 1024) {
+            payload = blob;
+            break;
+          }
+        }
+      } catch {
+        // Fallback to next URL
+      }
+    }
+
+    const res = await overwriteGoogleDriveFileInPlace({
+      fileId: target.fileId,
+      accessToken: params.accessToken,
+      content: payload,
+      mimeType: target.mimeType,
+    });
+    if (res.ok) {
+      updatedCount += 1;
+      results.push(`${target.label} (${target.fileId.slice(0, 8)}…)`);
+    } else {
+      results.push(`${target.label} failed: ${res.message}`);
+    }
+  }
+
+  return {
+    ok: updatedCount > 0,
+    updatedCount,
+    summary:
+      updatedCount > 0
+        ? `✓ Overwrote ${updatedCount}/${targets.length} permanent Google Drive file(s) in-place [${results.join(', ')}] — LinkedIn & Website share links remain 100% unchanged!`
+        : `Could not overwrite Google Drive files: ${results.join(' | ')}`,
+  };
+}
+
 export function getLatestPublishedSoftwareRelease(): SoftwareReleaseRecord | null {
   const allReleases = readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY);
   const published = allReleases
-    .filter((r) => r.status === 'PUBLISHED' && r.releaseId !== 'GITHUB_REPO_CONFIG')
+    .filter(
+      (r) =>
+        r.status === 'PUBLISHED' &&
+        r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+        r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+    )
     .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''));
   return published[0] || null;
 }
@@ -3738,7 +4063,12 @@ export function subscribeClientSoftwareUpdates(
     const currentVer = getInstalledSoftwareVersion();
 
     const published = allReleases
-      .filter((r) => r.status === 'PUBLISHED' && r.releaseId !== 'GITHUB_REPO_CONFIG')
+      .filter(
+        (r) =>
+          r.status === 'PUBLISHED' &&
+          r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+          r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+      )
       .sort((a, b) => b.publishedAtIso.localeCompare(a.publishedAtIso));
 
     const matching = published.find((rel) => {
@@ -3791,24 +4121,24 @@ export function subscribeClientSoftwareUpdates(
   window.addEventListener('eswa-update-toggle-changed', handleLocalChange);
   window.addEventListener('storage', handleLocalChange);
 
-  const qRel = query(
-    collection(db, 'software_releases'),
-    where('portalScope', '==', PORTAL_SCOPE)
-  );
-
-  const unsub = onSnapshot(
-    qRel,
-    (snap) => {
-      const docs = snap.docs.map((d) => d.data() as SoftwareReleaseRecord);
-      if (docs.length > 0 || !snap.metadata.fromCache) {
-        writeLocalMirror(LOCAL_MIRROR_RELEASES_KEY, docs);
-        evaluateReleases(docs);
-      }
-    },
-    () => {
-      // Ignore offline snapshot errors on client update watcher
-    }
-  );
+  const unsub = firestoreCloudPermissionDenied
+    ? () => {}
+    : onSnapshot(
+        query(
+          collection(db, 'software_releases'),
+          where('portalScope', '==', PORTAL_SCOPE)
+        ),
+        (snap) => {
+          const docs = snap.docs.map((d) => d.data() as SoftwareReleaseRecord);
+          if (docs.length > 0 || !snap.metadata.fromCache) {
+            writeLocalMirror(LOCAL_MIRROR_RELEASES_KEY, docs);
+            evaluateReleases(docs);
+          }
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
 
   return () => {
     window.clearInterval(relPollTimer);

@@ -32,6 +32,7 @@ import {
 } from '../../engine/tbmStorageEngine';
 import { TbmDataStorageModal } from './TbmDataStorageModal';
 import { TbmWorkflowShell, TbmWorkflowStage } from './TbmWorkflowShell';
+import { DeviceIdAndNotificationHeaderWidget } from '../DeviceIdReviewAndNotificationCenter';
 
 interface TbmMainWindowProps {
   industryMode: IndustryMode;
@@ -152,8 +153,15 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
         </div>
       </div>
 
-      {/* Top-Right Header: Feedback & Settings */}
+      {/* Top-Right Header: Auto-Update Notification Toggle & Badge, Feedback & Settings */}
       <div className="absolute top-3 right-3 sm:top-5 sm:right-6 flex flex-wrap items-center justify-end gap-2 z-20">
+        {!isMasterSoftware && (
+          <DeviceIdAndNotificationHeaderWidget
+            currentUser={googleUser}
+            industryMode={industryMode}
+            onlyAutoUpdate
+          />
+        )}
         {onOpenFeedback && (
           <button
             type="button"

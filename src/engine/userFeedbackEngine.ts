@@ -11,9 +11,11 @@ import {
 } from 'firebase/firestore';
 import {
   db,
+  firestoreCloudPermissionDenied,
   getAccessToken,
   getApiBase,
   getSavedGmailAppPassword,
+  markFirestoreCloudPermissionDenied,
   saveGmailAppPassword,
   sendGmailMessage,
 } from '../firebase';
@@ -47,6 +49,7 @@ export function saveOfflineFeedbackQueue(items: UserFeedbackItem[]) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(LOCAL_FEEDBACK_QUEUE_KEY, JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent('eswa-feedback-queue-updated'));
   } catch {
     // Ignore storage errors
   }
@@ -75,48 +78,75 @@ export async function submitUserFeedback(data: {
     status: 'new',
   };
 
-  try {
-    const docRef = doc(db, FEEDBACK_COLLECTION, feedbackItem.id);
-    await setDoc(docRef, feedbackItem);
-    return { success: true, message: 'Thank you! Your feedback has been sent to ESWA Master.' };
-  } catch (err) {
-    console.warn('Unable to push feedback online directly, saving to offline tunnel queue:', err);
-    const queue = getOfflineFeedbackQueue();
-    queue.unshift(feedbackItem);
-    saveOfflineFeedbackQueue(queue);
-    return {
-      success: true,
-      message: 'Feedback saved! It will automatically sync as soon as connectivity resumes.',
-    };
+  const queue = getOfflineFeedbackQueue();
+  queue.unshift(feedbackItem);
+  saveOfflineFeedbackQueue(queue);
+
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const docRef = doc(db, FEEDBACK_COLLECTION, feedbackItem.id);
+      await setDoc(docRef, feedbackItem);
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
+  return { success: true, message: 'Thank you! Your feedback has been sent to ESWA Master.' };
 }
 
 /**
  * Subscribe to all user feedback for the Master Admin Portal
  */
 export function subscribeToAllFeedback(callback: (items: UserFeedbackItem[]) => void): () => void {
-  try {
-    const colRef = collection(db, FEEDBACK_COLLECTION);
-    const q = query(colRef, orderBy('createdAt', 'desc'));
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        const items: UserFeedbackItem[] = [];
-        snapshot.forEach((d) => {
-          items.push(d.data() as UserFeedbackItem);
-        });
-        callback(items);
-      },
-      (err) => {
-        console.warn('Feedback listener error, falling back to local queue:', err);
-        callback(getOfflineFeedbackQueue());
-      }
-    );
-  } catch (err) {
-    console.warn('Feedback subscription failed:', err);
+  const emitLocal = () => {
     callback(getOfflineFeedbackQueue());
-    return () => {};
+  };
+  emitLocal();
+
+  const onLocalUpdate = () => emitLocal();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('eswa-feedback-queue-updated', onLocalUpdate);
+    window.addEventListener('storage', onLocalUpdate);
   }
+
+  let unsubFirestore = () => {};
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const colRef = collection(db, FEEDBACK_COLLECTION);
+      const q = query(colRef, orderBy('createdAt', 'desc'));
+      unsubFirestore = onSnapshot(
+        q,
+        (snapshot) => {
+          const items: UserFeedbackItem[] = [];
+          snapshot.forEach((d) => {
+            items.push(d.data() as UserFeedbackItem);
+          });
+          if (items.length > 0) {
+            callback(items);
+          } else {
+            emitLocal();
+          }
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+          emitLocal();
+        }
+      );
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('eswa-feedback-queue-updated', onLocalUpdate);
+      window.removeEventListener('storage', onLocalUpdate);
+    }
+    try {
+      unsubFirestore();
+    } catch {
+      // Ignore
+    }
+  };
 }
 
 /**
@@ -126,11 +156,17 @@ export async function updateFeedbackStatus(
   feedbackId: string,
   status: 'new' | 'reviewed' | 'resolved'
 ): Promise<void> {
-  try {
-    const docRef = doc(db, FEEDBACK_COLLECTION, feedbackId);
-    await updateDoc(docRef, { status });
-  } catch (err) {
-    console.error('Failed to update feedback status:', err);
+  const queue = getOfflineFeedbackQueue().map((item) =>
+    item.id === feedbackId ? { ...item, status } : item
+  );
+  saveOfflineFeedbackQueue(queue);
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const docRef = doc(db, FEEDBACK_COLLECTION, feedbackId);
+      await updateDoc(docRef, { status });
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 }
 
@@ -138,11 +174,15 @@ export async function updateFeedbackStatus(
  * Delete feedback item
  */
 export async function deleteFeedbackItem(feedbackId: string): Promise<void> {
-  try {
-    const docRef = doc(db, FEEDBACK_COLLECTION, feedbackId);
-    await deleteDoc(docRef);
-  } catch (err) {
-    console.error('Failed to delete feedback item:', err);
+  const queue = getOfflineFeedbackQueue().filter((item) => item.id !== feedbackId);
+  saveOfflineFeedbackQueue(queue);
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const docRef = doc(db, FEEDBACK_COLLECTION, feedbackId);
+      await deleteDoc(docRef);
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 }
 
@@ -182,18 +222,45 @@ const LEGACY_OTP_VERIFIED_KEY = 'eswa_master_verified_session_v1';
 const MASTER_VERIFIED_TOKEN_KEY = 'eswa_master_fixed_pass_verified_v4';
 const MASTER_CHALLENGE_COLLECTION = 'eswa_master_auth_challenges';
 
+function getTodayDateKey(): string {
+  try {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 export function isMasterLocallyVerified(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
-    const val = sessionStorage.getItem(MASTER_VERIFIED_TOKEN_KEY);
+    const val =
+      localStorage.getItem(MASTER_VERIFIED_TOKEN_KEY) ||
+      sessionStorage.getItem(MASTER_VERIFIED_TOKEN_KEY);
     if (!val) return false;
     const parsed = JSON.parse(val);
-    return (
-      isAllowedMasterEmail(parsed.email) &&
-      parsed.verified === true &&
-      parsed.authMethod === 'FIXED_PASSWORD_NO_OTP'
-    );
+    if (
+      !isAllowedMasterEmail(parsed.email) ||
+      parsed.verified !== true ||
+      parsed.authMethod !== 'FIXED_PASSWORD_NO_OTP'
+    ) {
+      return false;
+    }
+    const todayKey = getTodayDateKey();
+    if (parsed.verifiedDateKey === todayKey) {
+      return true;
+    }
+    if (parsed.verifiedAt) {
+      const elapsedMs = Date.now() - new Date(parsed.verifiedAt).getTime();
+      if (elapsedMs >= 0 && elapsedMs < 24 * 60 * 60 * 1000 && parsed.verifiedDateKey === todayKey) {
+        return true;
+      }
+    }
+    return false;
   } catch {
     return false;
   }
@@ -204,17 +271,17 @@ export function saveMasterLocallyVerified(email: string = TARGET_MASTER_EMAIL) {
   const cleanEmail = isAllowedMasterEmail(email)
     ? email.trim().toLowerCase()
     : TARGET_MASTER_EMAIL;
+  const payload = JSON.stringify({
+    email: cleanEmail,
+    verified: true,
+    authMethod: 'FIXED_PASSWORD_NO_OTP',
+    verifiedAt: new Date().toISOString(),
+    verifiedDateKey: getTodayDateKey(),
+  });
   try {
     localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
-    sessionStorage.setItem(
-      MASTER_VERIFIED_TOKEN_KEY,
-      JSON.stringify({
-        email: cleanEmail,
-        verified: true,
-        authMethod: 'FIXED_PASSWORD_NO_OTP',
-        verifiedAt: new Date().toISOString(),
-      })
-    );
+    localStorage.setItem(MASTER_VERIFIED_TOKEN_KEY, payload);
+    sessionStorage.setItem(MASTER_VERIFIED_TOKEN_KEY, payload);
   } catch {
     // Ignore
   }
@@ -224,6 +291,7 @@ export function clearMasterLocalVerification() {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(LEGACY_OTP_VERIFIED_KEY);
+    localStorage.removeItem(MASTER_VERIFIED_TOKEN_KEY);
     sessionStorage.removeItem(MASTER_VERIFIED_TOKEN_KEY);
   } catch {
     // Ignore

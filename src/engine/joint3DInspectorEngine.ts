@@ -644,13 +644,18 @@ export function deriveAnchorPointFromPoints(
       const my = Math.max(0.05, Math.min(geom.widthM - 0.05, uNorm * geom.widthM));
       const mx = Math.max(0, Math.min(geom.pullLengthM, (1 - vNorm) * geom.pullLengthM));
 
+      const isFlatSurface =
+        geom.tunnelShape === 'rectangular' ||
+        Boolean(geom.mappingDomain && geom.mappingDomain !== 'TUNNEL');
       // Calculate true arched roof elevation at transverse position Y (my):
       const cx = geom.widthM / 2;
       const hw = geom.wallHeightM || (geom.heightM * 0.55);
       const archRise = Math.max(0.5, geom.heightM - hw);
       const dy = (my - cx) / Math.max(0.1, geom.widthM / 2);
       const clampedDy = Math.max(-1, Math.min(1, dy));
-      const trueArchZ = hw + archRise * Math.sqrt(Math.max(0, 1 - clampedDy * clampedDy));
+      const trueArchZ = isFlatSurface
+        ? geom.heightM
+        : hw + archRise * Math.sqrt(Math.max(0, 1 - clampedDy * clampedDy));
 
       return {
         x: Number(mx.toFixed(3)),
@@ -854,17 +859,25 @@ export function buildTunnelCrossSectionProfileMetric(
     return { points: pts, isClosed: true, getRoofZAtY };
   }
 
-  // 3. Rectangular box cross-section
-  if (shape === 'rectangular') {
-    const r = Math.min(0.25, w * 0.04, h * 0.04);
-    const pts: { y: number; z: number }[] = [
-      { y: 0, z: 0 },
-      { y: 0, z: Number((h - r).toFixed(3)) },
-      { y: Number(r.toFixed(3)), z: h },
-      { y: Number((w - r).toFixed(3)), z: h },
-      { y: w, z: Number((h - r).toFixed(3)) },
-      { y: w, z: 0 },
-    ];
+  // 3. Rectangular box cross-section (or Surface Mapping face)
+  if (shape === 'rectangular' || (geom.mappingDomain && geom.mappingDomain !== 'TUNNEL')) {
+    const isSurface = Boolean(geom.mappingDomain && geom.mappingDomain !== 'TUNNEL');
+    const r = isSurface ? 0 : Math.min(0.25, w * 0.04, h * 0.04);
+    const pts: { y: number; z: number }[] = isSurface
+      ? [
+          { y: 0, z: 0 },
+          { y: 0, z: h },
+          { y: w, z: h },
+          { y: w, z: 0 },
+        ]
+      : [
+          { y: 0, z: 0 },
+          { y: 0, z: Number((h - r).toFixed(3)) },
+          { y: Number(r.toFixed(3)), z: h },
+          { y: Number((w - r).toFixed(3)), z: h },
+          { y: w, z: Number((h - r).toFixed(3)) },
+          { y: w, z: 0 },
+        ];
     return { points: pts, isClosed, getRoofZAtY };
   }
 
@@ -1084,14 +1097,17 @@ export function calculatePlaneSurfaceIntersections(
     }
   }
 
-  // 4. CROWN ARCH (Curved Vault Surface Z = Z_arch(Y))
+  // 4. CROWN ARCH (Curved Vault Surface Z = Z_arch(Y), or flat Berm/Floor in Surface Mapping)
   let crownSeg: SurfaceIntersectionSegment | undefined;
   if (geom.hasCrown !== false) {
     const w = Math.max(0.5, geom.widthM || 8.0);
     const pullL = Math.max(0.5, geom.pullLengthM || 3.0);
     const h = Math.max(1.0, geom.heightM || 6.5);
-    const hw = geom.wallHeightM || h * 0.55;
-    const archRise = Math.max(0.4, h - hw);
+    const isFlatSurface =
+      geom.tunnelShape === 'rectangular' ||
+      Boolean(geom.mappingDomain && geom.mappingDomain !== 'TUNNEL');
+    const hw = isFlatSurface ? h : geom.wallHeightM || h * 0.55;
+    const archRise = isFlatSurface ? 0 : Math.max(0.4, h - hw);
 
     // Sample across the crown arch and solve for plane intersection a*X + b*Y + c*Z_arch(Y) + d = 0
     const curvedPts2D: { x: number; y: number }[] = [];
@@ -1129,7 +1145,9 @@ export function calculatePlaneSurfaceIntersections(
         const dipDirX = (a * (c >= 0 ? 1 : -1)) / horizNormLen;
         const dipDirY = (b * (c >= 0 ? 1 : -1)) / horizNormLen;
         const cotDip = Math.min(1.6, Math.abs(c) / Math.max(0.15, horizNormLen));
-        const maxSag = Math.min(pullL * 0.28, w * 0.22, archRise * 0.35 * cotDip * (chordLen / Math.max(w, pullL)));
+        const maxSag = isFlatSurface
+          ? 0
+          : Math.min(pullL * 0.28, w * 0.22, archRise * 0.35 * cotDip * (chordLen / Math.max(w, pullL)));
 
         curvedPts2D.length = 0;
         curvedPts3D.length = 0;

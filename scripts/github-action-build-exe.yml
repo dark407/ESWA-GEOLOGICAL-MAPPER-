@@ -95,15 +95,29 @@ jobs:
           path: release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk
           if-no-files-found: warn
 
-      - name: Update Rolling 'latest' Tag
+      - name: Clean Previous 'latest' Release & Update Rolling Tag
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh release delete latest --yes --cleanup-tag || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -fa latest -m "Latest Master & User Windows .EXE + Android .APK Build #${{ github.run_number }}"
           git push origin latest --force || true
+
+      - name: Overwrite Permanent User Google Drive File IDs In-Place & Broadcast User Main Screen Auto-Update
+        continue-on-error: true
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ACCESS_TOKEN: ${{ secrets.GDRIVE_ACCESS_TOKEN }}
+          GDRIVE_USER_APK_FILE_ID: ${{ secrets.GDRIVE_USER_APK_FILE_ID }}
+          GDRIVE_USER_EXE_FILE_ID: ${{ secrets.GDRIVE_USER_EXE_FILE_ID }}
+        run: node scripts/update-google-drive-files.mjs
 
       - name: Publish 4 Installers (Master .EXE, User .EXE, Master .APK, User .APK) to GitHub Releases
         uses: softprops/action-gh-release@v2
@@ -117,11 +131,15 @@ jobs:
           fail_on_unmatched_files: false
           name: "ESWA GEOLOGICAL MAPPER — Official Windows .EXE & Android .APK Installers [Build #${{ github.run_number }}]"
           body: |
-            ### ESWA GEOLOGICAL MAPPER — Official Software & Android Releases (Build #${{ github.run_number }})
+            ### Official Windows PC Software (.EXE) & Standalone Android Apps (.APK) — Build #${{ github.run_number }}
             1. **Master PC Software (.EXE — Master Suite / Owner Access):** `ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe`
             2. **User PC Software (.EXE — Field Engineers & Geologists):** `ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
             3. **Master Standalone Android App (.APK — Owner Admin App):** `ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk`
             4. **User Standalone Android App (.APK — Field Mobile Devices):** `ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
+               - Direct Download Link: `https://github.com/${{ github.repository }}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Android.apk`
           files: |
             release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe
             release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe

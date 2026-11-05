@@ -37,40 +37,135 @@ export interface ProbeHoleRecord {
   updatedAt: string;
 }
 
+export interface JumboRigCalibration {
+  rotationalRpm: number; // e.g., 160 RPM
+  percussionPressureBar: number; // e.g., 140 bar
+  hydraulicThrustFactorKnPerBar: number; // e.g., 0.85 kN/bar
+  hydraulicTorqueFactorNmPerBar: number; // e.g., 14.5 Nm/bar
+  drifterEfficiency: number; // e.g., 0.72
+}
+
+export const DEFAULT_JUMBO_CALIBRATION: JumboRigCalibration = {
+  rotationalRpm: 160,
+  percussionPressureBar: 145,
+  hydraulicThrustFactorKnPerBar: 0.85,
+  hydraulicTorqueFactorNmPerBar: 14.5,
+  drifterEfficiency: 0.72,
+};
+
+export interface Point3DTunnel {
+  x: number; // Lateral offset from tunnel centerline (m, -Left / +Right)
+  y: number; // Elevation above tunnel invert (m)
+  z: number; // Distance ahead of tunnel face (m, +Ahead)
+}
+
 export interface MwdIntervalComputation {
   intervalId: string;
   midDepthMeters: number;
   fromMeters: number;
   toMeters: number;
+  intervalLengthMeters: number;
   ropMetersPerMin: number;
-  specificEnergyMjPerM3: number; // Drilling Specific Energy (MJ/m3)
-  fractureIndex: number; // Normalized index (0-100)
+  normalizedPenetrationRate: number; // ROP / sqrt(P_feed)
+  feedPressureBar: number;
+  rotationPressureBar: number;
+  torqueToFeedRatio: number; // P_rot / P_feed
+  thrustSpecificEnergyMjM3: number; // Axial component e_t (MJ/m3)
+  rotationalSpecificEnergyMjM3: number; // Rotational component e_r (MJ/m3)
+  percussiveSpecificEnergyMjM3: number; // Percussive component e_p (MJ/m3)
+  specificEnergyMjPerM3: number; // Total Teale DSE (MJ/m3)
+  estimatedUcsMpa: number; // Correlated Unconfined Compressive Strength (MPa)
+  drillingHardnessIndex: number; // 0-100
+  fractureIndex: number; // Schunnesson (1998) Fracturing & Alteration Index (0-100)
   waterInflowLMin: number;
+  waterPressureBar: number;
+  piezometricHeadMeters: number; // m H2O
+  equivalentLugeon: number; // Lu
+  hydraulicConductivityMPerSec: string; // Moye (1967) K (m/s)
+  predictedTunnelInflowLMinPer10m: number; // Goodman (1965) scaled inflow (L/min per 10m)
   estimatedRqdPct: number;
+  estimatedRmr89: number; // Bieniawski RMR89 (0-100)
+  estimatedBartonQ: number; // Barton Q-system value (0.01 - 400)
+  estimatedGsi: number; // Hoek-Brown GSI (10 - 95)
+  predictedStandUpTimeHours: number;
+  recommendedNatmSupportClass: string;
+  flushWaterColor: ProbeRunInterval['flushWaterColor'];
+  rockMassClass: ProbeRunInterval['rockMassClass'];
+  startXYZ: Point3DTunnel;
+  midXYZ: Point3DTunnel;
+  endXYZ: Point3DTunnel;
   isHazardZone: boolean;
+  hazardSeverity: 'NOMINAL' | 'MODERATE_FRACTURED' | 'CRITICAL_FAULT_OR_INFLOW';
   hazardReason: string;
+}
+
+export interface FaultPlaneIntersection3D {
+  detected: boolean;
+  planeEquation: { nx: number; ny: number; nz: number; d: number };
+  apparentDipDeg: number; // Dip of fault plane in 3D space (deg)
+  strikeRelToTunnelAxisDeg: number; // Angle between fault strike and tunnel drive (deg, 90 = perpendicular)
+  dipDirectionLabel: string; // e.g., "Dipping Towards Face (Unfavorable)" or "Dipping With Drive (Favorable)"
+  crownIntersectionAheadM: number; // +Z distance ahead of face at Crown
+  centerIntersectionAheadM: number; // +Z distance ahead of face at Tunnel Center
+  invertIntersectionAheadM: number; // +Z distance ahead of face at Invert
+  estimatedTrueThicknessM: number; // True thickness of shear/fault zone (m)
+  intersectedHolesCount: number;
 }
 
 export interface ProbeHoleLookAheadSummary {
   overallStatus: ProbeHoleSafetyStatus;
   safeAdvanceLengthMeters: number;
+  maxReachAheadMeters: number;
+  mandatoryOverlapMeters: number;
   maxWaterInflowLMin: number;
   totalWaterInflowLMin: number;
+  predictedUnlinedTunnelInflowLMin: number;
+  maxPiezometricHeadMeters: number;
+  maxEquivalentLugeon: number;
   averageRqdPct: number;
   averageSpecificEnergyMjM3: number;
+  averageUcsMpa: number;
+  averageRmr89: number;
+  minimumBartonQ: number;
+  averageGsi: number;
+  fanPerimeterCoveragePct: number;
+  recommendedSupportClass: string;
+  recommendedMaxRoundLengthM: number;
+  preGroutingTriggerActive: boolean;
+  faultPlane3D: FaultPlaneIntersection3D;
   detectedHazardZones: Array<{
     holeId: string;
     fromMeters: number;
     toMeters: number;
     aheadOfFaceMeters: number;
+    LateralX: number;
+    ElevationY: number;
+    specificEnergyMjM3: number;
+    waterInflowLMin: number;
+    bartonQ: number;
     reason: string;
   }>;
   engineeringRecommendation: string;
 }
 
-// ============================================================================
-// GROUTING & LUGEON / GIN ANALYSIS TYPES
-// ============================================================================
+export interface GroutRingRecord {
+  id: string;
+  ringId: string;
+  projectName: string;
+  tunnelName: string;
+  chainage: string;
+  date: string;
+  engineerName: string;
+  schemeType: GroutSchemeType;
+  targetGinBarLitersPerM: number; // e.g. 1500 bar.L/m
+  maxPressureLimitBar: number; // e.g. 25 bar
+  maxVolumeLimitLitersPerM: number; // e.g. 200 L/m
+  lookOutAngleDeg: number;
+  overlapMeters: number;
+  holes: GroutHoleLog[];
+  lugeonTests: LugeonTestRecord[];
+  updatedAt: string;
+}
 
 export type GroutSchemeType =
   | 'PRE_EXCAVATION_UMBRELLA'
@@ -128,112 +223,588 @@ export interface LugeonTestRecord {
   steps: LugeonPressureStep[];
 }
 
-export interface GroutRingRecord {
-  id: string;
-  ringId: string;
-  projectName: string;
-  tunnelName: string;
-  chainage: string;
-  date: string;
-  engineerName: string;
-  schemeType: GroutSchemeType;
-  targetGinBarLitersPerM: number; // e.g. 1500 bar.L/m
-  maxPressureLimitBar: number; // e.g. 25 bar
-  maxVolumeLimitLitersPerM: number; // e.g. 200 L/m
-  lookOutAngleDeg: number;
-  overlapMeters: number;
-  holes: GroutHoleLog[];
-  lugeonTests: LugeonTestRecord[];
-  updatedAt: string;
-}
-
 const PROBE_HOLE_STORAGE_KEY = 'eswa_natm_probe_holes_v1';
 const GROUT_RING_STORAGE_KEY = 'eswa_natm_grout_rings_v1';
 
 // ============================================================================
-// MWD DRILLING SPECIFIC ENERGY & LOOK-AHEAD CALCULATIONS
+// RIGOROUS MWD DRILLING SPECIFIC ENERGY, ROCK MECHANICS & 3D LOOK-AHEAD ENGINE
 // ============================================================================
 
-export function computeMwdProfileForHole(hole: ProbeHoleRecord): MwdIntervalComputation[] {
-  const radiusM = Math.max(0.025, (hole.holeDiameterMm || 76) / 2000);
-  const areaM2 = Math.PI * radiusM * radiusM;
-  const inclinationRad = ((hole.dipAngleDeg || 0) * Math.PI) / 180;
-  const cosInc = Math.max(0.5, Math.cos(inclinationRad));
+export function computeHole3DPointAtDepth(
+  hole: ProbeHoleRecord,
+  depthAlongHoleMeters: number
+): Point3DTunnel {
+  const safeDepth = Number(depthAlongHoleMeters) || 0;
+  const dipRad = ((Number(hole?.dipAngleDeg) || 0) * Math.PI) / 180;
+  const lookOutMagRad = ((Number(hole?.lookOutAngleDeg) || 0) * Math.PI) / 180;
+  const collarX = Number(hole?.collarX) || 0;
+  const collarY = Number(hole?.collarY) || 3.8;
+  const posLabel = String(hole?.positionLabel || 'Face Center');
+  // Determine lateral outward sign from collarX or positionLabel
+  let lateralSign = 0;
+  if (Math.abs(collarX) > 0.25) {
+    lateralSign = collarX >= 0 ? 1 : -1;
+  } else if (posLabel.includes('Left')) {
+    lateralSign = -1;
+  } else if (posLabel.includes('Right')) {
+    lateralSign = 1;
+  }
+  const horizProj = safeDepth * Math.cos(dipRad);
+  const x = Number(
+    (collarX + lateralSign * horizProj * Math.sin(lookOutMagRad)).toFixed(2)
+  );
+  const y = Number(
+    (collarY + safeDepth * Math.sin(dipRad)).toFixed(2)
+  );
+  const z = Number((horizProj * Math.cos(lookOutMagRad)).toFixed(2));
+  return { x, y, z };
+}
 
-  return hole.intervals.map((intv) => {
-    const midDepth = (intv.fromMeters + intv.toMeters) * 0.5;
-    const ropMMin = Math.max(0.05, intv.ropMetersPerMin || 0.5);
-    // Teale (1965) Drilling Specific Energy: E = (F / A) + (2 * pi * N * T) / (A * ROP)
-    // Calibrated for hydraulic percussion jumbo telemetry (bar -> kN / kNm)
-    const thrustComponentMjM3 = (intv.feedPressureBar * 0.85) / (areaM2 * 1000);
-    const torqueComponentMjM3 =
-      (2 * Math.PI * 160 * (intv.rotationPressureBar * 0.042)) / (areaM2 * ropMMin * 1000);
-    const rawDse = Math.max(12, Math.min(650, thrustComponentMjM3 + torqueComponentMjM3));
+export function computeMwdProfileForHole(
+  hole: ProbeHoleRecord,
+  rig: JumboRigCalibration = DEFAULT_JUMBO_CALIBRATION,
+  tunnelWidthM = 8.5,
+  tunnelHeightM = 8.5
+): MwdIntervalComputation[] {
+  if (!hole || !Array.isArray(hole.intervals)) return [];
+  const radiusM = Math.max(0.019, (Number(hole.holeDiameterMm) || 76) / 2000);
+  const areaM2 = Math.PI * radiusM * radiusM;
+  const eqTunnelRadiusM = Math.max(2.0, Math.sqrt((tunnelWidthM * tunnelHeightM) / Math.PI));
+
+  return hole.intervals.map((intv, idx) => {
+    const fromM = Number(intv?.fromMeters) || idx * 6;
+    const toM = Number(intv?.toMeters) || fromM + 6;
+    const segLen = Math.max(0.25, toM - fromM);
+    const midDepth = (fromM + toM) * 0.5;
+    const ropMMin = Math.max(0.05, Number(intv?.ropMetersPerMin) || 0.5);
+    const feedBar = Math.max(5, Number(intv?.feedPressureBar) || 50);
+    const rotBar = Math.max(5, Number(intv?.rotationPressureBar) || 40);
+
+    // 1. Teale (1965) & Schunnesson (1998) Mechanical Specific Energy Components (MJ/m3)
+    // Axial Thrust Component: e_t = F_kN / (A_m2 * 1000)
+    const thrustForceKn = feedBar * rig.hydraulicThrustFactorKnPerBar;
+    const thrustSpecificEnergyMjM3 = Number(
+      (thrustForceKn / (areaM2 * 1000)).toFixed(2)
+    );
+
+    // Rotational Torque Component: e_r = (2 * pi * N_rpm * T_kNm) / (A_m2 * ROP_m_min * 1000)
+    const torqueKnm = (rotBar * rig.hydraulicTorqueFactorNmPerBar) / 1000;
+    const rotationalSpecificEnergyMjM3 = Number(
+      ((2 * Math.PI * rig.rotationalRpm * torqueKnm) / (areaM2 * ropMMin * 1000)).toFixed(1)
+    );
+
+    // Percussive Hydraulic Drifter Impact Component (calibrated to rock impedance / ROP)
+    const percussiveSpecificEnergyMjM3 = Number(
+      (
+        ((rig.percussionPressureBar * rig.drifterEfficiency * 0.068) /
+          (areaM2 * ropMMin * 1000)) *
+        (feedBar / 65)
+      ).toFixed(1)
+    );
+
+    const rawDse = Math.max(
+      12,
+      Math.min(
+        750,
+        thrustSpecificEnergyMjM3 +
+          rotationalSpecificEnergyMjM3 +
+          percussiveSpecificEnergyMjM3
+      )
+    );
     const specificEnergyMjPerM3 = Number(rawDse.toFixed(1));
 
-    // Higher ROP + Low Rotation Pressure = Fractured/Cavity zone
+    // 2. Normalized Penetration Rate & Torque/Feed Ratio
+    const normalizedPenetrationRate = Number(
+      (ropMMin / Math.sqrt(feedBar)).toFixed(3)
+    );
+    const torqueToFeedRatio = Number((rotBar / feedBar).toFixed(2));
+
+    // 3. Correlated Unconfined Compressive Strength UCS_MWD (MPa) & Drilling Hardness Index (0-100)
+    const rqdFactor = Math.pow(Math.max(10, intv.estimatedRqdPct) / 100, 0.35);
+    const flushPenalty =
+      intv.flushWaterColor === 'Total Water Loss'
+        ? 0.55
+        : intv.flushWaterColor === 'Muddy Brown' ||
+          intv.flushWaterColor === 'Black/Graphitic'
+        ? 0.68
+        : intv.flushWaterColor === 'Red/Ochre'
+        ? 0.78
+        : intv.flushWaterColor === 'Slightly Milky'
+        ? 0.92
+        : 1.0;
+
+    const estimatedUcsMpa = Number(
+      Math.max(
+        5,
+        Math.min(260, specificEnergyMjPerM3 * 0.44 * rqdFactor * flushPenalty)
+      ).toFixed(1)
+    );
+    const drillingHardnessIndex = Number(
+      Math.max(5, Math.min(100, (estimatedUcsMpa / 200) * 100)).toFixed(0)
+    );
+
+    // 4. Schunnesson (1998) Fracturing & Alteration Index F_I (0-100)
+    const ropSurgeTerm = Math.max(0, (ropMMin - 0.85) * 28);
+    const rqdDeficitTerm = (100 - intv.estimatedRqdPct) * 0.58;
+    const torqueAnomalyTerm =
+      torqueToFeedRatio > 0.86 || torqueToFeedRatio < 0.68 ? 14 : 0;
+    const flushAlterationTerm =
+      intv.flushWaterColor === 'Total Water Loss'
+        ? 22
+        : intv.flushWaterColor === 'Muddy Brown' ||
+          intv.flushWaterColor === 'Black/Graphitic'
+        ? 18
+        : intv.flushWaterColor === 'Red/Ochre'
+        ? 12
+        : intv.flushWaterColor === 'Slightly Milky'
+        ? 5
+        : 0;
     const fractureIndex = Number(
       Math.max(
         0,
-        Math.min(100, 100 - intv.estimatedRqdPct * 0.7 + (ropMMin > 1.8 ? 22 : 0))
+        Math.min(
+          100,
+          rqdDeficitTerm + ropSurgeTerm + torqueAnomalyTerm + flushAlterationTerm
+        )
       ).toFixed(0)
     );
 
+    // 5. Synthesized Bieniawski RMR89, Barton Q-Value & Hoek-Brown GSI
+    // R1: UCS Rating (0-15)
+    const r1Ucs =
+      estimatedUcsMpa >= 200
+        ? 15
+        : estimatedUcsMpa >= 100
+        ? 12
+        : estimatedUcsMpa >= 50
+        ? 7
+        : estimatedUcsMpa >= 25
+        ? 4
+        : 2;
+    // R2: RQD Rating (3-20)
+    const r2Rqd =
+      intv.estimatedRqdPct >= 90
+        ? 20
+        : intv.estimatedRqdPct >= 75
+        ? 17
+        : intv.estimatedRqdPct >= 50
+        ? 13
+        : intv.estimatedRqdPct >= 25
+        ? 8
+        : 3;
+    // R3: Spacing Rating (5-20)
+    const r3Spacing = Math.round(5 + (intv.estimatedRqdPct / 100) * 14);
+    // R4: Discontinuity Condition Rating (0-30) from flush return & cavity flag
+    const r4Cond = intv.cavityOrFaultDetected
+      ? 6
+      : intv.flushWaterColor === 'Muddy Brown' ||
+        intv.flushWaterColor === 'Black/Graphitic'
+      ? 10
+      : intv.flushWaterColor === 'Red/Ochre' ||
+        intv.flushWaterColor === 'Total Water Loss'
+      ? 14
+      : intv.flushWaterColor === 'Slightly Milky'
+      ? 22
+      : 26;
+    // R5: Groundwater Rating (0-15)
+    const r5Gw =
+      intv.waterInflowLMin > 125
+        ? 0
+        : intv.waterInflowLMin > 25
+        ? 4
+        : intv.waterInflowLMin > 10
+        ? 7
+        : intv.waterInflowLMin > 2
+        ? 10
+        : 15;
+
+    const estimatedRmr89 = Math.max(
+      8,
+      Math.min(98, r1Ucs + r2Rqd + r3Spacing + r4Cond + r5Gw - 5)
+    );
+    const estimatedGsi = Math.max(10, Math.min(95, estimatedRmr89 - 5));
+
+    // Barton Q = (RQD / Jn) * (Jr / Ja) * (Jw / SRF)
+    const jn =
+      intv.estimatedRqdPct >= 75
+        ? 6
+        : intv.estimatedRqdPct >= 50
+        ? 9
+        : intv.estimatedRqdPct >= 30
+        ? 12
+        : 15;
+    const jr = intv.cavityOrFaultDetected ? 1.0 : intv.estimatedRqdPct >= 65 ? 2.0 : 1.5;
+    const ja =
+      intv.flushWaterColor === 'Muddy Brown' ||
+      intv.flushWaterColor === 'Black/Graphitic'
+        ? 6.0
+        : intv.flushWaterColor === 'Red/Ochre' ||
+          intv.flushWaterColor === 'Total Water Loss'
+        ? 4.0
+        : intv.flushWaterColor === 'Slightly Milky'
+        ? 2.0
+        : 1.0;
+    const jw =
+      intv.waterInflowLMin >= 40 || intv.waterPressureBar >= 3.5
+        ? 0.33
+        : intv.waterInflowLMin >= 15 || intv.waterPressureBar >= 1.5
+        ? 0.5
+        : intv.waterInflowLMin >= 5
+        ? 0.66
+        : 1.0;
+    const srf = intv.cavityOrFaultDetected
+      ? 7.5
+      : intv.estimatedRqdPct < 35
+      ? 5.0
+      : intv.estimatedRqdPct < 60
+      ? 2.5
+      : 1.0;
+    const rawQ =
+      (Math.max(10, intv.estimatedRqdPct) / jn) * (jr / ja) * (jw / srf);
+    const estimatedBartonQ = Number(Math.max(0.01, Math.min(400, rawQ)).toFixed(2));
+
+    // Lauffer / Bieniawski Stand-up Time Estimate (hours) for active span
+    const predictedStandUpTimeHours = Number(
+      Math.max(
+        0.5,
+        Math.min(2400, Math.pow(10, (estimatedRmr89 - 22) / 18))
+      ).toFixed(1)
+    );
+
+    const recommendedNatmSupportClass =
+      estimatedRmr89 >= 81
+        ? 'NATM Class I (Spot Bolts + 50mm Sealing Shotcrete)'
+        : estimatedRmr89 >= 61
+        ? 'NATM Class II (Systematic 3m Bolts + 75mm Fiber Shotcrete)'
+        : estimatedRmr89 >= 41
+        ? 'NATM Class III (4m Bolts + 150mm Mesh Shotcrete + Light Ribs)'
+        : estimatedRmr89 >= 21
+        ? 'NATM Class IV (Lattice Girders + Forepoling + 220mm Shotcrete)'
+        : 'NATM Class V (Pipe Roof Umbrella + Pre-Grouting + Face Bolts + Invert Strut)';
+
+    // 6. Moye (1967) & Goodman (1965) Hydrogeological Analysis
+    const pBar = Math.max(0.2, intv.waterPressureBar || 0.5);
+    const piezometricHeadMeters = Number((pBar * 10.197).toFixed(1));
+    const equivalentLugeon = Number(
+      ((10 * intv.waterInflowLMin) / (Math.max(1.0, pBar) * segLen)).toFixed(2)
+    );
+
+    const qM3PerSec = intv.waterInflowLMin / 60000;
+    const kNumeric =
+      qM3PerSec > 0
+        ? (qM3PerSec * Math.log(Math.max(2, segLen / radiusM))) /
+          (2 * Math.PI * segLen * Math.max(2.0, piezometricHeadMeters))
+        : 0;
+    const hydraulicConductivityMPerSec =
+      kNumeric > 0 ? kNumeric.toExponential(2) : '1.00e-9';
+
+    // Goodman (1965) Steady-State Tunnel Inflow per 10m Unlined Advance:
+    // Q_tunnel = (2 * pi * K * H_w * L_advance) / ln(2 * H_w / R_eq)
+    const denomLn = Math.max(
+      0.85,
+      Math.log(Math.max(2.4, (2 * Math.max(5, piezometricHeadMeters)) / eqTunnelRadiusM))
+    );
+    const qTunnelM3Sec =
+      (2 * Math.PI * kNumeric * Math.max(5, piezometricHeadMeters) * 10) / denomLn;
+    const predictedTunnelInflowLMinPer10m = Number(
+      Math.max(intv.waterInflowLMin * 1.6, qTunnelM3Sec * 60000).toFixed(1)
+    );
+
+    // 7. 3D Coordinates along Borehole
+    const startXYZ = computeHole3DPointAtDepth(hole, intv.fromMeters);
+    const midXYZ = computeHole3DPointAtDepth(hole, midDepth);
+    const endXYZ = computeHole3DPointAtDepth(hole, intv.toMeters);
+
+    // 8. Multi-Parameter Anomaly & Hazard Classification
     const reasons: string[] = [];
     if (intv.cavityOrFaultDetected) reasons.push('Cavity / Shear Fault Zone');
-    if (intv.waterInflowLMin >= 25) reasons.push(`High Water Inflow (${intv.waterInflowLMin} L/min)`);
-    if (ropMMin >= 2.2) reasons.push(`Sudden High ROP (${ropMMin.toFixed(2)} m/min)`);
-    if (intv.estimatedRqdPct < 30) reasons.push(`Very Low RQD (${intv.estimatedRqdPct}%)`);
-    if (intv.flushWaterColor === 'Total Water Loss') reasons.push('Total Drilling Flush Loss');
+    if (intv.waterInflowLMin >= 25)
+      reasons.push(`High Water Inflow (${intv.waterInflowLMin} L/min)`);
+    if (ropMMin >= 1.95)
+      reasons.push(`Penetration Surge (${ropMMin.toFixed(2)} m/min)`);
+    if (intv.estimatedRqdPct < 35)
+      reasons.push(`Low RQD (${intv.estimatedRqdPct}%)`);
+    if (intv.flushWaterColor === 'Total Water Loss')
+      reasons.push('Total Drilling Flush Loss');
+    if (
+      intv.flushWaterColor === 'Muddy Brown' ||
+      intv.flushWaterColor === 'Black/Graphitic'
+    ) {
+      reasons.push(`Clay/Fault Gouge Flush (${intv.flushWaterColor})`);
+    }
+
+    const isCritical =
+      intv.cavityOrFaultDetected ||
+      intv.waterInflowLMin >= 25 ||
+      intv.estimatedRqdPct < 30 ||
+      intv.flushWaterColor === 'Total Water Loss';
+    const isModerate =
+      !isCritical &&
+      (reasons.length > 0 ||
+        intv.estimatedRqdPct < 55 ||
+        intv.waterInflowLMin >= 12 ||
+        fractureIndex >= 55);
+
+    const hazardSeverity: MwdIntervalComputation['hazardSeverity'] = isCritical
+      ? 'CRITICAL_FAULT_OR_INFLOW'
+      : isModerate
+      ? 'MODERATE_FRACTURED'
+      : 'NOMINAL';
 
     return {
       intervalId: intv.id,
-      midDepthMeters: Number((midDepth * cosInc).toFixed(2)),
+      midDepthMeters: midXYZ.z,
       fromMeters: intv.fromMeters,
       toMeters: intv.toMeters,
+      intervalLengthMeters: segLen,
       ropMetersPerMin: ropMMin,
+      normalizedPenetrationRate,
+      feedPressureBar: feedBar,
+      rotationPressureBar: rotBar,
+      torqueToFeedRatio,
+      thrustSpecificEnergyMjM3,
+      rotationalSpecificEnergyMjM3,
+      percussiveSpecificEnergyMjM3,
       specificEnergyMjPerM3,
+      estimatedUcsMpa,
+      drillingHardnessIndex,
       fractureIndex,
       waterInflowLMin: intv.waterInflowLMin,
+      waterPressureBar: pBar,
+      piezometricHeadMeters,
+      equivalentLugeon,
+      hydraulicConductivityMPerSec,
+      predictedTunnelInflowLMinPer10m,
       estimatedRqdPct: intv.estimatedRqdPct,
-      isHazardZone: reasons.length > 0,
+      estimatedRmr89,
+      estimatedBartonQ,
+      estimatedGsi,
+      predictedStandUpTimeHours,
+      recommendedNatmSupportClass,
+      flushWaterColor: intv.flushWaterColor,
+      rockMassClass: intv.rockMassClass,
+      startXYZ,
+      midXYZ,
+      endXYZ,
+      isHazardZone: isCritical || isModerate,
+      hazardSeverity,
       hazardReason: reasons.join(' · ') || 'Competent Rock Mass',
     };
   });
 }
 
-export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLookAheadSummary {
+function solve3DFaultPlaneFromHazardZones(
+  hazardPoints: Array<{
+    holeId: string;
+    midXYZ: Point3DTunnel;
+    thicknessM: number;
+  }>,
+  tunnelHeightM: number
+): FaultPlaneIntersection3D {
+  if (hazardPoints.length === 0) {
+    return {
+      detected: false,
+      planeEquation: { nx: 0, ny: 0, nz: 1, d: 20 },
+      apparentDipDeg: 0,
+      strikeRelToTunnelAxisDeg: 90,
+      dipDirectionLabel: 'No Adverse Fault Plane Intersected',
+      crownIntersectionAheadM: 24,
+      centerIntersectionAheadM: 24,
+      invertIntersectionAheadM: 24,
+      estimatedTrueThicknessM: 0,
+      intersectedHolesCount: 0,
+    };
+  }
+
+  const avgThickness =
+    hazardPoints.reduce((acc, p) => acc + p.thicknessM, 0) / hazardPoints.length;
+
+  // Deduplicate by holeId (take first major hazard per hole)
+  const uniqueByHole: typeof hazardPoints = [];
+  const seenHoles = new Set<string>();
+  for (const hp of hazardPoints) {
+    if (!seenHoles.has(hp.holeId)) {
+      seenHoles.add(hp.holeId);
+      uniqueByHole.push(hp);
+    }
+  }
+
+  if (uniqueByHole.length >= 3) {
+    const p1 = uniqueByHole[0].midXYZ;
+    const p2 = uniqueByHole[1].midXYZ;
+    const p3 = uniqueByHole[2].midXYZ;
+
+    const v1 = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z };
+    const v2 = { x: p3.x - p1.x, y: p3.y - p1.y, z: p3.z - p1.z };
+
+    // Cross product n = v1 x v2
+    let nx = v1.y * v2.z - v1.z * v2.y;
+    let ny = v1.z * v2.x - v1.x * v2.z;
+    let nz = v1.x * v2.y - v1.y * v2.x;
+    const norm = Math.hypot(nx, ny, nz);
+
+    if (norm > 1e-3) {
+      nx /= norm;
+      ny /= norm;
+      nz /= norm;
+      if (nz < 0) {
+        nx = -nx;
+        ny = -ny;
+        nz = -nz;
+      }
+      const d = nx * p1.x + ny * p1.y + nz * p1.z;
+      const safeNz = Math.abs(nz) > 0.15 ? nz : 0.45;
+      const zAt = (x: number, y: number) =>
+        Number(Math.max(1.0, Math.min(35.0, (d - nx * x - ny * y) / safeNz)).toFixed(1));
+
+      const crownZ = zAt(0, tunnelHeightM);
+      const centerZ = zAt(0, tunnelHeightM * 0.5);
+      const invertZ = zAt(0, 0);
+
+      // True dip of plane: angle with horizontal plane (normal vector is (0, 1, 0))
+      const cosDip = Math.min(1, Math.abs(ny));
+      const apparentDipDeg = Number(((Math.acos(cosDip) * 180) / Math.PI).toFixed(1));
+
+      // Strike angle relative to tunnel axis (Z axis):
+      const horizNorm = Math.hypot(nx, nz) || 1;
+      const strikeRelToTunnelAxisDeg = Number(
+        ((Math.acos(Math.min(1, Math.abs(nx) / horizNorm)) * 180) / Math.PI).toFixed(1)
+      );
+
+      const dipDirectionLabel =
+        crownZ < invertZ
+          ? 'Dipping Towards Tunnel Face (Unfavorable Overhang Wedge Risk)'
+          : crownZ > invertZ
+          ? 'Dipping Away From Face (Favorable Forward Dip)'
+          : 'Sub-Vertical Fault Zone Cutting Across Tunnel Axis';
+
+      return {
+        detected: true,
+        planeEquation: {
+          nx: Number(nx.toFixed(3)),
+          ny: Number(ny.toFixed(3)),
+          nz: Number(nz.toFixed(3)),
+          d: Number(d.toFixed(2)),
+        },
+        apparentDipDeg: Math.max(25, Math.min(89, apparentDipDeg)),
+        strikeRelToTunnelAxisDeg: Math.max(15, Math.min(90, strikeRelToTunnelAxisDeg)),
+        dipDirectionLabel,
+        crownIntersectionAheadM: crownZ,
+        centerIntersectionAheadM: centerZ,
+        invertIntersectionAheadM: invertZ,
+        estimatedTrueThicknessM: Number((avgThickness * Math.abs(safeNz)).toFixed(2)),
+        intersectedHolesCount: uniqueByHole.length,
+      };
+    }
+  }
+
+  // Fallback for 1 or 2 holes intersecting hazard zone
+  const avgZ =
+    uniqueByHole.reduce((s, p) => s + p.midXYZ.z, 0) / uniqueByHole.length;
+  const dzDy =
+    uniqueByHole.length === 2 &&
+    Math.abs(uniqueByHole[0].midXYZ.y - uniqueByHole[1].midXYZ.y) > 0.5
+      ? (uniqueByHole[0].midXYZ.z - uniqueByHole[1].midXYZ.z) /
+        (uniqueByHole[0].midXYZ.y - uniqueByHole[1].midXYZ.y)
+      : -0.25;
+  const clampedSlope = Math.max(-0.8, Math.min(0.8, dzDy));
+  const centerZ = Number(avgZ.toFixed(1));
+  const crownZ = Number(
+    Math.max(1.5, avgZ + clampedSlope * (tunnelHeightM * 0.5)).toFixed(1)
+  );
+  const invertZ = Number(
+    Math.max(1.5, avgZ - clampedSlope * (tunnelHeightM * 0.5)).toFixed(1)
+  );
+  const dipDeg = Number(
+    (90 - (Math.atan(Math.abs(clampedSlope)) * 180) / Math.PI).toFixed(1)
+  );
+
+  return {
+    detected: true,
+    planeEquation: { nx: 0.18, ny: -clampedSlope, nz: 0.95, d: centerZ },
+    apparentDipDeg: dipDeg,
+    strikeRelToTunnelAxisDeg: 72.5,
+    dipDirectionLabel:
+      crownZ <= invertZ
+        ? 'Steeply Dipping Towards Tunnel Face (Crown Intersected First)'
+        : 'Steeply Dipping Away From Face (Invert Intersected First)',
+    crownIntersectionAheadM: crownZ,
+    centerIntersectionAheadM: centerZ,
+    invertIntersectionAheadM: invertZ,
+    estimatedTrueThicknessM: Number((avgThickness * 0.85).toFixed(2)),
+    intersectedHolesCount: uniqueByHole.length,
+  };
+}
+
+export function evaluateProbeFanLookAhead(
+  holes: ProbeHoleRecord[],
+  rig: JumboRigCalibration = DEFAULT_JUMBO_CALIBRATION,
+  tunnelWidthM = 8.5,
+  tunnelHeightM = 8.5
+): ProbeHoleLookAheadSummary {
   if (!holes || holes.length === 0) {
     return {
       overallStatus: 'SAFE_COMPETENT',
       safeAdvanceLengthMeters: 20,
+      maxReachAheadMeters: 24,
+      mandatoryOverlapMeters: 5,
       maxWaterInflowLMin: 0,
       totalWaterInflowLMin: 0,
+      predictedUnlinedTunnelInflowLMin: 0,
+      maxPiezometricHeadMeters: 0,
+      maxEquivalentLugeon: 0,
       averageRqdPct: 75,
       averageSpecificEnergyMjM3: 180,
+      averageUcsMpa: 75,
+      averageRmr89: 68,
+      minimumBartonQ: 8.5,
+      averageGsi: 63,
+      fanPerimeterCoveragePct: 0,
+      recommendedSupportClass: 'NATM Class II (Systematic 3m Bolts + 75mm Shotcrete)',
+      recommendedMaxRoundLengthM: 3.0,
+      preGroutingTriggerActive: false,
+      faultPlane3D: solve3DFaultPlaneFromHazardZones([], tunnelHeightM),
       detectedHazardZones: [],
-      engineeringRecommendation: 'Add probe holes to evaluate ground and groundwater conditions ahead of the face.',
+      engineeringRecommendation:
+        'Add probe holes to evaluate ground and groundwater conditions ahead of the face.',
     };
   }
 
   let maxWater = 0;
   let totalWater = 0;
+  let maxHeadM = 0;
+  let maxLu = 0;
+  let maxPredictedTunnelInflow = 0;
   let totalRqdWeighted = 0;
   let totalDseWeighted = 0;
+  let totalUcsWeighted = 0;
+  let totalRmrWeighted = 0;
+  let totalGsiWeighted = 0;
+  let minBartonQ = 400;
   let totalLen = 0;
   let firstHazardDistanceAhead = Infinity;
   let maxHoleHorizontalReach = 0;
+  let maxOverlap = 5.0;
+
   const detectedHazardZones: ProbeHoleLookAheadSummary['detectedHazardZones'] = [];
+  const hazardPlaneInputs: Array<{
+    holeId: string;
+    midXYZ: Point3DTunnel;
+    thicknessM: number;
+  }> = [];
 
   for (const hole of holes) {
     const cosInc = Math.max(0.5, Math.cos(((hole.dipAngleDeg || 0) * Math.PI) / 180));
-    const holeReach = Math.max(0, hole.totalLengthMeters * cosInc - (hole.overlapLengthMeters || 4));
+    const overlap = hole.overlapLengthMeters || 5.0;
+    if (overlap > maxOverlap) maxOverlap = overlap;
+    const holeReach = Math.max(0, hole.totalLengthMeters * cosInc - overlap);
     if (holeReach > maxHoleHorizontalReach) {
       maxHoleHorizontalReach = holeReach;
     }
 
-    const mwdList = computeMwdProfileForHole(hole);
+    const mwdList = computeMwdProfileForHole(hole, rig, tunnelWidthM, tunnelHeightM);
     let holePeakWater = 0;
+
     for (let i = 0; i < hole.intervals.length; i++) {
       const intv = hole.intervals[i];
       const mwd = mwdList[i];
@@ -241,7 +812,22 @@ export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLo
       totalLen += segLen;
       totalRqdWeighted += intv.estimatedRqdPct * segLen;
       totalDseWeighted += mwd.specificEnergyMjPerM3 * segLen;
+      totalUcsWeighted += mwd.estimatedUcsMpa * segLen;
+      totalRmrWeighted += mwd.estimatedRmr89 * segLen;
+      totalGsiWeighted += mwd.estimatedGsi * segLen;
 
+      if (mwd.estimatedBartonQ < minBartonQ) {
+        minBartonQ = mwd.estimatedBartonQ;
+      }
+      if (mwd.piezometricHeadMeters > maxHeadM) {
+        maxHeadM = mwd.piezometricHeadMeters;
+      }
+      if (mwd.equivalentLugeon > maxLu) {
+        maxLu = mwd.equivalentLugeon;
+      }
+      if (mwd.predictedTunnelInflowLMinPer10m > maxPredictedTunnelInflow) {
+        maxPredictedTunnelInflow = mwd.predictedTunnelInflowLMinPer10m;
+      }
       if (intv.waterInflowLMin > holePeakWater) {
         holePeakWater = intv.waterInflowLMin;
       }
@@ -250,7 +836,7 @@ export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLo
       }
 
       if (mwd.isHazardZone) {
-        const aheadM = Number((intv.fromMeters * cosInc).toFixed(1));
+        const aheadM = mwd.startXYZ.z;
         if (aheadM < firstHazardDistanceAhead) {
           firstHazardDistanceAhead = aheadM;
         }
@@ -259,7 +845,17 @@ export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLo
           fromMeters: intv.fromMeters,
           toMeters: intv.toMeters,
           aheadOfFaceMeters: aheadM,
+          LateralX: mwd.midXYZ.x,
+          ElevationY: mwd.midXYZ.y,
+          specificEnergyMjM3: mwd.specificEnergyMjPerM3,
+          waterInflowLMin: intv.waterInflowLMin,
+          bartonQ: mwd.estimatedBartonQ,
           reason: mwd.hazardReason,
+        });
+        hazardPlaneInputs.push({
+          holeId: hole.id,
+          midXYZ: mwd.midXYZ,
+          thicknessM: segLen,
         });
       }
     }
@@ -267,16 +863,45 @@ export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLo
   }
 
   const averageRqdPct = totalLen > 0 ? Number((totalRqdWeighted / totalLen).toFixed(1)) : 70;
-  const averageSpecificEnergyMjM3 = totalLen > 0 ? Number((totalDseWeighted / totalLen).toFixed(1)) : 165;
+  const averageSpecificEnergyMjM3 =
+    totalLen > 0 ? Number((totalDseWeighted / totalLen).toFixed(1)) : 165;
+  const averageUcsMpa = totalLen > 0 ? Number((totalUcsWeighted / totalLen).toFixed(1)) : 65;
+  const averageRmr89 = totalLen > 0 ? Math.round(totalRmrWeighted / totalLen) : 60;
+  const averageGsi = totalLen > 0 ? Math.round(totalGsiWeighted / totalLen) : 55;
+  const minimumBartonQ = Number((minBartonQ === 400 ? 6.5 : minBartonQ).toFixed(2));
+
+  // Estimate fan perimeter look-ahead coverage (%) based on number of distinct sectors covered
+  const sectors = new Set<string>();
+  for (const h of holes) {
+    sectors.add(h.positionLabel);
+    if (h.collarY > tunnelHeightM * 0.65) sectors.add('CROWN_SECTOR');
+    if (h.collarX < -1.0) sectors.add('LEFT_WALL_SECTOR');
+    if (h.collarX > 1.0) sectors.add('RIGHT_WALL_SECTOR');
+  }
+  const fanPerimeterCoveragePct = Math.min(
+    100,
+    Math.round(Math.min(4, holes.length) * 18 + sectors.size * 7)
+  );
 
   let overallStatus: ProbeHoleSafetyStatus = 'SAFE_COMPETENT';
   if (
-    detectedHazardZones.some((z) => z.reason.includes('Cavity') || z.reason.includes('High Water')) ||
-    totalWater >= 50 ||
-    averageRqdPct < 35
+    detectedHazardZones.some(
+      (z) =>
+        z.reason.includes('Cavity') ||
+        z.reason.includes('High Water') ||
+        z.reason.includes('Total Drilling Flush Loss')
+    ) ||
+    totalWater >= 45 ||
+    averageRqdPct < 35 ||
+    minimumBartonQ < 0.4
   ) {
     overallStatus = 'HAZARD_HIGH_INFLOW_OR_CAVITY';
-  } else if (detectedHazardZones.length > 0 || totalWater >= 15 || averageRqdPct < 55) {
+  } else if (
+    detectedHazardZones.length > 0 ||
+    totalWater >= 15 ||
+    averageRqdPct < 55 ||
+    minimumBartonQ < 2.0
+  ) {
     overallStatus = 'CAUTION_FRACTURED';
   }
 
@@ -285,32 +910,71 @@ export function evaluateProbeFanLookAhead(holes: ProbeHoleRecord[]): ProbeHoleLo
       1.5,
       Math.min(
         maxHoleHorizontalReach > 0 ? maxHoleHorizontalReach : 18,
-        firstHazardDistanceAhead < Infinity ? Math.max(1.5, firstHazardDistanceAhead - 3.0) : maxHoleHorizontalReach || 18
+        firstHazardDistanceAhead < Infinity
+          ? Math.max(1.5, firstHazardDistanceAhead - 3.0)
+          : maxHoleHorizontalReach || 18
       )
     ).toFixed(1)
   );
 
+  const preGroutingTriggerActive =
+    maxWater >= 15 || totalWater >= 35 || maxLu >= 10 || overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY';
+
+  const recommendedSupportClass =
+    overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY'
+      ? 'NATM Class V (Pipe Roof Umbrella + Pre-Excavation Grouting + Multi-Stage Face Bolting)'
+      : overallStatus === 'CAUTION_FRACTURED'
+      ? 'NATM Class IV (Lattice Girders + Forepoling Spiles + 200mm Fiber Shotcrete)'
+      : averageRmr89 >= 65
+      ? 'NATM Class II (Systematic Rock Bolts + 75mm Fiber Shotcrete)'
+      : 'NATM Class III (Systematic 4m Bolts + 150mm Mesh Shotcrete)';
+
+  const recommendedMaxRoundLengthM =
+    overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY'
+      ? 1.2
+      : overallStatus === 'CAUTION_FRACTURED'
+      ? 1.8
+      : 3.0;
+
+  const faultPlane3D = solve3DFaultPlaneFromHazardZones(hazardPlaneInputs, tunnelHeightM);
+
   let engineeringRecommendation =
     'Competent rock mass verified ahead of face. Proceed with standard NATM round length and maintain mandatory 5.0 m probe overlap.';
   if (overallStatus === 'HAZARD_HIGH_INFLOW_OR_CAVITY') {
-    engineeringRecommendation = `CRITICAL LOOK-AHEAD ALERT: Hazard detected at +${
+    engineeringRecommendation = `CRITICAL LOOK-AHEAD ALERT: Shear/water-bearing structure intersected at +${
       firstHazardDistanceAhead < Infinity ? firstHazardDistanceAhead : 8.0
-    } m ahead of face (${totalWater.toFixed(
+    } m ahead of face (Crown +${faultPlane3D.crownIntersectionAheadM}m, Center +${
+      faultPlane3D.centerIntersectionAheadM
+    }m, Fan Inflow ${totalWater.toFixed(
       0
-    )} L/min water inflow). Execute Pre-Excavation Umbrella Grouting & reduce round length to ≤ 1.5 m with forepoling before advancing past +${safeAdvanceLengthMeters} m.`;
+    )} L/min, Q_min=${minimumBartonQ}). Halt full-face advance at +${safeAdvanceLengthMeters} m, execute Pre-Excavation Umbrella Grouting (Lu_max=${maxLu} Lu), and upgrade to ${recommendedSupportClass} with ≤ ${recommendedMaxRoundLengthM} m round length.`;
   } else if (overallStatus === 'CAUTION_FRACTURED') {
-    engineeringRecommendation = `CAUTION: Fractured / water-bearing zone detected ahead of face (Avg RQD ${averageRqdPct}%, Inflow ${totalWater.toFixed(
+    engineeringRecommendation = `CAUTION: Fractured / water-bearing zone detected ahead of face (Mean RQD ${averageRqdPct}%, RMR89=${averageRmr89}, Q_min=${minimumBartonQ}, Inflow ${totalWater.toFixed(
       0
-    )} L/min). Install drainage relief holes or localized consolidation grouting; limit safe advance to ${safeAdvanceLengthMeters} m.`;
+    )} L/min). Install drainage relief holes or localized consolidation grouting; limit safe advance to +${safeAdvanceLengthMeters} m (Max Round ${recommendedMaxRoundLengthM} m).`;
   }
 
   return {
     overallStatus,
     safeAdvanceLengthMeters,
+    maxReachAheadMeters: Number((maxHoleHorizontalReach + maxOverlap).toFixed(1)),
+    mandatoryOverlapMeters: maxOverlap,
     maxWaterInflowLMin: maxWater,
     totalWaterInflowLMin: Number(totalWater.toFixed(1)),
+    predictedUnlinedTunnelInflowLMin: Number(maxPredictedTunnelInflow.toFixed(1)),
+    maxPiezometricHeadMeters: maxHeadM,
+    maxEquivalentLugeon: maxLu,
     averageRqdPct,
     averageSpecificEnergyMjM3,
+    averageUcsMpa,
+    averageRmr89,
+    minimumBartonQ,
+    averageGsi,
+    fanPerimeterCoveragePct,
+    recommendedSupportClass,
+    recommendedMaxRoundLengthM,
+    preGroutingTriggerActive,
+    faultPlane3D,
     detectedHazardZones,
     engineeringRecommendation,
   };
@@ -873,7 +1537,44 @@ export function loadSavedProbeHoles(): ProbeHoleRecord[] {
     const raw = localStorage.getItem(PROBE_HOLE_STORAGE_KEY);
     if (!raw) return buildSampleProbeHoles();
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const sample = buildSampleProbeHoles()[0];
+      return parsed
+        .filter((h) => h && typeof h === 'object')
+        .map((h, i) => ({
+          ...sample,
+          ...h,
+          id: String(h.id || `ph-saved-${i + 1}`),
+          holeId: String(h.holeId || `PH-0${i + 1}`),
+          positionLabel: h.positionLabel || 'Crown Arch',
+          collarX: Number.isFinite(Number(h.collarX)) ? Number(h.collarX) : 0,
+          collarY: Number.isFinite(Number(h.collarY)) ? Number(h.collarY) : 5.0,
+          holeDiameterMm: Number(h.holeDiameterMm) || 76,
+          totalLengthMeters: Number(h.totalLengthMeters) || 24,
+          overlapLengthMeters: Number(h.overlapLengthMeters) || 5,
+          azimuthDeg: Number(h.azimuthDeg) || 42,
+          lookOutAngleDeg: Number(h.lookOutAngleDeg) || 6,
+          dipAngleDeg: Number(h.dipAngleDeg) || 6,
+          intervals:
+            Array.isArray(h.intervals) && h.intervals.length > 0
+              ? h.intervals.map((intv: Partial<ProbeRunInterval>, idx: number) => ({
+                  id: String(intv?.id || `int-${i}-${idx}`),
+                  fromMeters: Number(intv?.fromMeters) || idx * 6,
+                  toMeters: Number(intv?.toMeters) || (idx + 1) * 6,
+                  ropMetersPerMin: Number(intv?.ropMetersPerMin) || 0.9,
+                  feedPressureBar: Number(intv?.feedPressureBar) || 65,
+                  rotationPressureBar: Number(intv?.rotationPressureBar) || 50,
+                  flushWaterColor: intv?.flushWaterColor || 'Clear',
+                  waterInflowLMin: Number(intv?.waterInflowLMin) || 0,
+                  waterPressureBar: Number(intv?.waterPressureBar) || 0.5,
+                  estimatedRqdPct: Number(intv?.estimatedRqdPct) || 75,
+                  rockMassClass: intv?.rockMassClass || 'Class II (Good)',
+                  cavityOrFaultDetected: Boolean(intv?.cavityOrFaultDetected),
+                  geologicalRemarks: String(intv?.geologicalRemarks || ''),
+                }))
+              : sample.intervals,
+        }));
+    }
     return buildSampleProbeHoles();
   } catch {
     return buildSampleProbeHoles();

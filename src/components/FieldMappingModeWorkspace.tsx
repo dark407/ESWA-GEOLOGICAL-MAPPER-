@@ -753,29 +753,45 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           : mappingDomain === 'ROCK_SURFACE'
           ? Math.max(1.5, Number(surfaceParams.rockExposureHeightMeters) || 8.0)
           : Math.max(1.5, Number(surfaceParams.benchHeightMeters) || 10.0);
-      const nextCrownLen =
-        mappingDomain === 'TRENCH'
-          ? nextW
-          : Math.max(0.5, Number(surfaceParams.bermWidthMeters) || 5.0);
+      const bermDepthM = Math.max(0, Number(surfaceParams.bermWidthMeters) ?? 5.0);
+      const nextCrownLen = nextW;
       const parsedAz = Number(surfaceParams.faceDipDirectionDeg);
       const isSinglePanel =
         mappingDomain === 'ROCK_SURFACE' &&
-        (Boolean(surfaceParams.rockSurfaceSinglePanelOnly) ||
-          surfaceParams.rockSurfaceLayoutMode === 'SINGLE_PANEL' ||
-          surfaceParams.rockSurfaceLayout === 'SINGLE_PANEL');
+        surfaceParams.rockSurfaceSinglePanelOnly !== false &&
+        surfaceParams.rockSurfaceLayoutMode !== 'MULTI_PANEL' &&
+        surfaceParams.rockSurfaceLayout !== 'MULTI_PANEL';
+      const hasCrown =
+        mappingDomain === 'TRENCH'
+          ? true
+          : mappingDomain === 'ROCK_SURFACE'
+          ? !isSinglePanel
+          : mappingDomain === 'SLOPE'
+          ? bermDepthM > 0 &&
+            (surfaceParams.numberOfBenches === undefined ||
+              Number(surfaceParams.numberOfBenches) > 0)
+          : bermDepthM > 0;
+      const hasFlankWalls =
+        mappingDomain === 'TRENCH' || (mappingDomain === 'ROCK_SURFACE' && !isSinglePanel);
+
       return {
         ...rawLoc,
         name: formatLocationNameForDomain(rawLoc.name),
+        mappingDomain,
         shape: 'rectangular' as FieldTunnelShapeType,
         widthM: nextW,
         heightM: nextH,
         wallHeightM: nextH,
         crownLengthM: nextCrownLen,
+        bermDepthM: bermDepthM > 0 ? bermDepthM : 5.0,
         defaultDriveAzimuth:
           surfaceParams.faceDipDirectionDeg !== ('' as unknown as number) && Number.isFinite(parsedAz)
             ? parsedAz
             : rawLoc.defaultDriveAzimuth,
         singlePanelOnly: isSinglePanel,
+        hasCrown,
+        hasLeftWall: hasFlankWalls,
+        hasRightWall: hasFlankWalls,
       } as FieldTunnelLocationItem;
     }
     if (isVerticalShaftMode && rawLoc.undergroundSubMode !== 'vertical_shaft') {
@@ -803,19 +819,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       null;
     if (!found) return null;
     if (mappingDomain !== 'TUNNEL') {
-      const surfSpan =
-        mappingDomain === 'ROCK_SURFACE'
-          ? Math.max(1.5, Number(surfaceParams.rockExposureWidthMeters) || 12.0)
-          : Math.max(2.0, Number(surfaceParams.exposureLengthMeters) || activeLocation.widthM || 15.0);
+      const surfPullDepth =
+        mappingDomain === 'TRENCH'
+          ? Math.max(1.0, Number(surfaceParams.exposureLengthMeters) || found.pullLengthMeters || 10.0)
+          : mappingDomain === 'BENCH' || mappingDomain === 'SLOPE'
+          ? Math.max(0.5, Number(surfaceParams.bermWidthMeters) || 5.0)
+          : Math.max(1.5, Number(surfaceParams.rockExposureWidthMeters) || 12.0);
       const parsedAz = Number(surfaceParams.faceDipDirectionDeg);
       return {
         ...found,
-        pullLengthMeters:
-          mappingDomain === 'TRENCH'
-            ? found.pullLengthMeters === 3
-              ? Math.max(2.0, Number(surfaceParams.exposureLengthMeters) || 10.0)
-              : found.pullLengthMeters
-            : surfSpan,
+        mappingDomain,
+        pullLengthMeters: surfPullDepth,
         tunnelDriveDirection:
           surfaceParams.faceDipDirectionDeg !== ('' as unknown as number) && Number.isFinite(parsedAz)
             ? parsedAz
@@ -17455,7 +17469,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               leftWallHeightM: activeLocation?.customGeometry?.leftWallHeight ?? fGeom?.leftWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
               rightWallHeightM: activeLocation?.customGeometry?.rightWallHeight ?? fGeom?.rightWallLengthM ?? activeLocation?.wallHeightM ?? 4.2,
               crownRadiusM: activeLocation?.crownRadiusM,
-              pullLengthM: activeRound?.pullLengthMeters || 3.0,
+              pullLengthM:
+                mappingDomain === 'BENCH' || mappingDomain === 'SLOPE'
+                  ? Math.max(0.5, Number(surfaceParams.bermWidthMeters) || 5.0)
+                  : activeRound?.pullLengthMeters || 3.0,
               driveAzimuthDeg: activeRound?.tunnelDriveDirection ?? activeLocation?.defaultDriveAzimuth,
               currentChainageM: activeRound ? parseFloat(activeRound.chainageTo) || 100 : 100,
               tunnelShape: isVerticalShaftMode
@@ -17466,7 +17483,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               hasLeftWall: fGeom?.hasLeftWall ?? true,
               hasRightWall: fGeom?.hasRightWall ?? true,
               hasCrown: fGeom?.hasCrown ?? true,
-              hasInvert: fGeom?.hasInvert ?? true,
+              hasInvert: mappingDomain !== 'TUNNEL' ? false : (fGeom?.hasInvert ?? true),
               isClosed: fGeom?.isClosed ?? true,
               isVerticalShaft: isVerticalShaftMode,
               mappingDomain,

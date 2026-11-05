@@ -7,6 +7,7 @@ import {
   getInstalledSoftwareVersion,
   getOrGeneratePcHardwareId,
   getSoftwareLicenseById,
+  getUpdateNotificationsEnabled,
   MASTER_ADMIN_DEFAULT_EMAIL,
   performInAppOtaAutoUpdate,
   registerInstantUserAndLogin,
@@ -727,6 +728,9 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
   const [installedVer, setInstalledVer] = useState<string>(() =>
     getInstalledSoftwareVersion()
   );
+  const [updateNotifEnabled, setUpdateNotifEnabled] = useState<boolean>(() =>
+    getUpdateNotificationsEnabled()
+  );
   const [copiedUpdateLink, setCopiedUpdateLink] = useState<boolean>(false);
 
   // In-App Auto-Updater Progress State
@@ -740,6 +744,14 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
   const [allRegisteredLicenses, setAllRegisteredLicenses] = useState<
     SoftwareLicenseRecord[]
   >([]);
+  const [masterNewUserBanner, setMasterNewUserBanner] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    position: string;
+    date: string;
+  } | null>(null);
   const [apkDownloadBanner, setApkDownloadBanner] = useState<{
     status: 'downloading' | 'completed';
     fileName: string;
@@ -797,7 +809,15 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
         prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
       );
     });
-    return () => unsub();
+    const onToggleChanged = () => {
+      setUpdateNotifEnabled(getUpdateNotificationsEnabled());
+      setInstalledVer(getInstalledSoftwareVersion());
+    };
+    window.addEventListener('eswa-update-toggle-changed', onToggleChanged);
+    return () => {
+      unsub();
+      window.removeEventListener('eswa-update-toggle-changed', onToggleChanged);
+    };
   }, [installedVer]);
 
   // Also automatically check GitHub Releases ("latest") if a GitHub repository is configured
@@ -875,6 +895,117 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
     });
     return () => unsub();
   }, [isMasterSoftware]);
+
+  // Notify Master User in real time whenever a new user registers (or re-registers with a new date/time)
+  useEffect(() => {
+    if (!isMasterSoftware) return;
+    if (allRegisteredLicenses.length === 0 && pendingRequests.length === 0) return;
+    const GLOBAL_SEEN_KEY = 'eswa_master_global_seen_users_v1';
+    try {
+      const raw = localStorage.getItem(GLOBAL_SEEN_KEY);
+      const seenMap: Record<string, string> = raw ? JSON.parse(raw) : {};
+      const hadExistingMap = Boolean(raw);
+      let newestCandidate: {
+        id: string;
+        name: string;
+        email: string;
+        phone: string;
+        position: string;
+        date: string;
+      } | null = null;
+      let changed = false;
+
+      for (const l of allRegisteredLicenses) {
+        const recDate =
+          l.lastSeenAtIso && l.createdAtIso
+            ? l.lastSeenAtIso > l.createdAtIso
+              ? l.lastSeenAtIso
+              : l.createdAtIso
+            : l.lastSeenAtIso || l.createdAtIso || '';
+        const prevDate = seenMap[l.userId];
+        if (!prevDate || (recDate && recDate > prevDate)) {
+          seenMap[l.userId] = recDate || new Date().toISOString();
+          changed = true;
+          const ageMs = recDate ? Date.now() - new Date(recDate).getTime() : Infinity;
+          if (hadExistingMap || ageMs <= 15 * 60 * 1000) {
+            const pos =
+              l.boundPcName && l.boundPcName.includes('·')
+                ? l.boundPcName.split('·').slice(1).join('·').trim()
+                : l.password || 'Geologist';
+            if (!newestCandidate || recDate > newestCandidate.date) {
+              newestCandidate = {
+                id: l.userId,
+                name: l.fullName || 'New User',
+                email: l.email || '',
+                phone: l.phone || 'Not provided',
+                position: pos,
+                date: recDate || new Date().toISOString(),
+              };
+            }
+          }
+        }
+      }
+
+      for (const r of pendingRequests) {
+        const recDate = r.createdAtIso || '';
+        const prevDate = seenMap[r.requestId];
+        if (!prevDate || (recDate && recDate > prevDate)) {
+          seenMap[r.requestId] = recDate || new Date().toISOString();
+          changed = true;
+          const ageMs = recDate ? Date.now() - new Date(recDate).getTime() : Infinity;
+          if (hadExistingMap || ageMs <= 15 * 60 * 1000) {
+            if (!newestCandidate || recDate > newestCandidate.date) {
+              newestCandidate = {
+                id: r.requestId,
+                name: r.fullName || 'New User',
+                email: r.email || '',
+                phone: r.phone || 'Not provided',
+                position: r.roleTitle || 'Geologist',
+                date: recDate || new Date().toISOString(),
+              };
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        localStorage.setItem(GLOBAL_SEEN_KEY, JSON.stringify(seenMap));
+      }
+
+      if (newestCandidate) {
+        setMasterNewUserBanner(newestCandidate);
+        try {
+          if (typeof window !== 'undefined' && 'Notification' in window) {
+            const fireSysNotif = () => {
+              const n = new Notification(
+                `New ESWA User Registered: ${newestCandidate!.name}`,
+                {
+                  body: `${newestCandidate!.position} · ${newestCandidate!.phone}${
+                    newestCandidate!.email ? ` · ${newestCandidate!.email}` : ''
+                  } (${new Date(newestCandidate!.date).toLocaleString()})`,
+                }
+              );
+              n.onclick = () => {
+                window.focus();
+                onOpenAdminPortal();
+              };
+            };
+            if (Notification.permission === 'granted') {
+              fireSysNotif();
+            } else if (Notification.permission !== 'denied') {
+              void Notification.requestPermission().then((perm) => {
+                if (perm === 'granted') fireSysNotif();
+              });
+            }
+          }
+        } catch {
+          // Ignore browser notification errors
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [isMasterSoftware, allRegisteredLicenses, pendingRequests, onOpenAdminPortal]);
 
   const getUpdateLinkForRelease = (rel: SoftwareReleaseRecord): string => {
     if (
@@ -990,6 +1121,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
 
   const showUpdatePrompt =
     !isMasterSoftware &&
+    updateNotifEnabled &&
     availableRelease &&
     availableRelease.version !== installedVer &&
     (availableRelease.isMandatory ||
@@ -1058,8 +1190,52 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
         </div>
       )}
 
+      {/* Master Live Notification Banner when a New User Registers */}
+      {isMasterSoftware && masterNewUserBanner && (
+        <div className="bg-amber-950/95 text-amber-100 border-b border-amber-500/80 px-3.5 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-50">
+          <div
+            onClick={() => {
+              setMasterNewUserBanner(null);
+              onOpenAdminPortal();
+            }}
+            className="flex items-center gap-2 min-w-0 cursor-pointer"
+          >
+            <Bell className="w-4 h-4 text-amber-400 animate-bounce shrink-0" />
+            <span className="font-semibold truncate">
+              New User Registered:{' '}
+              <strong className="text-white">{masterNewUserBanner.name}</strong> (
+              {masterNewUserBanner.position} · {masterNewUserBanner.phone}
+              {masterNewUserBanner.email ? ` · ${masterNewUserBanner.email}` : ''}) at{' '}
+              <span className="font-mono text-amber-300">
+                {new Date(masterNewUserBanner.date).toLocaleString()}
+              </span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setMasterNewUserBanner(null);
+                onOpenAdminPortal();
+              }}
+              className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-[11px] font-bold cursor-pointer"
+            >
+              Open Manage Users
+            </button>
+            <button
+              type="button"
+              onClick={() => setMasterNewUserBanner(null)}
+              className="px-2 py-0.5 rounded bg-black/30 hover:bg-black/50 text-amber-200 text-[10px] cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Persistent User Notification Strip when an Update is Available: Touch & Press Update to Auto-Update with Zero Data Deletion */}
       {!isMasterSoftware &&
+        updateNotifEnabled &&
         availableRelease &&
         availableRelease.version !== installedVer && (
           <div className="bg-emerald-950/95 text-emerald-100 border-b border-emerald-500/80 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-40">
@@ -1070,7 +1246,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
             >
               <Bell className="w-4 h-4 text-emerald-400 animate-bounce shrink-0" />
               <span className="font-semibold truncate">
-                New Update <strong className="font-mono text-white">v{availableRelease.version}</strong> Available! Click here or press <strong>Update Now (Keep All Data)</strong> for automatic update with no previous data deletion.
+                New Update <strong className="font-mono text-white">v{availableRelease.version}</strong> Available! Click <strong>Update App &amp; Software Automatically</strong> for an in-place OTA update with zero data deletion.
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -1086,7 +1262,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
                 <span>
                   {otaUpdating
                     ? `Updating (${otaProgressPct}%)...`
-                    : `Update Now (v${availableRelease.version} · Keep All Data)`}
+                    : `Update App & Software Automatically (v${availableRelease.version})`}
                 </span>
               </button>
               <button

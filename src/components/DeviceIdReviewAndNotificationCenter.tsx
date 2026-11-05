@@ -66,6 +66,7 @@ export interface DeviceIdHeaderWidgetProps {
   onDataImported?: () => void;
   compact?: boolean;
   industryMode?: 'NATM' | 'TBM' | 'MINING';
+  onlyAutoUpdate?: boolean;
 }
 
 export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetProps> = ({
@@ -74,6 +75,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
   onWorkspaceDataImported,
   compact = false,
   industryMode,
+  onlyAutoUpdate = false,
 }) => {
   const [deviceInfo, setDeviceInfo] = useState(() =>
     getLocalUserDeviceId(currentUser?.uid, currentUser?.email)
@@ -82,7 +84,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
   const [modalOpen, setModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     'notifications' | 'incoming' | 'outgoing' | 'device_id' | 'software_update'
-  >('notifications');
+  >(() => (onlyAutoUpdate ? 'software_update' : 'notifications'));
 
   const [incomingTransfers, setIncomingTransfers] = useState<EswaDeviceTransferRecord[]>([]);
   const [outgoingTransfers, setOutgoingTransfers] = useState<EswaDeviceTransferRecord[]>([]);
@@ -183,7 +185,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
       targetedRelease ||
       latestCloudRelease || {
         releaseId: `rel_auto_${Date.now()}`,
-        portalScope: 'ESWA_GLOBAL_PORTAL_V1',
+        portalScope: 'ESWA_GLOBAL',
         version: CURRENT_SOFTWARE_VERSION,
         title: `ESWA Geological Mapper v${CURRENT_SOFTWARE_VERSION} Auto-Update`,
         releaseNotes:
@@ -314,47 +316,49 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
     <>
       <div className="flex items-center gap-1.5">
         {/* 6-Character Device ID Badge */}
-        <div
-          onClick={() => {
-            setActiveTab('device_id');
-            setModalOpen(true);
-          }}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+        {!onlyAutoUpdate && (
+          <div
+            onClick={() => {
               setActiveTab('device_id');
               setModalOpen(true);
-            }
-          }}
-          title="Your 6-Character ESWA Device ID for receiving & sending Face Reviews and Data Packages"
-          className={`group flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-slate-900/90 hover:bg-slate-800/90 text-cyan-200 cursor-pointer transition-all select-none ${
-            compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'
-          }`}
-        >
-          <KeyRound className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          <span className="text-slate-400 font-medium hidden sm:inline">ID:</span>
-          <span className="font-mono font-bold tracking-wider text-cyan-300">
-            {deviceInfo.deviceId}
-          </span>
-          {deviceInfo.customAlias && (
-            <span className="hidden md:inline text-[9px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-1 py-0.5 rounded">
-              {deviceInfo.customAlias}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={handleCopyDeviceId}
-            title="Copy Device ID"
-            className="p-0.5 rounded hover:bg-cyan-500/20 text-cyan-300 transition-colors"
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setActiveTab('device_id');
+                setModalOpen(true);
+              }
+            }}
+            title="Your 6-Character ESWA Device ID for receiving & sending Face Reviews and Data Packages"
+            className={`group flex items-center gap-1.5 rounded-lg border border-cyan-500/35 bg-slate-900/90 hover:bg-slate-800/90 text-cyan-200 cursor-pointer transition-all select-none ${
+              compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'
+            }`}
           >
-            {copiedId ? (
-              <Check className="w-3 h-3 text-emerald-400" />
-            ) : (
-              <Copy className="w-3 h-3 opacity-75 group-hover:opacity-100" />
+            <KeyRound className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-slate-400 font-medium hidden sm:inline">ID:</span>
+            <span className="font-mono font-bold tracking-wider text-cyan-300">
+              {deviceInfo.deviceId}
+            </span>
+            {deviceInfo.customAlias && (
+              <span className="hidden md:inline text-[9px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-1 py-0.5 rounded">
+                {deviceInfo.customAlias}
+              </span>
             )}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={handleCopyDeviceId}
+              title="Copy Device ID"
+              className="p-0.5 rounded hover:bg-cyan-500/20 text-cyan-300 transition-colors"
+            >
+              {copiedId ? (
+                <Check className="w-3 h-3 text-emerald-400" />
+              ) : (
+                <Copy className="w-3 h-3 opacity-75 group-hover:opacity-100" />
+              )}
+            </button>
+          </div>
+        )}
 
         {/* User Main Screen Update Notification Toggle & 1-Click Auto-Update Trigger */}
         <div
@@ -370,12 +374,12 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
               setModalOpen(true);
             }
           }}
-          title="Software Update Notification Toggle & 1-Click Automatic App/Software Updater"
+          title="Software Update Notification Toggle (ON / OFF) & 1-Click Automatic App/Software Updater"
           className={`flex items-center gap-1.5 rounded-lg border cursor-pointer transition-all select-none ${
             targetedRelease && updateNotifEnabled
-              ? 'border-emerald-400/80 bg-emerald-950/70 hover:bg-emerald-900/70 text-emerald-200 shadow-md shadow-emerald-500/20'
-              : 'border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 text-slate-200'
-          } ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'}`}
+              ? 'border-emerald-400/90 bg-emerald-950/85 hover:bg-emerald-900/80 text-emerald-100 shadow-md shadow-emerald-500/25'
+              : 'border-slate-700/90 bg-slate-900/95 hover:bg-slate-800 text-slate-100 shadow-sm'
+          } ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-xs'}`}
         >
           <Sparkles
             className={`w-3.5 h-3.5 shrink-0 ${
@@ -386,7 +390,7 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                 : 'text-slate-500'
             }`}
           />
-          <span className="font-semibold hidden lg:inline">
+          <span className="font-semibold whitespace-nowrap">
             {targetedRelease && updateNotifEnabled
               ? `Update v${targetedRelease.version}`
               : 'Auto-Update'}
@@ -412,6 +416,14 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
               }`}
             />
           </button>
+          <span
+            onClick={(e) => handleToggleUpdateNotif(!updateNotifEnabled, e)}
+            className={`text-[9px] font-mono font-extrabold uppercase tracking-tight ${
+              updateNotifEnabled ? 'text-emerald-300' : 'text-slate-400'
+            }`}
+          >
+            {updateNotifEnabled ? 'ON' : 'OFF'}
+          </span>
           {targetedRelease && updateNotifEnabled && (
             <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-slate-950 font-mono font-extrabold text-[9px] leading-tight animate-pulse">
               NEW
@@ -420,27 +432,29 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
         </div>
 
         {/* Notification Bell & Review Inbox Trigger */}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab(unreadCount > 0 ? 'notifications' : pendingReviewCount > 0 ? 'incoming' : 'notifications');
-            setModalOpen(true);
-          }}
-          title="Peer Review Inbox & Approval Notifications"
-          className={`relative flex items-center gap-1.5 rounded-lg border transition-all ${
-            unreadCount > 0 || pendingReviewCount > 0
-              ? 'border-amber-500/60 bg-amber-950/50 hover:bg-amber-900/50 text-amber-200 shadow-sm shadow-amber-500/10'
-              : 'border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 text-slate-200'
-          } ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'}`}
-        >
-          <Bell className={`w-3.5 h-3.5 ${unreadCount > 0 ? 'text-amber-400 animate-bounce' : 'text-cyan-400'}`} />
-          <span className="font-semibold hidden md:inline">Review & Alerts</span>
-          {(unreadCount > 0 || pendingReviewCount > 0) && (
-            <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 font-mono font-extrabold text-[10px] leading-tight">
-              {unreadCount || pendingReviewCount}
-            </span>
-          )}
-        </button>
+        {!onlyAutoUpdate && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab(unreadCount > 0 ? 'notifications' : pendingReviewCount > 0 ? 'incoming' : 'notifications');
+              setModalOpen(true);
+            }}
+            title="Peer Review Inbox & Approval Notifications"
+            className={`relative flex items-center gap-1.5 rounded-lg border transition-all ${
+              unreadCount > 0 || pendingReviewCount > 0
+                ? 'border-amber-500/60 bg-amber-950/50 hover:bg-amber-900/50 text-amber-200 shadow-sm shadow-amber-500/10'
+                : 'border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 text-slate-200'
+            } ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1.5 text-[11px]'}`}
+          >
+            <Bell className={`w-3.5 h-3.5 ${unreadCount > 0 ? 'text-amber-400 animate-bounce' : 'text-cyan-400'}`} />
+            <span className="font-semibold hidden md:inline">Review & Alerts</span>
+            {(unreadCount > 0 || pendingReviewCount > 0) && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 font-mono font-extrabold text-[10px] leading-tight">
+                {unreadCount || pendingReviewCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Live Floating 1-Click Software Auto-Update Banner (when Notification Toggle is ON and a new release arrives) */}
@@ -844,8 +858,8 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                           <RefreshCw className="w-4 h-4" />
                           <span>
                             {targetedRelease
-                              ? `1-Click Auto-Update to v${targetedRelease.version} Now`
-                              : '1-Click Auto-Update & Refresh App Now'}
+                              ? `Update App & Software Automatically (v${targetedRelease.version})`
+                              : 'Update App & Software Automatically'}
                           </span>
                         </button>
                       </div>

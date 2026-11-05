@@ -94,7 +94,28 @@ async function overwriteDriveFileInPlace(fileId, localFilePath, mimeType, access
   return true;
 }
 
-async function publishCloudAutoUpdateNotification(version, repoSlug) {
+async function fetchSavedDriveFileIdsFromFirestore() {
+  const firebaseConfigPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+  if (!fs.existsSync(firebaseConfigPath)) return {};
+  try {
+    const cfg = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+    const projectId = cfg.projectId;
+    const databaseId = cfg.firestoreDatabaseId || '(default)';
+    const apiKey = cfg.apiKey;
+    if (!projectId || !apiKey) return {};
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/software_releases/GDRIVE_PERMANENT_FILE_IDS_CONFIG?key=${apiKey}`;
+    const resp = await fetch(url, { method: 'GET' });
+    if (!resp.ok) return {};
+    const docJson = await resp.json();
+    const rawNotes = docJson?.fields?.releaseNotes?.stringValue || '';
+    if (!rawNotes) return {};
+    return JSON.parse(rawNotes);
+  } catch {
+    return {};
+  }
+}
+
+async function publishCloudAutoUpdateNotification(version, repoSlug, userExeFileId = '') {
   const firebaseConfigPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
   if (!fs.existsSync(firebaseConfigPath)) return;
 
@@ -107,14 +128,17 @@ async function publishCloudAutoUpdateNotification(version, repoSlug) {
 
     const releaseId = `rel_ci_${version.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const nowIso = new Date().toISOString();
-    const downloadUrl = repoSlug
+    const cleanExeId = extractFileId(userExeFileId);
+    const downloadUrl = cleanExeId
+      ? `https://drive.google.com/uc?export=download&id=${cleanExeId}`
+      : repoSlug
       ? `https://github.com/${repoSlug}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
       : 'GITHUB_USER_EXE';
 
     const firestoreDoc = {
       fields: {
         releaseId: { stringValue: releaseId },
-        portalScope: { stringValue: 'ESWA_GLOBAL_PORTAL_V1' },
+        portalScope: { stringValue: 'ESWA_GLOBAL' },
         version: { stringValue: version },
         title: { stringValue: `ESWA Geological Mapper v${version} Auto-Update` },
         releaseNotes: {
@@ -156,10 +180,14 @@ async function main() {
   const version = process.env.ESWA_RELEASE_VERSION || `2.8.${runNumber}`;
   const repoSlug = process.env.GITHUB_REPOSITORY || '';
 
-  // 1. Always broadcast the new version to User Main Screen Notification Toggles
-  await publishCloudAutoUpdateNotification(version, repoSlug);
+  const cloudSavedIds = await fetchSavedDriveFileIdsFromFirestore();
+  const userApkFileId = process.env.GDRIVE_USER_APK_FILE_ID || cloudSavedIds.userApkFileId || '';
+  const userExeFileId = process.env.GDRIVE_USER_EXE_FILE_ID || cloudSavedIds.userExeFileId || '';
 
-  // 2. If Google Drive credentials & permanent File IDs are configured, overwrite in-place
+  // 1. Always broadcast the new version to User Main Screen Notification Toggles
+  await publishCloudAutoUpdateNotification(version, repoSlug, userExeFileId);
+
+  // 2. If Google Drive credentials & permanent User File IDs are configured, overwrite in-place
   const accessToken = await resolveGoogleAccessToken();
   if (!accessToken) {
     console.log(
@@ -178,34 +206,20 @@ async function main() {
 
   const targets = [
     {
-      fileId: process.env.GDRIVE_USER_APK_FILE_ID,
+      fileId: userApkFileId,
       localPath: resolveExistingPath([
         'release/ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
+        'release/AKASH-TUNNEL-MAPPER-User-App.apk',
         'release-apk/ESWA-GEOLOGICAL-MAPPER-User-Android.apk',
       ]),
       mimeType: 'application/vnd.android.package-archive',
     },
     {
-      fileId: process.env.GDRIVE_USER_EXE_FILE_ID,
+      fileId: userExeFileId,
       localPath: resolveExistingPath([
         'release/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
+        'release/AKASH-TUNNEL-MAPPER-User-Setup.exe',
         'release-user/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe',
-      ]),
-      mimeType: 'application/vnd.microsoft.portable-executable',
-    },
-    {
-      fileId: process.env.GDRIVE_MASTER_APK_FILE_ID,
-      localPath: resolveExistingPath([
-        'release/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-        'release-apk/ESWA-GEOLOGICAL-MAPPER-Master-Android.apk',
-      ]),
-      mimeType: 'application/vnd.android.package-archive',
-    },
-    {
-      fileId: process.env.GDRIVE_MASTER_EXE_FILE_ID,
-      localPath: resolveExistingPath([
-        'release/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
-        'release-master/ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe',
       ]),
       mimeType: 'application/vnd.microsoft.portable-executable',
     },

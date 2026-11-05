@@ -662,11 +662,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
   // Persistence & Geological Interpretation
   const [persistenceInterpretation, setPersistenceInterpretation] = useState<string>(
     currentJoint.inspection3D?.persistenceInterpretation ||
-      'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.'
+      (isSurfaceMapping
+        ? `Visible trace exposed across ${domainPanelMap.face.shortLabel}. Continuity into adjacent mapped exposure evaluated.`
+        : 'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.')
   );
   const [persistenceAssumptions, setPersistenceAssumptions] = useState<string>(
     currentJoint.inspection3D?.persistenceAssumptions ||
-      'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.'
+      (isSurfaceMapping
+        ? `Orientation assumed planar within the mapped ${domainPanelMap.domainTitle.toLowerCase()} exposure boundary.`
+        : 'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.')
   );
   const [persistenceConfidence, setPersistenceConfidence] = useState<'HIGH' | 'MEDIUM' | 'LOW'>(
     currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM'
@@ -719,11 +723,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
     setAngularUncertainty(currentJoint.inspection3D?.angularUncertaintyDeg ?? 3.0);
     setPersistenceInterpretation(
       currentJoint.inspection3D?.persistenceInterpretation ||
-        'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.'
+        (isSurfaceMapping
+          ? `Visible trace exposed across ${domainPanelMap.face.shortLabel}. Continuity into adjacent mapped exposure evaluated.`
+          : 'Visible trace exposed across excavation face. Continuity into crown arch observed with tight intact rock bridge.')
     );
     setPersistenceAssumptions(
       currentJoint.inspection3D?.persistenceAssumptions ||
-        'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.'
+        (isSurfaceMapping
+          ? `Orientation assumed planar within the mapped ${domainPanelMap.domainTitle.toLowerCase()} exposure boundary.`
+          : 'Orientation assumed planar within the excavation volume. Planar extrapolation clipped to tunnel cross-section perimeter.')
     );
     setPersistenceConfidence(currentJoint.inspection3D?.persistenceConfidence || 'MEDIUM');
     setLinkedTraceIds(currentJoint.inspection3D?.linkedTraceIds || []);
@@ -1488,38 +1496,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
       }
     } else if (isSurfaceMapping) {
       // =====================================================================
-      // SURFACE MAPPING 3D EXCAVATION & ACTIVE PORTION GEOMETRY
-      // Adapts to BENCH, TRENCH, SLOPE, and ROCK_SURFACE and highlights the
-      // active portion (face, crown, left_wall, right_wall)
+      // SURFACE MAPPING 3D EXPOSURE & ACTIVE PORTION GEOMETRY
+      // Strictly renders ONLY the user-configured portions (no extra toe apron
+      // or unconfigured flank walls).
       // =====================================================================
       const domain = tunnelGeometry.mappingDomain || 'BENCH';
       const isTrench = domain === 'TRENCH';
-      const isSingleRockWindow =
-        domain === 'ROCK_SURFACE' &&
-        tunnelGeometry.hasCrown === false &&
-        tunnelGeometry.hasLeftWall === false &&
-        tunnelGeometry.hasRightWall === false;
 
-      // 1. Lower Toe / Trench Invert Floor at y = 0
-      const toeApronDepth = isTrench ? pullL : Math.min(4.5, Math.max(2.0, pullL * 0.35));
-      const toeGeo = new THREE.PlaneGeometry(w, toeApronDepth);
-      toeGeo.rotateX(-Math.PI / 2);
-      toeGeo.translate(
-        cx,
-        0.002,
-        isTrench ? cz : pullL + toeApronDepth / 2
-      );
-      const toeMat = new THREE.MeshStandardMaterial({
-        color: activePortionPanel === 'left_wall' && !isTrench ? 0xfef3c7 : 0xf1f5f9,
-        transparent: true,
-        opacity: isTrench ? 0.45 : 0.38,
-        roughness: 0.6,
-        metalness: 0.02,
-        side: THREE.DoubleSide,
-      });
-      tunnelGroup.add(new THREE.Mesh(toeGeo, toeMat));
-
-      // 2. Main Surface Exposure Face / Bench Face / Slope Face / Trench End Face at z = pullL
+      // 1. Main Surface Exposure Face / Bench Face / Slope Face / Trench End Face at z = pullL
       const facePlaneGeo = new THREE.PlaneGeometry(w, h);
       facePlaneGeo.translate(cx, h / 2, pullL);
       const isFaceActive = activePortionPanel === 'face';
@@ -1551,8 +1535,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
         )
       );
 
-      // 3. Upper Berm / Crest Ledge / Trench Floor Reference at y = h (crown panel)
-      if (!isSingleRockWindow && (tunnelGeometry.hasCrown !== false || activePortionPanel === 'crown')) {
+      // 2. Upper Berm / Crest Ledge / Trench Floor Reference at y = h (crown panel, only if configured)
+      if (tunnelGeometry.hasCrown !== false) {
         const isCrownActive = activePortionPanel === 'crown';
         const bermGeo = new THREE.PlaneGeometry(w, pullL);
         bermGeo.rotateX(-Math.PI / 2);
@@ -1560,7 +1544,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const bermMat = new THREE.MeshStandardMaterial({
           color: isCrownActive ? 0xa7f3d0 : 0xe2e8f0,
           transparent: true,
-          opacity: isTrench ? (isCrownActive ? 0.28 : 0.1) : isCrownActive ? 0.42 : 0.26,
+          opacity: isTrench ? (isCrownActive ? 0.28 : 0.14) : isCrownActive ? 0.42 : 0.26,
           roughness: 0.35,
           metalness: 0.03,
           side: THREE.DoubleSide,
@@ -1585,17 +1569,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
         );
       }
 
-      // 4. Left Flank / Left Trench Wall / Toe Cut Portion at x = 0
-      if (!isSingleRockWindow && (tunnelGeometry.hasLeftWall !== false || activePortionPanel === 'left_wall')) {
+      // 3. Left Trench Wall / Left Flank Portion at x = 0 (only if configured)
+      if (tunnelGeometry.hasLeftWall !== false) {
         const isLeftActive = activePortionPanel === 'left_wall';
-        const showFullLeftWall = isTrench || isLeftActive;
         const leftWallGeo = new THREE.PlaneGeometry(pullL, h);
         leftWallGeo.rotateY(Math.PI / 2);
         leftWallGeo.translate(0, h / 2, cz);
         const leftWallMat = new THREE.MeshStandardMaterial({
           color: isLeftActive ? 0xfde68a : 0xf1f5f9,
           transparent: true,
-          opacity: showFullLeftWall ? (isLeftActive ? 0.38 : 0.28) : 0.12,
+          opacity: isLeftActive ? 0.38 : 0.26,
           roughness: 0.35,
           metalness: 0.02,
           side: THREE.DoubleSide,
@@ -1620,17 +1603,16 @@ const NatmJoint3DInspectorModalContent: React.FC<
         );
       }
 
-      // 5. Right Flank / Right Trench Wall Portion at x = w
-      if (!isSingleRockWindow && (tunnelGeometry.hasRightWall !== false || activePortionPanel === 'right_wall')) {
+      // 4. Right Trench Wall / Right Flank Portion at x = w (only if configured)
+      if (tunnelGeometry.hasRightWall !== false) {
         const isRightActive = activePortionPanel === 'right_wall';
-        const showFullRightWall = isTrench || isRightActive;
         const rightWallGeo = new THREE.PlaneGeometry(pullL, h);
         rightWallGeo.rotateY(-Math.PI / 2);
         rightWallGeo.translate(w, h / 2, cz);
         const rightWallMat = new THREE.MeshStandardMaterial({
           color: isRightActive ? 0xfde68a : 0xf1f5f9,
           transparent: true,
-          opacity: showFullRightWall ? (isRightActive ? 0.38 : 0.28) : 0.12,
+          opacity: isRightActive ? 0.38 : 0.26,
           roughness: 0.35,
           metalness: 0.02,
           side: THREE.DoubleSide,
@@ -1655,7 +1637,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         );
       }
 
-      // 6. 3D Portion Billboard Badges so user sees active portion in 3D
+      // 5. 3D Portion Billboard Badges for configured portions only
       if (showLegendOverlay) {
         const faceBadge = createBillboardLabel(
           `${domainPanelMap.face.shortLabel.toUpperCase()}${activePortionPanel === 'face' ? ' ★' : ''}`,
@@ -1667,7 +1649,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         faceBadge.position.set(cx, h + 0.45, pullL);
         tunnelGroup.add(faceBadge);
 
-        if (!isSingleRockWindow && tunnelGeometry.hasCrown !== false) {
+        if (tunnelGeometry.hasCrown !== false) {
           const crownBadge = createBillboardLabel(
             `${domainPanelMap.crown.shortLabel.toUpperCase()}${activePortionPanel === 'crown' ? ' ★' : ''}`,
             activePortionPanel === 'crown' ? '#059669' : '#0f172a',
@@ -1679,7 +1661,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           tunnelGroup.add(crownBadge);
         }
 
-        if (!isSingleRockWindow && tunnelGeometry.hasLeftWall !== false) {
+        if (tunnelGeometry.hasLeftWall !== false) {
           const leftBadge = createBillboardLabel(
             `${domainPanelMap.leftWall.shortLabel.toUpperCase()}${activePortionPanel === 'left_wall' ? ' ★' : ''}`,
             activePortionPanel === 'left_wall' ? '#d97706' : '#334155',
@@ -1691,7 +1673,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           tunnelGroup.add(leftBadge);
         }
 
-        if (!isSingleRockWindow && tunnelGeometry.hasRightWall !== false) {
+        if (tunnelGeometry.hasRightWall !== false) {
           const rightBadge = createBillboardLabel(
             `${domainPanelMap.rightWall.shortLabel.toUpperCase()}${activePortionPanel === 'right_wall' ? ' ★' : ''}`,
             activePortionPanel === 'right_wall' ? '#d97706' : '#334155',
@@ -3095,7 +3077,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
           : undefined,
       coordinateReferenceNotice:
         tunnelGeometry.driveAzimuthDeg !== undefined
-          ? `Georeferenced to Tunnel Drive Axis N ${Math.round(tunnelGeometry.driveAzimuthDeg)}° E`
+          ? isSurfaceMapping
+            ? `Georeferenced to Exposure Bearing N ${Math.round(tunnelGeometry.driveAzimuthDeg)}° E`
+            : `Georeferenced to Tunnel Drive Axis N ${Math.round(tunnelGeometry.driveAzimuthDeg)}° E`
+          : isSurfaceMapping
+          ? 'Local Surface Exposure Coordinate Reference'
           : 'Local Tunnel Coordinate Reference (Drive Bearing Unspecified)',
       anchorPoint,
       plane,
@@ -3370,7 +3356,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <span>Show Parameters</span>
                 </button>
                 <span className="text-[11px] font-mono text-amber-300 font-bold">
-                  Joint {currentJoint.id} ({currentJoint.panel})
+                  Joint {currentJoint.id} ({isSurfaceMapping ? getPortionShort(currentJoint.panel) : currentJoint.panel})
                 </span>
               </div>
               <button
@@ -3465,7 +3451,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     type="button"
                     onClick={() => setIsAsideCollapsed(true)}
                     className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer flex items-center gap-1 text-[10.5px] font-bold"
-                    title="Collapse Sidebar to maximize 3D tunnel viewport"
+                    title="Collapse Sidebar to maximize 3D viewport"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                     <span>Collapse</span>
@@ -3855,7 +3841,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             />
                           </svg>
                           <span className="text-[9.5px] text-cyan-300 font-bold text-center mt-0.5">
-                            Top = Drive ({driveAz}°) · Drag to Rotate
+                            Top = {isSurfaceMapping ? 'Bearing' : 'Drive'} ({driveAz}°) · Drag to Rotate
                           </span>
                         </div>
                       );
@@ -3998,9 +3984,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 <div className="p-3 rounded-lg bg-gradient-to-br from-amber-500/15 via-slate-900 to-amber-950/20 border border-amber-500/40 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                       <span className="text-[11px] font-bold text-amber-300">
-                        Face Trace Hinge Axis:
+                        {isSurfaceMapping
+                          ? `${domainPanelMap.face.shortLabel} Trace Hinge Axis:`
+                          : 'Face Trace Hinge Axis:'}
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40 text-[10px]">
@@ -4046,9 +4034,17 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   {/* Dipping Direction Side Toggle */}
                   <div className="space-y-1 pt-0.5">
                     <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Dipping Side relative to Face:</span>
+                      <span>
+                        Dipping Side relative to {isSurfaceMapping ? domainPanelMap.face.shortLabel : 'Face'}:
+                      </span>
                       <span className="font-mono font-bold text-amber-300">
-                        {hingeDipSide === 'heading' ? 'Ahead (+Z Advance)' : 'Back (-Z Portal)'}
+                        {hingeDipSide === 'heading'
+                          ? isSurfaceMapping
+                            ? 'Into Rock Mass (+Z)'
+                            : 'Ahead (+Z Advance)'
+                          : isSurfaceMapping
+                          ? 'Outward / Daylight (-Z)'
+                          : 'Back (-Z Portal)'}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -4061,7 +4057,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        Dip Ahead into Heading (+Z)
+                        {isSurfaceMapping ? 'Dip Into Rock Mass (+Z)' : 'Dip Ahead into Heading (+Z)'}
                       </button>
                       <button
                         type="button"
@@ -4072,7 +4068,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        Dip Back to Collar (-Z)
+                        {isSurfaceMapping ? 'Dip Outward / Daylight (-Z)' : 'Dip Back to Collar (-Z)'}
                       </button>
                     </div>
                   </div>
@@ -4097,7 +4093,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     </div>
                   </div>
 
-                  {/* Crown Portion / SPL-to-SPL Strike Line Hinge Lock Toggle */}
+                  {/* Crown Portion / Strike Line Hinge Lock Toggle */}
                   <label
                     onClick={(e) => e.stopPropagation()}
                     className="flex items-center gap-2 cursor-pointer pt-1 text-[9.5px] text-amber-300 hover:text-amber-200 border-t border-amber-500/20"
@@ -4112,7 +4108,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       className="accent-amber-500 rounded cursor-pointer"
                     />
                     <span>
-                      Crown Portion Strike Hinge Mode (Lock Strike {strikeInfo.strikePairLabel} as non-penetrating hinge when decreasing dip)
+                      {isSurfaceMapping
+                        ? `Strike Hinge Mode (Lock Strike ${strikeInfo.strikePairLabel} as stationary hinge when adjusting dip)`
+                        : `Crown Portion Strike Hinge Mode (Lock Strike ${strikeInfo.strikePairLabel} as non-penetrating hinge when decreasing dip)`}
                     </span>
                   </label>
                 </div>
@@ -4131,6 +4129,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             : currentJoint.panel === 'right_wall'
                             ? '3. SW Wall (180°–270°)'
                             : '4. WN Wall (270°–360°)'
+                          : isSurfaceMapping
+                          ? getPortionShort(currentJoint.panel)
                           : currentJoint.panel === 'left_wall'
                           ? 'Left Wall'
                           : 'Right Wall'}{' '}
@@ -4146,6 +4146,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     The traced joint line on the{' '}
                     {tunnelGeometry.isVerticalShaft
                       ? 'vertical shaft quadrant wall'
+                      : isSurfaceMapping
+                      ? getPortionShort(currentJoint.panel)
                       : currentJoint.panel === 'left_wall'
                       ? 'left sidewall'
                       : 'right sidewall'}{' '}
@@ -4190,10 +4192,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   {/* Dipping Direction Side Toggle for Wall */}
                   <div className="space-y-1 pt-0.5">
                     <div className="flex items-center justify-between text-[10px] text-slate-300">
-                      <span>Dipping Side relative to Wall:</span>
+                      <span>Dipping Side relative to {isSurfaceMapping ? getPortionShort(currentJoint.panel) : 'Wall'}:</span>
                       <span className="font-mono font-bold text-emerald-300">
                         {hingeDipSide === 'heading'
                           ? (currentJoint.panel === 'left_wall' ? 'Into Left Rock (+Y)' : 'Into Right Rock (-Y)')
+                          : isSurfaceMapping
+                          ? 'Outward Into Exposure'
                           : 'Into Tunnel Opening'}
                       </span>
                     </div>
@@ -4218,7 +4222,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                         }`}
                       >
-                        Dip into Tunnel Cavity
+                        {isSurfaceMapping ? 'Dip Outward Into Exposure' : 'Dip into Tunnel Cavity'}
                       </button>
                     </div>
                   </div>
@@ -4257,7 +4261,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       }}
                       className="accent-emerald-500 rounded cursor-pointer"
                     />
-                    <span>Strictly lock rotation axis to mapped trace on sidewall (Recommended)</span>
+                    <span>Strictly lock rotation axis to mapped trace on {isSurfaceMapping ? getPortionShort(currentJoint.panel) : 'sidewall'} (Recommended)</span>
                   </label>
                 </div>
               )}
@@ -4271,6 +4275,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       <span className="text-[11px] font-bold text-sky-300">
                         {tunnelGeometry.isVerticalShaft
                           ? '2. ES Wall (90°–180°) Trace Hinge & Dip Tilt:'
+                          : isSurfaceMapping
+                          ? `${domainPanelMap.crown.shortLabel} Strike Trace & 3D Cutting Plane:`
                           : 'Crown Curved Strike Trace & 3D Cutting Plane:'}
                       </span>
                     </div>
@@ -4549,18 +4555,23 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         }}
                         className="accent-amber-500 rounded cursor-pointer"
                       />
-                      <span>Lock 3D orientation strictly to mapped trace on {currentJoint.panel.replace('_', ' ')} (Trace Hinge Mode)</span>
+                      <span>
+                        Lock 3D orientation strictly to mapped trace on{' '}
+                        {isSurfaceMapping ? getPortionShort(currentJoint.panel) : currentJoint.panel.replace('_', ' ')} (Trace Hinge Mode)
+                      </span>
                     </label>
                   </div>
                 </div>
               )}
 
-              {/* Crown Joint 3D Orientation & Dip Control (Strike-Derived) */}
+              {/* Crown / Berm Joint 3D Orientation & Dip Control (Strike-Derived) */}
               {currentJoint.panel === 'crown' && (
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-amber-300">Crown Strike Axis:</span>
+                      <span className="font-bold text-amber-300">
+                        {isSurfaceMapping ? `${domainPanelMap.crown.shortLabel} Strike Axis:` : 'Crown Strike Axis:'}
+                      </span>
                       <span className="font-mono font-black text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-600/40">
                         {strikeInfo.strikePairLabel}
                       </span>
@@ -4665,6 +4676,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       ? `Traced Length (${currentTraceLengthM}m)`
                       : planeDisplayMode === 'EXTENDED'
                       ? `Full Extended (${planeExtensionM}m)`
+                      : isSurfaceMapping
+                      ? 'Clipped to Exposure'
                       : 'Clipped to Tunnel'}
                   </span>
                 </div>
@@ -4704,7 +4717,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           : 'bg-slate-900 hover:bg-slate-700 text-slate-300 border-slate-700'
                       }`}
                     >
-                      Clipped to Tunnel Box
+                      {isSurfaceMapping ? 'Clipped to Exposure Box' : 'Clipped to Tunnel Box'}
                     </button>
                   </div>
                 </div>
@@ -4811,7 +4824,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
               </div>
             </div>
 
-            {/* WHERE THIS PLANE CUTS THE TUNNEL / VERTICAL SHAFT */}
+            {/* WHERE THIS PLANE CUTS THE EXCAVATION / EXPOSURE */}
             <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-700/70 pb-1.5">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
@@ -4819,6 +4832,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <span>
                     {tunnelGeometry.isVerticalShaft
                       ? 'Where Plane Cuts Vertical Shaft Quadrants'
+                      : isSurfaceMapping
+                      ? `Where Plane Cuts ${domainPanelMap.domainTitle}`
                       : 'Where Plane Cuts Tunnel'}
                   </span>
                 </span>
@@ -4827,9 +4842,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 </span>
               </div>
 
-              {/* Status for each surface */}
+              {/* Status for each configured surface */}
               <div className="space-y-1.5 text-[11px] font-mono">
-                {/* 1. Excavation Face */}
+                {/* 1. Face */}
                 <div className={`p-2 rounded-lg border flex items-center justify-between ${
                   surfaceIntersections.face
                     ? 'bg-cyan-950/40 border-cyan-700/60 text-cyan-200'
@@ -4838,74 +4853,116 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs">{surfaceIntersections.face ? '✅' : '—'}</span>
                     <strong className={surfaceIntersections.face ? 'text-white' : 'text-slate-400'}>
-                      {tunnelGeometry.isVerticalShaft ? 'Shaft Face (ØD):' : 'Excavation Face:'}
+                      {tunnelGeometry.isVerticalShaft
+                        ? 'Shaft Face (ØD):'
+                        : isSurfaceMapping
+                        ? `${domainPanelMap.face.shortLabel}:`
+                        : 'Excavation Face:'}
                     </strong>
                   </div>
                   <span className="font-bold">
-                    {surfaceIntersections.face ? `Cuts Face (${surfaceIntersections.face.lengthM}m)` : 'Does not cut'}
-                  </span>
-                </div>
-
-                {/* 2. Crown Arch / Q2 ES (90°-180°) */}
-                <div className={`p-2 rounded-lg border flex items-center justify-between ${
-                  surfaceIntersections.crown
-                    ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
-                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
-                }`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs">{surfaceIntersections.crown ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.crown ? 'text-white' : 'text-slate-400'}>
-                      {tunnelGeometry.isVerticalShaft ? 'Q2: EAST-SOUTH (90°–180°):' : 'Crown Arch:'}
-                    </strong>
-                  </div>
-                  <span className="font-bold">
-                    {surfaceIntersections.crown
-                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'ES (90°–180°)' : 'Crown'} (${surfaceIntersections.crown.lengthM}m)`
+                    {surfaceIntersections.face
+                      ? `Cuts ${isSurfaceMapping ? domainPanelMap.face.shortLabel : 'Face'} (${surfaceIntersections.face.lengthM}m)`
                       : 'Does not cut'}
                   </span>
                 </div>
 
-                {/* 3. Left Wall / Q1 NE (0°-90°) */}
-                <div className={`p-2 rounded-lg border flex items-center justify-between ${
-                  surfaceIntersections.leftWall
-                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
-                }`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs">{surfaceIntersections.leftWall ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.leftWall ? 'text-white' : 'text-slate-400'}>
-                      {tunnelGeometry.isVerticalShaft ? 'Q1: NORTH-EAST (0°–90°):' : 'Left Sidewall:'}
-                    </strong>
+                {/* 2. Crown Arch / Berm / Trench Floor (only if configured) */}
+                {tunnelGeometry.hasCrown !== false && (
+                  <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                    surfaceIntersections.crown
+                      ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
+                      : 'bg-slate-900 border-slate-700/70 text-slate-500'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs">{surfaceIntersections.crown ? '✅' : '—'}</span>
+                      <strong className={surfaceIntersections.crown ? 'text-white' : 'text-slate-400'}>
+                        {tunnelGeometry.isVerticalShaft
+                          ? 'Q2: EAST-SOUTH (90°–180°):'
+                          : isSurfaceMapping
+                          ? `${domainPanelMap.crown.shortLabel}:`
+                          : 'Crown Arch:'}
+                      </strong>
+                    </div>
+                    <span className="font-bold">
+                      {surfaceIntersections.crown
+                        ? `Cuts ${
+                            tunnelGeometry.isVerticalShaft
+                              ? 'ES (90°–180°)'
+                              : isSurfaceMapping
+                              ? domainPanelMap.crown.shortLabel
+                              : 'Crown'
+                          } (${surfaceIntersections.crown.lengthM}m)`
+                        : 'Does not cut'}
+                    </span>
                   </div>
-                  <span className="font-bold">
-                    {surfaceIntersections.leftWall
-                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'NE (0°–90°)' : 'Left Wall'} (${surfaceIntersections.leftWall.lengthM}m)`
-                      : 'Does not cut'}
-                  </span>
-                </div>
+                )}
 
-                {/* 4. Right Wall / Q3 SW (180°-270°) & Q4 WN (270°-360°) */}
-                <div className={`p-2 rounded-lg border flex items-center justify-between ${
-                  surfaceIntersections.rightWall
-                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                    : 'bg-slate-900 border-slate-700/70 text-slate-500'
-                }`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs">{surfaceIntersections.rightWall ? '✅' : '—'}</span>
-                    <strong className={surfaceIntersections.rightWall ? 'text-white' : 'text-slate-400'}>
-                      {tunnelGeometry.isVerticalShaft ? 'Q3 SW (180°–270°) / Q4 WN (270°–360°):' : 'Right Sidewall:'}
-                    </strong>
+                {/* 3. Left Wall / Q1 NE (only if configured) */}
+                {tunnelGeometry.hasLeftWall !== false && (
+                  <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                    surfaceIntersections.leftWall
+                      ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
+                      : 'bg-slate-900 border-slate-700/70 text-slate-500'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs">{surfaceIntersections.leftWall ? '✅' : '—'}</span>
+                      <strong className={surfaceIntersections.leftWall ? 'text-white' : 'text-slate-400'}>
+                        {tunnelGeometry.isVerticalShaft
+                          ? 'Q1: NORTH-EAST (0°–90°):'
+                          : isSurfaceMapping
+                          ? `${domainPanelMap.leftWall.shortLabel}:`
+                          : 'Left Sidewall:'}
+                      </strong>
+                    </div>
+                    <span className="font-bold">
+                      {surfaceIntersections.leftWall
+                        ? `Cuts ${
+                            tunnelGeometry.isVerticalShaft
+                              ? 'NE (0°–90°)'
+                              : isSurfaceMapping
+                              ? domainPanelMap.leftWall.shortLabel
+                              : 'Left Wall'
+                          } (${surfaceIntersections.leftWall.lengthM}m)`
+                        : 'Does not cut'}
+                    </span>
                   </div>
-                  <span className="font-bold">
-                    {surfaceIntersections.rightWall
-                      ? `Cuts ${tunnelGeometry.isVerticalShaft ? 'SW / WN' : 'Right Wall'} (${surfaceIntersections.rightWall.lengthM}m)`
-                      : 'Does not cut'}
-                  </span>
-                </div>
+                )}
+
+                {/* 4. Right Wall / Q3 SW (only if configured) */}
+                {tunnelGeometry.hasRightWall !== false && (
+                  <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                    surfaceIntersections.rightWall
+                      ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
+                      : 'bg-slate-900 border-slate-700/70 text-slate-500'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs">{surfaceIntersections.rightWall ? '✅' : '—'}</span>
+                      <strong className={surfaceIntersections.rightWall ? 'text-white' : 'text-slate-400'}>
+                        {tunnelGeometry.isVerticalShaft
+                          ? 'Q3 SW (180°–270°) / Q4 WN (270°–360°):'
+                          : isSurfaceMapping
+                          ? `${domainPanelMap.rightWall.shortLabel}:`
+                          : 'Right Sidewall:'}
+                      </strong>
+                    </div>
+                    <span className="font-bold">
+                      {surfaceIntersections.rightWall
+                        ? `Cuts ${
+                            tunnelGeometry.isVerticalShaft
+                              ? 'SW / WN'
+                              : isSurfaceMapping
+                              ? domainPanelMap.rightWall.shortLabel
+                              : 'Right Wall'
+                          } (${surfaceIntersections.rightWall.lengthM}m)`
+                        : 'Does not cut'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* TRUE DIP VS. SURFACE APPARENT DIPS MATRIX (CLARIFIES GEOLOGICAL CONFUSION) */}
+            {/* TRUE DIP VS. SURFACE APPARENT DIPS MATRIX */}
             <div className="p-3.5 rounded-xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-2.5">
               <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5">
                 <span className="font-bold text-amber-400 uppercase flex items-center gap-1.5 text-xs">
@@ -4913,21 +4970,29 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   <span>True Dip vs. Surface Apparent Dips</span>
                 </span>
                 <span className="text-[10px] text-cyan-300 font-mono font-bold">
-                  Heading N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E
+                  {isSurfaceMapping ? 'Bearing' : 'Heading'} N {Math.round(tunnelGeometry.driveAzimuthDeg ?? 0)}° E
                 </span>
               </div>
 
-              {/* Surface-by-surface Apparent Dip Breakdown */}
+              {/* Surface-by-surface Apparent Dip Breakdown (only configured portions) */}
               <div className="space-y-1.5 text-[11px] font-mono">
-                {/* 1. Excavation Face / Shaft Bottom Face */}
+                {/* 1. Face */}
                 <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
                       <strong className="text-cyan-400">
-                        {tunnelGeometry.isVerticalShaft ? 'Shaft Bottom Face (Pull 0m)' : 'Excavation Face'}
+                        {tunnelGeometry.isVerticalShaft
+                          ? 'Shaft Bottom Face (Pull 0m)'
+                          : isSurfaceMapping
+                          ? domainPanelMap.face.shortLabel
+                          : 'Excavation Face'}
                       </strong>
                       <span className="text-[9.5px] text-slate-500 font-sans">
-                        {tunnelGeometry.isVerticalShaft ? '(Horizontal Bowl Bottom · 1m N→S Ref)' : '(Transverse, 90° to Drive)'}
+                        {tunnelGeometry.isVerticalShaft
+                          ? '(Horizontal Bowl Bottom · 1m N→S Ref)'
+                          : isSurfaceMapping
+                          ? `(${tunnelGeometry.widthM}m × ${tunnelGeometry.heightM}m)`
+                          : '(Transverse, 90° to Drive)'}
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-300 mt-0.5">
@@ -4956,104 +5021,134 @@ const NatmJoint3DInspectorModalContent: React.FC<
                   </div>
                 </div>
 
-                {/* 2. Left Sidewall / 1. NE Wall */}
-                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-slate-300">
-                        {tunnelGeometry.isVerticalShaft ? '1. NE Wall (0°–90°)' : 'Left Sidewall'}
-                      </strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">
-                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 4. WN ◀ | ▶ 2. ES)' : '(Longitudinal, 0° to Drive)'}
+                {/* 2. Left Wall / 1. NE Wall (only if configured) */}
+                {tunnelGeometry.hasLeftWall !== false && (
+                  <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <strong className="text-slate-300">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '1. NE Wall (0°–90°)'
+                            : isSurfaceMapping
+                            ? domainPanelMap.leftWall.shortLabel
+                            : 'Left Sidewall'}
+                        </strong>
+                        <span className="text-[9.5px] text-slate-500 font-sans">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '(Nearest: 4. WN ◀ | ▶ 2. ES)'
+                            : isSurfaceMapping
+                            ? '(Longitudinal Exposure)'
+                            : '(Longitudinal, 0° to Drive)'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-300 mt-0.5">
+                        {apparentMatrix.leftWall.apparentDipDirectionLabel}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black font-mono text-amber-300">
+                        {apparentMatrix.leftWall.apparentDipDeg}°
                       </span>
-                    </div>
-                    <div className="text-[10px] text-slate-300 mt-0.5">
-                      {apparentMatrix.leftWall.apparentDipDirectionLabel}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-black font-mono text-amber-300">
-                      {apparentMatrix.leftWall.apparentDipDeg}°
-                    </span>
-                    <span
-                      className={`block text-[9px] font-bold ${
-                        apparentMatrix.leftWall.isTrueDip
-                          ? 'text-emerald-400'
+                      <span
+                        className={`block text-[9px] font-bold ${
+                          apparentMatrix.leftWall.isTrueDip
+                            ? 'text-emerald-400'
+                            : apparentMatrix.leftWall.isHorizontal
+                            ? 'text-slate-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {apparentMatrix.leftWall.isTrueDip
+                          ? 'TRUE DIP'
                           : apparentMatrix.leftWall.isHorizontal
-                          ? 'text-slate-400'
-                          : 'text-amber-400'
-                      }`}
-                    >
-                      {apparentMatrix.leftWall.isTrueDip
-                        ? 'TRUE DIP'
-                        : apparentMatrix.leftWall.isHorizontal
-                        ? 'HORIZONTAL'
-                        : 'APPARENT DIP'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 3. Right Sidewall / 3. SW Wall */}
-                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-slate-300">
-                        {tunnelGeometry.isVerticalShaft ? '3. SW Wall (180°–270°)' : 'Right Sidewall'}
-                      </strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">
-                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 2. ES ◀ | ▶ 4. WN)' : '(Longitudinal, 0° to Drive)'}
+                          ? 'HORIZONTAL'
+                          : 'APPARENT DIP'}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-300 mt-0.5">
-                      {apparentMatrix.rightWall.apparentDipDirectionLabel}
-                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-black font-mono text-amber-300">
-                      {apparentMatrix.rightWall.apparentDipDeg}°
-                    </span>
-                    <span
-                      className={`block text-[9px] font-bold ${
-                        apparentMatrix.rightWall.isTrueDip
-                          ? 'text-emerald-400'
+                )}
+
+                {/* 3. Right Wall / 3. SW Wall (only if configured) */}
+                {tunnelGeometry.hasRightWall !== false && (
+                  <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <strong className="text-slate-300">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '3. SW Wall (180°–270°)'
+                            : isSurfaceMapping
+                            ? domainPanelMap.rightWall.shortLabel
+                            : 'Right Sidewall'}
+                        </strong>
+                        <span className="text-[9.5px] text-slate-500 font-sans">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '(Nearest: 2. ES ◀ | ▶ 4. WN)'
+                            : isSurfaceMapping
+                            ? '(Longitudinal Exposure)'
+                            : '(Longitudinal, 0° to Drive)'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-300 mt-0.5">
+                        {apparentMatrix.rightWall.apparentDipDirectionLabel}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black font-mono text-amber-300">
+                        {apparentMatrix.rightWall.apparentDipDeg}°
+                      </span>
+                      <span
+                        className={`block text-[9px] font-bold ${
+                          apparentMatrix.rightWall.isTrueDip
+                            ? 'text-emerald-400'
+                            : apparentMatrix.rightWall.isHorizontal
+                            ? 'text-slate-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {apparentMatrix.rightWall.isTrueDip
+                          ? 'TRUE DIP'
                           : apparentMatrix.rightWall.isHorizontal
-                          ? 'text-slate-400'
-                          : 'text-amber-400'
-                      }`}
-                    >
-                      {apparentMatrix.rightWall.isTrueDip
-                        ? 'TRUE DIP'
-                        : apparentMatrix.rightWall.isHorizontal
-                        ? 'HORIZONTAL'
-                        : 'APPARENT DIP'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 4. Crown Arch / 2. ES Wall */}
-                <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-sky-300">
-                        {tunnelGeometry.isVerticalShaft ? '2. ES Wall (90°–180°)' : 'Crown Arch / Back'}
-                      </strong>
-                      <span className="text-[9.5px] text-slate-500 font-sans">
-                        {tunnelGeometry.isVerticalShaft ? '(Nearest: 1. NE ◀ | ▶ 3. SW)' : '(Horizontal Apex Tangent)'}
+                          ? 'HORIZONTAL'
+                          : 'APPARENT DIP'}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-300 mt-0.5">
-                      {apparentMatrix.crown.apparentDipDirectionLabel}
+                  </div>
+                )}
+
+                {/* 4. Crown / Berm / Trench Floor (only if configured) */}
+                {tunnelGeometry.hasCrown !== false && (
+                  <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <strong className="text-sky-300">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '2. ES Wall (90°–180°)'
+                            : isSurfaceMapping
+                            ? domainPanelMap.crown.shortLabel
+                            : 'Crown Arch / Back'}
+                        </strong>
+                        <span className="text-[9.5px] text-slate-500 font-sans">
+                          {tunnelGeometry.isVerticalShaft
+                            ? '(Nearest: 1. NE ◀ | ▶ 3. SW)'
+                            : isSurfaceMapping
+                            ? '(Horizontal Plan Surface)'
+                            : '(Horizontal Apex Tangent)'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-300 mt-0.5">
+                        {apparentMatrix.crown.apparentDipDirectionLabel}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black font-mono text-sky-400">
+                        {Math.round(apparentMatrix.strikeRhrDeg)}°
+                      </span>
+                      <span className="block text-[9px] font-bold text-sky-400">
+                        STRIKE TRACE
+                      </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-black font-mono text-sky-400">
-                      {Math.round(apparentMatrix.strikeRhrDeg)}°
-                    </span>
-                    <span className="block text-[9px] font-bold text-sky-400">
-                      STRIKE TRACE
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -5070,36 +5165,58 @@ const NatmJoint3DInspectorModalContent: React.FC<
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
                   <span className="text-[10px] text-slate-400 block">
-                    {tunnelGeometry.isVerticalShaft ? 'Bottom Face (m)' : 'Face (m)'}
+                    {tunnelGeometry.isVerticalShaft
+                      ? 'Bottom Face (m)'
+                      : isSurfaceMapping
+                      ? `${domainPanelMap.face.shortLabel} (m)`
+                      : 'Face (m)'}
                   </span>
                   <strong className="text-amber-300 text-sm font-mono">
                     {observedLengths.faceM > 0 ? `${observedLengths.faceM}m` : '—'}
                   </strong>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">
-                    {tunnelGeometry.isVerticalShaft ? '1. NE Wall (m)' : 'Left Wall (m)'}
-                  </span>
-                  <strong className="text-amber-300 text-sm font-mono">
-                    {observedLengths.leftWallM > 0 ? `${observedLengths.leftWallM}m` : '—'}
-                  </strong>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">
-                    {tunnelGeometry.isVerticalShaft ? '3. SW Wall (m)' : 'Right Wall (m)'}
-                  </span>
-                  <strong className="text-amber-300 text-sm font-mono">
-                    {observedLengths.rightWallM > 0 ? `${observedLengths.rightWallM}m` : '—'}
-                  </strong>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
-                  <span className="text-[10px] text-slate-400 block">
-                    {tunnelGeometry.isVerticalShaft ? '2. ES Wall (m)' : 'Crown (m)'}
-                  </span>
-                  <strong className="text-amber-300 text-sm font-mono">
-                    {observedLengths.crownM > 0 ? `${observedLengths.crownM}m` : '—'}
-                  </strong>
-                </div>
+                {tunnelGeometry.hasLeftWall !== false && (
+                  <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
+                    <span className="text-[10px] text-slate-400 block">
+                      {tunnelGeometry.isVerticalShaft
+                        ? '1. NE Wall (m)'
+                        : isSurfaceMapping
+                        ? `${domainPanelMap.leftWall.shortLabel} (m)`
+                        : 'Left Wall (m)'}
+                    </span>
+                    <strong className="text-amber-300 text-sm font-mono">
+                      {observedLengths.leftWallM > 0 ? `${observedLengths.leftWallM}m` : '—'}
+                    </strong>
+                  </div>
+                )}
+                {tunnelGeometry.hasRightWall !== false && (
+                  <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
+                    <span className="text-[10px] text-slate-400 block">
+                      {tunnelGeometry.isVerticalShaft
+                        ? '3. SW Wall (m)'
+                        : isSurfaceMapping
+                        ? `${domainPanelMap.rightWall.shortLabel} (m)`
+                        : 'Right Wall (m)'}
+                    </span>
+                    <strong className="text-amber-300 text-sm font-mono">
+                      {observedLengths.rightWallM > 0 ? `${observedLengths.rightWallM}m` : '—'}
+                    </strong>
+                  </div>
+                )}
+                {tunnelGeometry.hasCrown !== false && (
+                  <div className="p-2 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md text-center">
+                    <span className="text-[10px] text-slate-400 block">
+                      {tunnelGeometry.isVerticalShaft
+                        ? '2. ES Wall (m)'
+                        : isSurfaceMapping
+                        ? `${domainPanelMap.crown.shortLabel} (m)`
+                        : 'Crown (m)'}
+                    </span>
+                    <strong className="text-amber-300 text-sm font-mono">
+                      {observedLengths.crownM > 0 ? `${observedLengths.crownM}m` : '—'}
+                    </strong>
+                  </div>
+                )}
               </div>
 
               <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 shadow-md space-y-1.5">
@@ -5394,6 +5511,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         <span>
                           {tunnelGeometry.isVerticalShaft
                             ? `0° N REF · Ø${tunnelGeometry.widthM}m × ${tunnelGeometry.pullLengthM || 3}m Pull`
+                            : isSurfaceMapping
+                            ? `${getPortionShort(activePortionPanel).toUpperCase()} · N ${Math.round(driveAz)}° E · ${tunnelGeometry.widthM}×${tunnelGeometry.heightM}m`
                             : `DRIVE N ${Math.round(driveAz)}° E · ${tunnelGeometry.widthM}×${tunnelGeometry.heightM}m`}
                         </span>
                       </div>
@@ -5709,7 +5828,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         {tunnelGeometry.isVerticalShaft
                           ? 'Developed 2D Vertical Shaft View (Horizontal Quadrant Walls: Pull 0m Bottom → Pull 3m Top + Bottom Face)'
                           : isSurfaceMapping
-                          ? `Developed 2D ${domainPanelMap.domainTitle} View (${domainPanelMap.leftWall.shortLabel} + ${domainPanelMap.crown.shortLabel} + ${domainPanelMap.rightWall.shortLabel} + ${domainPanelMap.face.shortLabel})`
+                          ? `Developed 2D ${domainPanelMap.domainTitle} View (${[
+                              ...(tunnelGeometry.hasLeftWall !== false ? [domainPanelMap.leftWall.shortLabel] : []),
+                              ...(tunnelGeometry.hasCrown !== false ? [domainPanelMap.crown.shortLabel] : []),
+                              ...(tunnelGeometry.hasRightWall !== false ? [domainPanelMap.rightWall.shortLabel] : []),
+                              domainPanelMap.face.shortLabel,
+                            ].join(' + ')})`
                           : 'Developed 2D Tunnel View (Left Wall + Crown + Right Wall + Excavation Face)'}
                       </span>
                       <span className="text-xs text-amber-400 font-bold font-mono">
@@ -5739,7 +5863,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                               {tunnelGeometry.isVerticalShaft ? '2.ES ▶ (90°E)' : `${tunnelGeometry.pullLengthM}m`}
                             </text>
                             <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : 'Drive Advance (+X)'}
+                              {tunnelGeometry.isVerticalShaft
+                                ? 'Pull 0m Bottom → Pull Top'
+                                : isSurfaceMapping
+                                ? `${domainPanelMap.leftWall.shortLabel} Span`
+                                : 'Drive Advance (+X)'}
                             </text>
 
                             {/* Observed traces on Left Wall */}
@@ -5802,10 +5930,18 @@ const NatmJoint3DInspectorModalContent: React.FC<
                               {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : `C/L (${(tunnelGeometry.widthM / 2).toFixed(1)}m)`}
                             </text>
                             <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '◀ 1.NE (90°E)' : 'L-SPL'}
+                              {tunnelGeometry.isVerticalShaft
+                                ? '◀ 1.NE (90°E)'
+                                : isSurfaceMapping
+                                ? '0m (Left)'
+                                : 'L-SPL'}
                             </text>
                             <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '3.SW ▶ (180°S)' : 'R-SPL'}
+                              {tunnelGeometry.isVerticalShaft
+                                ? '3.SW ▶ (180°S)'
+                                : isSurfaceMapping
+                                ? `${tunnelGeometry.widthM}m (Right)`
+                                : 'R-SPL'}
                             </text>
 
                             {/* Observed traces on Crown */}
@@ -5870,7 +6006,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                               {tunnelGeometry.isVerticalShaft ? '4.WN ▶ (270°W)' : `${tunnelGeometry.pullLengthM}m`}
                             </text>
                             <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : 'Drive Advance (+X)'}
+                              {tunnelGeometry.isVerticalShaft
+                                ? 'Pull 0m Bottom → Pull Top'
+                                : isSurfaceMapping
+                                ? `${domainPanelMap.rightWall.shortLabel} Span`
+                                : 'Drive Advance (+X)'}
                             </text>
 
                             {/* Observed traces on Right Wall */}

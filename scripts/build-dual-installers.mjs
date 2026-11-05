@@ -102,10 +102,20 @@ function buildWindowsExecutable(edition, configJsonName, outputExeName) {
     } catch {}
   }
 
-  try {
-    run('npx vite build', { VITE_SOFTWARE_EDITION: edition });
-  } catch (viteErr) {
-    console.warn(`[Dual Builder] Vite build notice for ${edition}:`, viteErr?.message || viteErr);
+  const distAssetsDir = path.join(rootDir, 'dist', 'assets');
+  const hasCompiledDist =
+    !process.argv.includes('--force-vite') &&
+    fs.existsSync(distAssetsDir) &&
+    fs.readdirSync(distAssetsDir).some((fn) => fn.endsWith('.js'));
+
+  if (!hasCompiledDist) {
+    try {
+      run('npx vite build', { VITE_SOFTWARE_EDITION: edition });
+    } catch (viteErr) {
+      console.warn(`[Dual Builder] Vite build notice for ${edition}:`, viteErr?.message || viteErr);
+    }
+  } else {
+    console.log(`[Dual Builder] Using freshly compiled dist/assets for ${edition} edition.`);
   }
 
   const hasLocalElectron =

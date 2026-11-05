@@ -22,9 +22,11 @@ import {
 import {
   auth,
   db,
+  firestoreCloudPermissionDenied,
   googleSignIn,
   handleFirestoreError,
   isEmbeddedWebViewOrRestrictedOrigin,
+  markFirestoreCloudPermissionDenied,
   OperationType,
 } from '../firebase';
 import {
@@ -2370,38 +2372,40 @@ export function subscribeToDeviceTransfersAndNotifications(params: {
   let unsubIncoming: (() => void) | null = null;
   let unsubOutgoing: (() => void) | null = null;
 
-  try {
-    const qInc = query(
-      collection(db, 'device_transfers'),
-      where('recipientDeviceId', '==', cleanId)
-    );
-    unsubIncoming = onSnapshot(
-      qInc,
-      (snap) => {
-        cloudIncoming = snap.docs.map((d) => d.data() as EswaDeviceTransferRecord);
-        recomputeAndEmit();
-      },
-      () => {
-        // Ignore permission/offline errors and rely on local store
-      }
-    );
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const qInc = query(
+        collection(db, 'device_transfers'),
+        where('recipientDeviceId', '==', cleanId)
+      );
+      unsubIncoming = onSnapshot(
+        qInc,
+        (snap) => {
+          cloudIncoming = snap.docs.map((d) => d.data() as EswaDeviceTransferRecord);
+          recomputeAndEmit();
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
 
-    const qOut = query(
-      collection(db, 'device_transfers'),
-      where('senderDeviceId', '==', cleanId)
-    );
-    unsubOutgoing = onSnapshot(
-      qOut,
-      (snap) => {
-        cloudOutgoing = snap.docs.map((d) => d.data() as EswaDeviceTransferRecord);
-        recomputeAndEmit();
-      },
-      () => {
-        // Ignore permission/offline errors
-      }
-    );
-  } catch {
-    // Ignore
+      const qOut = query(
+        collection(db, 'device_transfers'),
+        where('senderDeviceId', '==', cleanId)
+      );
+      unsubOutgoing = onSnapshot(
+        qOut,
+        (snap) => {
+          cloudOutgoing = snap.docs.map((d) => d.data() as EswaDeviceTransferRecord);
+          recomputeAndEmit();
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
+        }
+      );
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return () => {
@@ -2803,22 +2807,24 @@ export function subscribeToSharedProject(
   window.addEventListener('storage', onCustom);
 
   let unsub: (() => void) | null = null;
-  try {
-    unsub = onSnapshot(
-      doc(db, 'shared_projects', projectId),
-      (snap) => {
-        if (snap.exists()) {
-          const cloudData = snap.data() as SharedProjectCollaborationRecord;
-          saveSharedProjectToStore(cloudData);
-          onUpdate(cloudData);
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      unsub = onSnapshot(
+        doc(db, 'shared_projects', projectId),
+        (snap) => {
+          if (snap.exists()) {
+            const cloudData = snap.data() as SharedProjectCollaborationRecord;
+            saveSharedProjectToStore(cloudData);
+            onUpdate(cloudData);
+          }
+        },
+        () => {
+          markFirestoreCloudPermissionDenied();
         }
-      },
-      () => {
-        // Offline
-      }
-    );
-  } catch {
-    //
+      );
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return () => {
@@ -3708,6 +3714,19 @@ export async function fetchAiTrainingTelemetryRecords(
     );
   }
 
+  const readLocalTelemetry = (): AiTrainingTelemetryRecord[] => {
+    try {
+      const raw = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  if (firestoreCloudPermissionDenied) {
+    return readLocalTelemetry();
+  }
+
   try {
     const q = query(
       collection(db, 'ai_training_telemetry'),
@@ -3717,9 +3736,9 @@ export async function fetchAiTrainingTelemetryRecords(
 
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data() as AiTrainingTelemetryRecord);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, 'ai_training_telemetry');
-    return [];
+  } catch {
+    markFirestoreCloudPermissionDenied();
+    return readLocalTelemetry();
   }
 }
 
@@ -3739,11 +3758,28 @@ export async function deleteAiTrainingTelemetryRecord(
   }
 
   try {
+    const raw = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+    if (raw) {
+      const cur: AiTrainingTelemetryRecord[] = JSON.parse(raw);
+      localStorage.setItem(
+        AI_TELEMETRY_OFFLINE_QUEUE_KEY,
+        JSON.stringify(cur.filter((x) => x.id !== recordId))
+      );
+    }
+  } catch {
+    // Ignore
+  }
+
+  if (firestoreCloudPermissionDenied) {
+    return true;
+  }
+
+  try {
     await deleteDoc(doc(db, 'ai_training_telemetry', recordId));
     return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, `ai_training_telemetry/${recordId}`);
-    return false;
+  } catch {
+    markFirestoreCloudPermissionDenied();
+    return true;
   }
 }
 

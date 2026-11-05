@@ -22,22 +22,23 @@ interface RootErrorBoundaryState {
   errorMessage: string;
 }
 
-// Suppress transient Firestore WebChannel background stream assertion failures (ca9 / b815)
+// Suppress transient Firestore WebChannel background stream assertion failures (ca9 / b815) and permission fallbacks
 if (typeof window !== 'undefined') {
   window.addEventListener(
     'error',
     (event) => {
       const msg = String(event.message || event.error?.message || '');
       if (
-        msg.includes('FIRESTORE') &&
-        (msg.includes('ca9') ||
-          msg.includes('b815') ||
-          msg.includes('INTERNAL ASSERTION FAILED') ||
-          msg.includes('Unexpected state'))
+        (msg.includes('FIRESTORE') &&
+          (msg.includes('ca9') ||
+            msg.includes('b815') ||
+            msg.includes('INTERNAL ASSERTION FAILED') ||
+            msg.includes('Unexpected state'))) ||
+        msg.includes('Missing or insufficient permissions') ||
+        msg.includes('permission-denied')
       ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
-        console.warn('Recovered from transient Firestore background stream assertion:', msg);
         return true;
       }
     },
@@ -49,15 +50,16 @@ if (typeof window !== 'undefined') {
     (event) => {
       const msg = String(event.reason?.message || event.reason || '');
       if (
-        msg.includes('FIRESTORE') &&
-        (msg.includes('ca9') ||
-          msg.includes('b815') ||
-          msg.includes('INTERNAL ASSERTION FAILED') ||
-          msg.includes('Unexpected state'))
+        (msg.includes('FIRESTORE') &&
+          (msg.includes('ca9') ||
+            msg.includes('b815') ||
+            msg.includes('INTERNAL ASSERTION FAILED') ||
+            msg.includes('Unexpected state'))) ||
+        msg.includes('Missing or insufficient permissions') ||
+        msg.includes('permission-denied')
       ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
-        console.warn('Recovered from transient Firestore background stream assertion rejection:', msg);
       }
     },
     true
@@ -73,14 +75,15 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
   static getDerivedStateFromError(error: unknown): RootErrorBoundaryState {
     const msg = error instanceof Error ? error.message : String(error || 'Unexpected error');
     if (
-      msg.includes('FIRESTORE') &&
-      (msg.includes('ca9') ||
-        msg.includes('b815') ||
-        msg.includes('INTERNAL ASSERTION FAILED') ||
-        msg.includes('Unexpected state'))
+      (msg.includes('FIRESTORE') &&
+        (msg.includes('ca9') ||
+          msg.includes('b815') ||
+          msg.includes('INTERNAL ASSERTION FAILED') ||
+          msg.includes('Unexpected state'))) ||
+      msg.includes('Missing or insufficient permissions') ||
+      msg.includes('permission-denied')
     ) {
-      // Do not crash application on transient Firestore background stream error
-      console.warn('Suppressed Firestore internal assertion in RootErrorBoundary:', msg);
+      // Do not crash application on transient Firestore background stream or permission error
       return { hasError: false, errorMessage: '' };
     }
     return {
