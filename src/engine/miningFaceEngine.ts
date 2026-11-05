@@ -40,21 +40,37 @@ export function generateMiningStopePolygon(
   height: number,
   wallHeight?: number,
   crownRadius?: number,
-  customPoints?: MiningGeologicalPoint[]
+  customPoints?: MiningGeologicalPoint[],
+  customRoofShape?: MiningStopeShape
 ): StopeProfileMetrics {
-  const w = Math.max(1.5, width || 4.8);
-  const h = Math.max(1.5, height || 4.2);
-  const wh = Math.min(h - 0.2, Math.max(0.5, wallHeight ?? h * 0.65));
+  const w = Math.max(1.5, Number(width) || 4.8);
+  const h = Math.max(1.5, Number(height) || 4.2);
+  const effectiveShape: MiningStopeShape =
+    shape === 'custom_parametric' &&
+    customRoofShape &&
+    customRoofShape !== 'custom_parametric' &&
+    customRoofShape !== 'dxf_import'
+      ? customRoofShape
+      : shape;
 
-  // If custom DXF points or custom polygon provided
-  if ((shape === 'custom_parametric' || shape === 'dxf_import') && customPoints && customPoints.length >= 3) {
+  const wh =
+    effectiveShape === 'rectangular_flat'
+      ? h
+      : Math.min(h - 0.15, Math.max(0.5, Number(wallHeight) || Number((h * 0.65).toFixed(2))));
+
+  // If custom DXF points or explicit custom polygon provided without a parametric preset override
+  if (
+    (effectiveShape === 'dxf_import' || effectiveShape === 'custom_parametric') &&
+    customPoints &&
+    customPoints.length >= 3
+  ) {
     const pts = normalizeCustomPointsToEnvelope(customPoints, w, h);
     return calculatePolygonMetrics(pts, w, h, wh);
   }
 
   const pts: MiningGeologicalPoint[] = [];
 
-  switch (shape) {
+  switch (effectiveShape) {
     case 'rectangular_flat': {
       // Room & Pillar / Cut & Fill flat back stope
       pts.push({ x: 0, y: 0 });
@@ -66,32 +82,35 @@ export function generateMiningStopePolygon(
 
     case 'horseshoe': {
       // High-stress deep level drive (curved sidewalls and rounded invert corners)
-      pts.push({ x: 0.1 * w, y: 0 });
-      pts.push({ x: 0, y: 0.2 * h });
-      pts.push({ x: 0, y: wh });
+      pts.push({ x: Number((0.08 * w).toFixed(3)), y: 0 });
+      pts.push({ x: Number((0.02 * w).toFixed(3)), y: Number((0.22 * wh).toFixed(3)) });
+      pts.push({ x: 0, y: Number((0.55 * wh).toFixed(3)) });
+      pts.push({ x: Number((0.02 * w).toFixed(3)), y: wh });
       // Crown arc
-      const numCrownSteps = 12;
+      const numCrownSteps = 16;
       const crownCenterY = wh;
-      const rX = w / 2;
-      const rY = h - wh;
+      const rX = w * 0.48;
+      const rY = Math.max(0.2, h - wh);
       for (let i = 0; i <= numCrownSteps; i++) {
         const theta = Math.PI - (i / numCrownSteps) * Math.PI;
         const cx = w / 2 + rX * Math.cos(theta);
         const cy = crownCenterY + rY * Math.sin(theta);
         pts.push({ x: Number(cx.toFixed(3)), y: Number(cy.toFixed(3)) });
       }
-      pts.push({ x: w, y: 0.2 * h });
-      pts.push({ x: 0.9 * w, y: 0 });
+      pts.push({ x: w, y: Number((0.55 * wh).toFixed(3)) });
+      pts.push({ x: Number((0.98 * w).toFixed(3)), y: Number((0.22 * wh).toFixed(3)) });
+      pts.push({ x: Number((0.92 * w).toFixed(3)), y: 0 });
       break;
     }
 
     case 'shanty': {
       // Asymmetric crown for weak hangingwall/footwall shear zones
-      // Left wall higher or right wall higher
+      const highWallY = Math.min(h - 0.15, Math.max(0.6, wh * 1.12));
+      const lowWallY = Math.max(0.4, Math.min(highWallY - 0.2, wh * 0.75));
       pts.push({ x: 0, y: 0 });
-      pts.push({ x: 0, y: wh * 1.15 }); // Higher HW side
-      pts.push({ x: 0.3 * w, y: h }); // Apex shifted to one side
-      pts.push({ x: w, y: wh * 0.75 }); // Lower FW side
+      pts.push({ x: 0, y: Number(highWallY.toFixed(3)) }); // Higher HW side
+      pts.push({ x: Number((0.28 * w).toFixed(3)), y: h }); // Apex shifted to HW side
+      pts.push({ x: w, y: Number(lowWallY.toFixed(3)) }); // Lower FW side
       pts.push({ x: w, y: 0 });
       break;
     }
@@ -101,7 +120,7 @@ export function generateMiningStopePolygon(
       pts.push({ x: 0, y: 0 });
       pts.push({ x: 0, y: wh });
       // Left arch to peak
-      const steps = 6;
+      const steps = 8;
       for (let i = 1; i < steps; i++) {
         const t = i / steps;
         const px = (w / 2) * t;
@@ -109,7 +128,7 @@ export function generateMiningStopePolygon(
         pts.push({ x: Number(px.toFixed(3)), y: Number(py.toFixed(3)) });
       }
       // Peak apex
-      pts.push({ x: w / 2, y: h });
+      pts.push({ x: Number((w / 2).toFixed(3)), y: h });
       // Right arch from peak
       for (let i = 1; i < steps; i++) {
         const t = i / steps;
@@ -128,9 +147,9 @@ export function generateMiningStopePolygon(
       pts.push({ x: 0, y: 0 });
       pts.push({ x: 0, y: wh });
       // Semi-elliptical or circular crown arc
-      const numCrownSteps = 14;
+      const numCrownSteps = 16;
       const rX = w / 2;
-      const rY = h - wh;
+      const rY = Math.max(0.15, h - wh);
       for (let i = 0; i <= numCrownSteps; i++) {
         const theta = Math.PI - (i / numCrownSteps) * Math.PI;
         const cx = w / 2 + rX * Math.cos(theta);
@@ -144,6 +163,134 @@ export function generateMiningStopePolygon(
   }
 
   return calculatePolygonMetrics(pts, w, h, wh);
+}
+
+/**
+ * Detects whether a freehand Pencil (or Spline/Polyline) stroke forms a closed loop
+ * (either by start-to-end proximity or by self-intersection along the stroke),
+ * and returns the closed polygon vertices so the closed portion becomes the chosen element.
+ */
+export function detectAndExtractClosedPencilLoop(
+  pts: MiningGeologicalPoint[],
+  stopeWidth: number,
+  stopeHeight: number
+): {
+  isClosed: boolean;
+  closedPoints: MiningGeologicalPoint[];
+  closeReason?: 'START_END_PROXIMITY' | 'SELF_INTERSECTION';
+} {
+  if (!pts || pts.length < 3) {
+    return { isClosed: false, closedPoints: pts || [] };
+  }
+
+  // Compute cumulative arc lengths
+  const cumLen: number[] = [0];
+  let totalLen = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    totalLen += seg;
+    cumLen.push(totalLen);
+  }
+
+  const refSpan = Math.max(1.5, Math.min(stopeWidth || 4.8, stopeHeight || 4.2));
+  const minLoopPerimeter = Math.max(0.25, refSpan * 0.055);
+  if (totalLen < minLoopPerimeter) {
+    return { isClosed: false, closedPoints: pts };
+  }
+
+  // 1. Check if start and end points are within closing proximity
+  const firstPt = pts[0];
+  const lastPt = pts[pts.length - 1];
+  const startEndDist = Math.hypot(lastPt.x - firstPt.x, lastPt.y - firstPt.y);
+  const closeThresholdM = Math.max(0.36, refSpan * 0.085);
+
+  if (pts.length >= 4 && startEndDist <= closeThresholdM && totalLen >= Math.max(minLoopPerimeter, startEndDist * 2.2)) {
+    const closedPoints =
+      startEndDist > 0.015
+        ? [...pts, { x: Number(firstPt.x.toFixed(3)), y: Number(firstPt.y.toFixed(3)) }]
+        : pts;
+    return {
+      isClosed: true,
+      closedPoints,
+      closeReason: 'START_END_PROXIMITY',
+    };
+  }
+
+  // 2. Check if the stroke crosses over itself (self-intersection loop)
+  for (let j = pts.length - 2; j >= 2; j--) {
+    const C = pts[j];
+    const D = pts[j + 1];
+    for (let i = 0; i <= j - 2; i++) {
+      const A = pts[i];
+      const B = pts[i + 1];
+      const loopLen = cumLen[j] - cumLen[i + 1];
+      if (loopLen < minLoopPerimeter) continue;
+
+      const hit = segmentIntersection2D(A, B, C, D);
+      if (hit) {
+        // Ensure the closed loop represents a meaningful portion of the stroke
+        if (loopLen >= totalLen * 0.35 || loopLen >= refSpan * 0.15) {
+          const intersectionPt: MiningGeologicalPoint = {
+            x: Number(hit.x.toFixed(3)),
+            y: Number(hit.y.toFixed(3)),
+          };
+          const loopPts = [intersectionPt, ...pts.slice(i + 1, j + 1), intersectionPt];
+          if (loopPts.length >= 4) {
+            return {
+              isClosed: true,
+              closedPoints: loopPts,
+              closeReason: 'SELF_INTERSECTION',
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Also check if the final point comes within closeThresholdM of any earlier vertex near the start (first 25% of stroke)
+  const earlyLimitIdx = Math.max(1, Math.floor(pts.length * 0.25));
+  for (let i = 0; i <= earlyLimitIdx; i++) {
+    const pEarly = pts[i];
+    const d = Math.hypot(lastPt.x - pEarly.x, lastPt.y - pEarly.y);
+    const loopLen = totalLen - cumLen[i];
+    if (d <= closeThresholdM * 0.85 && loopLen >= Math.max(minLoopPerimeter, d * 2.5) && pts.length - i >= 4) {
+      const loopPts = [...pts.slice(i), { x: Number(pEarly.x.toFixed(3)), y: Number(pEarly.y.toFixed(3)) }];
+      return {
+        isClosed: true,
+        closedPoints: loopPts,
+        closeReason: 'START_END_PROXIMITY',
+      };
+    }
+  }
+
+  return { isClosed: false, closedPoints: pts };
+}
+
+function segmentIntersection2D(
+  A: MiningGeologicalPoint,
+  B: MiningGeologicalPoint,
+  C: MiningGeologicalPoint,
+  D: MiningGeologicalPoint
+): MiningGeologicalPoint | null {
+  const rX = B.x - A.x;
+  const rY = B.y - A.y;
+  const sX = D.x - C.x;
+  const sY = D.y - C.y;
+  const denom = rX * sY - rY * sX;
+  if (Math.abs(denom) < 1e-8) return null;
+
+  const qpX = C.x - A.x;
+  const qpY = C.y - A.y;
+  const t = (qpX * sY - qpY * sX) / denom;
+  const u = (qpX * rY - qpY * rX) / denom;
+
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+    return {
+      x: A.x + t * rX,
+      y: A.y + t * rY,
+    };
+  }
+  return null;
 }
 
 /**

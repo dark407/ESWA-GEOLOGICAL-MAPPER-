@@ -509,11 +509,13 @@ export async function requestMasterEmailCode(
   }
 
   // 6. Attempt Firestore persistence if accessible
-  try {
-    const docRef = doc(db, MASTER_CHALLENGE_COLLECTION, 'active_challenge');
-    await setDoc(docRef, challenge);
-  } catch {
-    // Local & server verification handles it cleanly
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const docRef = doc(db, MASTER_CHALLENGE_COLLECTION, 'active_challenge');
+      await setDoc(docRef, challenge);
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return {
@@ -581,21 +583,23 @@ export async function verifyMasterEmailCode(
   }
 
   // 3. Check Firestore collection if accessible
-  try {
-    const snapshot = await getDocs(collection(db, MASTER_CHALLENGE_COLLECTION));
-    let matched = false;
-    snapshot.forEach((d) => {
-      const data = d.data();
-      if (data.code === clean) {
-        matched = true;
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      const snapshot = await getDocs(collection(db, MASTER_CHALLENGE_COLLECTION));
+      let matched = false;
+      snapshot.forEach((d) => {
+        const data = d.data();
+        if (data.code === clean) {
+          matched = true;
+        }
+      });
+      if (matched) {
+        saveMasterLocallyVerified(cleanEmail);
+        return true;
       }
-    });
-    if (matched) {
-      saveMasterLocallyVerified(cleanEmail);
-      return true;
+    } catch {
+      markFirestoreCloudPermissionDenied();
     }
-  } catch {
-    // Ignore remote permission error
   }
 
   return false;

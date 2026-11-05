@@ -528,6 +528,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
       ? domainPanelMap.rightWall
       : panelId === 'crown'
       ? domainPanelMap.crown
+      : panelId === 'shaft_sn'
+      ? domainPanelMap.shaftSn || domainPanelMap.rightWall
       : domainPanelMap.face;
   const getPortionTitle = (panelId: FieldPanelId) =>
     getPortionEntry(panelId)?.fullLabel || panelId.replace('_', ' ');
@@ -542,7 +544,10 @@ const NatmJoint3DInspectorModalContent: React.FC<
     !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
   const isFaceTrace = currentJoint.panel === 'face';
   const isWallTrace =
-    currentJoint.panel === 'left_wall' || currentJoint.panel === 'right_wall';
+    currentJoint.panel === 'left_wall' ||
+    currentJoint.panel === 'right_wall' ||
+    (Boolean(tunnelGeometry.isVerticalShaft) &&
+      (currentJoint.panel === 'crown' || currentJoint.panel === 'shaft_sn'));
   const isCrownTrace = !tunnelGeometry.isVerticalShaft && currentJoint.panel === 'crown';
 
   const [isHingeRotationActive, setIsHingeRotationActive] = useState<boolean>(
@@ -613,9 +618,10 @@ const NatmJoint3DInspectorModalContent: React.FC<
     }
     if (isCrownOrSurface) {
       setIsStrikeLineHingeLocked(false);
+      setIsHingeRotationActive(true);
       setDipDirection(normDir);
     } else {
-      // On Face & Walls: rotate the 3D plane strictly around the traced joint hinge
+      // On Face & Walls (and all Vertical Shaft panels): rotate the 3D plane strictly around the traced joint hinge
       setIsHingeRotationActive(true);
       setDipDirection(normDir);
     }
@@ -865,7 +871,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     );
   }, [currentJoint.panel, currentJoint.points, dipDirection, dipAmount, tunnelGeometry]);
 
-  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on Face & Walls; on Crown uses Strike Line Hinge when locked)
+  // 3a-ii. Trace Hinge-Axis Plane Calculation (Pinned to Traced Line on all Tunnel & Vertical Shaft panels)
   const hingePlaneResult = useMemo<TraceHingePlaneResult | null>(() => {
     if (!isHingeRotationActive || currentJoint.points.length < 2) return null;
     if (isStrikeLineHingeLocked) {
@@ -878,9 +884,6 @@ const NatmJoint3DInspectorModalContent: React.FC<
         true,
         dipDirection
       );
-    }
-    if (currentJoint.panel === 'crown' && !tunnelGeometry.isVerticalShaft) {
-      return null;
     }
     return constructTraceAnchoredPlaneFromOrientation(
       currentJoint.points,

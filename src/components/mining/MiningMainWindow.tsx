@@ -84,26 +84,28 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   const [activeMiningView, setActiveMiningView] = useState<'MAIN' | 'MAPPING' | 'CORE_LOGGING'>('MAIN');
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
   const [isFaceWizardOpen, setIsFaceWizardOpen] = useState(false);
+  const [launchedStope, setLaunchedStope] = useState<any>(null);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const { palette } = useTheme();
 
   // Load isolated Mining state
-  const projects = useMemo(() => loadMiningProjects(), [activeMiningView, isStorageModalOpen]);
-  const stopes = useMemo(() => loadMiningStopes(), [activeMiningView, isStorageModalOpen]);
-  const drillHoles = useMemo(() => loadMiningDrillHoles(), [activeMiningView, isStorageModalOpen]);
+  const projects = useMemo(() => loadMiningProjects(), [activeMiningView, isStorageModalOpen, isFaceWizardOpen]);
+  const stopes = useMemo(() => loadMiningStopes(), [activeMiningView, isStorageModalOpen, isFaceWizardOpen]);
+  const drillHoles = useMemo(() => loadMiningDrillHoles(), [activeMiningView, isStorageModalOpen, isFaceWizardOpen]);
 
   const activeProjId = getActiveMiningProjectId() || projects[0]?.id;
   const activeStopeId = getActiveMiningStopeId() || stopes[0]?.id;
   const activeDrillHoleId = getActiveMiningDrillHoleId() || drillHoles[0]?.id;
 
   const currentProject = projects.find((p) => p.id === activeProjId) || projects[0];
-  const currentStope = stopes.find((s) => s.id === activeStopeId) || stopes[0];
+  const currentStope = launchedStope || stopes.find((s) => s.id === activeStopeId) || stopes[0];
   const currentDrillHole = drillHoles.find((h) => h.id === activeDrillHoleId) || drillHoles[0];
 
   // If Underground Mining Mapping workspace is active:
   if (activeMiningView === 'MAPPING') {
     return (
       <MiningMappingWorkspace
+        initialStope={currentStope}
         onBackToMainWindow={() => setActiveMiningView('MAIN')}
         onChangeIndustryMode={onChangeIndustryMode}
       />
@@ -337,6 +339,9 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
         <MiningFaceSetupWizard
           onCancel={() => setIsFaceWizardOpen(false)}
           onEnterFaceMapping={(newStope) => {
+            if (newStope) {
+              setLaunchedStope(newStope);
+            }
             setIsFaceWizardOpen(false);
             setActiveMiningView('MAPPING');
           }}

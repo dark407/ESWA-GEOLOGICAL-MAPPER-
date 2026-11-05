@@ -30,11 +30,10 @@ import {
 } from './windowsDesktopEngine';
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
+  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
 const LEGACY_CLOUD_APP_ORIGINS = [
   'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app',
-  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app',
-  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app',
+  'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app',
 ];
 
 export const CURRENT_SOFTWARE_VERSION = '1.0.0';
@@ -213,11 +212,18 @@ function removeMirrorItem<T>(
   return list;
 }
 
-function withFirestoreTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
+function withFirestoreTimeout<T>(
+  promiseOrFactory: Promise<T> | (() => Promise<T>),
+  ms = 8000
+): Promise<T> {
   if (firestoreCloudPermissionDenied) {
-    promise.catch(() => {});
+    if (typeof promiseOrFactory !== 'function') {
+      promiseOrFactory.catch(() => {});
+    }
     return Promise.reject(new Error('FIRESTORE_TIMEOUT_OFFLINE_FALLBACK'));
   }
+  const promise =
+    typeof promiseOrFactory === 'function' ? promiseOrFactory() : promiseOrFactory;
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const effectiveTimeout = isOffline ? 1200 : ms;
   return new Promise<T>((resolve, reject) => {
@@ -1538,7 +1544,7 @@ export async function submitSoftwareAccessRequest(input: {
       record as unknown as Record<string, unknown>,
       true
     ),
-    withFirestoreTimeout(setDoc(doc(db, 'access_requests', requestId), record), 4500)
+    withFirestoreTimeout(() => setDoc(doc(db, 'access_requests', requestId), record), 4500)
       .then(() => true)
       .catch(() => false),
   ]);
@@ -1548,7 +1554,7 @@ export async function submitSoftwareAccessRequest(input: {
   }
 
   try {
-    await withFirestoreTimeout(setDoc(doc(db, 'access_requests', requestId), record), 4000);
+    await withFirestoreTimeout(() => setDoc(doc(db, 'access_requests', requestId), record), 4000);
     return record;
   } catch (error) {
     if (isOfflineOrTimeoutError(error)) {
@@ -1815,11 +1821,11 @@ export async function registerInstantUserAndLogin(input: {
       false
     ),
     withFirestoreTimeout(
-      setDoc(doc(db, 'software_licenses', userId), licenseRecord),
+      () => setDoc(doc(db, 'software_licenses', userId), licenseRecord),
       3500
     ).catch(() => {}),
     withFirestoreTimeout(
-      setDoc(doc(db, 'access_requests', reqId), requestRecord),
+      () => setDoc(doc(db, 'access_requests', reqId), requestRecord),
       3500
     ).catch(() => {}),
   ]);
@@ -1967,7 +1973,7 @@ export async function getAccessRequestById(
   const path = `access_requests/${cleanId}`;
   try {
     const snap = await withFirestoreTimeout(
-      getDoc(doc(db, 'access_requests', cleanId)),
+      () => getDoc(doc(db, 'access_requests', cleanId)),
       2000
     );
     if (!snap.exists()) return localMatch;
@@ -2024,7 +2030,7 @@ export async function getSoftwareLicenseById(
 
   try {
     const snap = await withFirestoreTimeout(
-      getDoc(doc(db, 'software_licenses', cleanUserId)),
+      () => getDoc(doc(db, 'software_licenses', cleanUserId)),
       2500
     );
     const fromCache = Boolean(
@@ -2333,7 +2339,7 @@ export async function verifyAndActivateOnePcLogin(input: {
     };
     void firestoreRestUpdateDoc('software_licenses', targetUserId, bindUpdates);
     const ref = doc(db, 'software_licenses', targetUserId);
-    withFirestoreTimeout(updateDoc(ref, bindUpdates), 2000).catch(() => {});
+    withFirestoreTimeout(() => updateDoc(ref, bindUpdates), 2000).catch(() => {});
   };
 
   const matchesLicenseByUserOrEmail = (l: SoftwareLicenseRecord): boolean => {
@@ -2378,7 +2384,7 @@ export async function verifyAndActivateOnePcLogin(input: {
 
     // 3. Fallback to Firebase SDK direct document lookup
     const ref = doc(db, 'software_licenses', cleanUserId);
-    const snap = await withFirestoreTimeout(getDoc(ref), 2500);
+    const snap = await withFirestoreTimeout(() => getDoc(ref), 2500);
     if (!snap.exists()) {
       return {
         ok: false,
@@ -2437,7 +2443,7 @@ export async function checkIsCurrentPcMaster(): Promise<boolean> {
   }
   try {
     const snap = await withFirestoreTimeout(
-      getDoc(doc(db, 'master_pcs', cleanPcId)),
+      () => getDoc(doc(db, 'master_pcs', cleanPcId)),
       1200
     );
     if (snap.exists()) {
@@ -2480,7 +2486,7 @@ export async function setMasterPcAuthorization(
 
   const path = `master_pcs/${cleanPcId}`;
   try {
-    await withFirestoreTimeout(setDoc(doc(db, 'master_pcs', cleanPcId), record));
+    await withFirestoreTimeout(() => setDoc(doc(db, 'master_pcs', cleanPcId), record));
   } catch (error) {
     if (isOfflineOrTimeoutError(error)) return;
     try {
@@ -2504,7 +2510,7 @@ export async function removeMasterPcAuthorization(pcHardwareId: string): Promise
   );
   const path = `master_pcs/${cleanPcId}`;
   try {
-    await withFirestoreTimeout(deleteDoc(doc(db, 'master_pcs', cleanPcId)));
+    await withFirestoreTimeout(() => deleteDoc(doc(db, 'master_pcs', cleanPcId)));
   } catch (error) {
     if (isOfflineOrTimeoutError(error)) return;
     try {
@@ -2574,10 +2580,11 @@ export async function approveRequestAndCreateLicense(input: {
     ),
     firestoreRestUpdateDoc('access_requests', input.request.requestId, reqUpdates),
     withFirestoreTimeout(
-      Promise.all([
-        setDoc(doc(db, 'software_licenses', cleanUserId), licenseRecord),
-        updateDoc(doc(db, 'access_requests', input.request.requestId), reqUpdates),
-      ]),
+      () =>
+        Promise.all([
+          setDoc(doc(db, 'software_licenses', cleanUserId), licenseRecord),
+          updateDoc(doc(db, 'access_requests', input.request.requestId), reqUpdates),
+        ]),
       3500
     ).catch(() => {}),
   ]);
@@ -2628,7 +2635,7 @@ export async function createDirectSoftwareLicense(input: {
       record as unknown as Record<string, unknown>
     ),
     withFirestoreTimeout(
-      setDoc(doc(db, 'software_licenses', cleanUserId), record),
+      () => setDoc(doc(db, 'software_licenses', cleanUserId), record),
       3500
     ).catch(() => {}),
   ]);
@@ -2667,7 +2674,7 @@ export async function updateSoftwareLicenseAdmin(
   await Promise.all([
     firestoreRestUpdateDoc('software_licenses', cleanUserId, payload),
     withFirestoreTimeout(
-      updateDoc(doc(db, 'software_licenses', cleanUserId), payload),
+      () => updateDoc(doc(db, 'software_licenses', cleanUserId), payload),
       3500
     ).catch(() => {}),
   ]);
@@ -2830,19 +2837,19 @@ export async function deleteSoftwareLicenseAdmin(userIdOrReqId: string): Promise
     ),
     ...allUserIdsToPurge.flatMap((uid) => [
       firestoreRestDeleteDoc('software_licenses', uid, allTombstoneIds),
-      withFirestoreTimeout(deleteDoc(doc(db, 'software_licenses', uid)), 3500).catch(
+      withFirestoreTimeout(() => deleteDoc(doc(db, 'software_licenses', uid)), 3500).catch(
         () => {}
       ),
     ]),
     ...allReqIdsToPurge.flatMap((reqId) => [
       firestoreRestDeleteDoc('access_requests', reqId, allTombstoneIds),
-      withFirestoreTimeout(deleteDoc(doc(db, 'access_requests', reqId)), 3500).catch(
+      withFirestoreTimeout(() => deleteDoc(doc(db, 'access_requests', reqId)), 3500).catch(
         () => {}
       ),
     ]),
     ...rawHwIds.flatMap((hwId) => [
       firestoreRestDeleteDoc('device_directory', hwId, allTombstoneIds),
-      withFirestoreTimeout(deleteDoc(doc(db, 'device_directory', hwId)), 3500).catch(
+      withFirestoreTimeout(() => deleteDoc(doc(db, 'device_directory', hwId)), 3500).catch(
         () => {}
       ),
     ]),
@@ -2876,7 +2883,7 @@ export async function syncGithubRepoConfigToCloud(rawRepoInput: string): Promise
   };
   upsertMirrorItem(LOCAL_MIRROR_RELEASES_KEY, configRecord, (x) => x.releaseId);
   try {
-    await withFirestoreTimeout(
+    await withFirestoreTimeout(() =>
       setDoc(doc(db, 'software_releases', 'GITHUB_REPO_CONFIG'), configRecord)
     );
   } catch {
@@ -2931,7 +2938,7 @@ export async function publishSoftwareUpdateRelease(input: {
       record as unknown as Record<string, unknown>
     ),
     withFirestoreTimeout(
-      setDoc(doc(db, 'software_releases', releaseId), record),
+      () => setDoc(doc(db, 'software_releases', releaseId), record),
       3500
     ).catch(() => {}),
   ]);
@@ -2947,7 +2954,7 @@ export async function deleteSoftwareReleaseAdmin(releaseId: string): Promise<voi
   await Promise.all([
     firestoreRestDeleteDoc('software_releases', releaseId),
     withFirestoreTimeout(
-      deleteDoc(doc(db, 'software_releases', releaseId)),
+      () => deleteDoc(doc(db, 'software_releases', releaseId)),
       3500
     ).catch(() => {}),
   ]);
@@ -2981,10 +2988,11 @@ export async function acknowledgeClientUpdateInstalled(newVersion: string): Prom
       lastSeenAtIso: nowIso,
     }),
     withFirestoreTimeout(
-      updateDoc(doc(db, 'software_licenses', cleanUserId), {
-        installedVersion: cleanVer,
-        lastSeenAtIso: nowIso,
-      }),
+      () =>
+        updateDoc(doc(db, 'software_licenses', cleanUserId), {
+          installedVersion: cleanVer,
+          lastSeenAtIso: nowIso,
+        }),
       2000
     ).catch(() => {}),
   ]);
@@ -3472,7 +3480,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
     if (isRequestTombstoned(r)) {
       void firestoreRestDeleteDoc('access_requests', r.requestId);
       void withFirestoreTimeout(
-        deleteDoc(doc(db, 'access_requests', r.requestId)),
+        () => deleteDoc(doc(db, 'access_requests', r.requestId)),
         2500
       ).catch(() => {});
     }
@@ -3481,7 +3489,7 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
     if (isLicenseTombstoned(l)) {
       void firestoreRestDeleteDoc('software_licenses', l.userId);
       void withFirestoreTimeout(
-        deleteDoc(doc(db, 'software_licenses', l.userId)),
+        () => deleteDoc(doc(db, 'software_licenses', l.userId)),
         2500
       ).catch(() => {});
     }
@@ -3893,7 +3901,7 @@ export function saveGoogleDriveSyncConfig(
     cloudCfgRecord as unknown as Record<string, unknown>
   );
   void withFirestoreTimeout(
-    setDoc(doc(db, 'software_releases', 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'), cloudCfgRecord),
+    () => setDoc(doc(db, 'software_releases', 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'), cloudCfgRecord),
     4000
   ).catch(() => {});
   return next;

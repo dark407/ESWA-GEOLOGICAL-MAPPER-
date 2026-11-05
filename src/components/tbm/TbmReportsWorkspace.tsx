@@ -31,6 +31,7 @@ import {
   calculateRmrGeomechanicalProperties,
 } from '../../engine/tbmCalculationsEngine';
 import { exportCanvasesAsPdfDocument } from '../../engine/fieldMappingEngine';
+import { TbmMultiPageDossierModal } from './TbmMultiPageDossierModal';
 
 export interface TbmReportsWorkspaceProps {
   records: TbmExcavationRecord[];
@@ -1718,18 +1719,28 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handleDownloadStandalonePdf}
+            onClick={() => setIsFullscreenModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
-            title="Download standalone 300-DPI PDF document (.pdf)"
+            title="Open Multi-Page ISO A4 Analytical Dossier Studio (300 DPI PDF & Editable Word)"
+          >
+            <Maximize2 className="w-4 h-4" />
+            <span>Multi-Page A4 Dossier Studio (300 DPI PDF &amp; Word)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadStandalonePdf}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+            title="Download standalone 300-DPI PDF document (.pdf) of active report tab"
           >
             <Download className="w-4 h-4" />
-            <span>Download PDF (300 DPI)</span>
+            <span>Quick Tab PDF (300 DPI)</span>
           </button>
 
           <button
             type="button"
             onClick={handleDownloadReportPdfHtml}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer transition-all"
             title="Download publication-grade styled report as HTML document"
           >
             <Download className="w-4 h-4" />
@@ -1753,17 +1764,7 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
             title="Print or save as PDF via system dialog"
           >
             <Printer className="w-4 h-4" />
-            <span>Print / Save PDF</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsFullscreenModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-mono text-xs font-bold cursor-pointer transition-all"
-            title="Open in publication-ready report viewer"
-          >
-            <Maximize2 className="w-4 h-4" />
-            <span>Fullscreen Inspector</span>
+            <span>Print</span>
           </button>
         </div>
       </div>
@@ -2018,52 +2019,15 @@ export const TbmReportsWorkspace: React.FC<TbmReportsWorkspaceProps> = ({
         {renderReportContent()}
       </div>
 
-      {/* Fullscreen Report Inspector Modal */}
-      {isFullscreenModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col p-4 sm:p-8 animate-fade-in overflow-y-auto">
-          <div className="max-w-6xl w-full mx-auto bg-slate-900 border border-cyan-500/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden my-auto">
-            {/* Modal Top Bar */}
-            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan-400" />
-                <span className="font-mono font-bold text-sm text-cyan-300 uppercase">
-                  {currentDef.title} — HIGH-RESOLUTION INSPECTION &amp; PRINT
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadReportPdfHtml}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs flex items-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Report</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePrint}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold font-mono text-xs flex items-center gap-1.5 cursor-pointer border border-slate-700"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print Sheet</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsFullscreenModalOpen(false)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-4 max-h-[80vh]">
-              {renderReportContent()}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Multi-Page ISO A4 TBM Analytical Dossier Studio Modal */}
+      <TbmMultiPageDossierModal
+        isOpen={isFullscreenModalOpen}
+        onClose={() => setIsFullscreenModalOpen(false)}
+        record={targetRecord}
+        records={filteredRecords.length > 0 ? filteredRecords : records}
+        activeLocation={activeLocation}
+        activeProject={activeProject}
+      />
     </div>
   );
 };

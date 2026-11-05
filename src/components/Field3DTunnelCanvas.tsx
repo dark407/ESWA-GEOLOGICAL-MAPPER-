@@ -1733,7 +1733,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
           r.tunnelDriveDirection,
           liveCrownSign,
           activeLocation.widthM,
-          activeLocation.heightM
+          activeLocation.heightM,
+          isVerticalShaftLocation(activeLocation)
         );
         const id = `jtr-3dcont-${now}-${idx}-${panelId}`;
         createdIds.push(id);
@@ -2308,7 +2309,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             r.tunnelDriveDirection,
             liveCrownSign,
             activeLocation.widthM,
-            activeLocation.heightM
+            activeLocation.heightM,
+            isVerticalShaftLocation(activeLocation)
           );
           if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
 
@@ -2352,7 +2354,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             r.tunnelDriveDirection,
             liveCrownSign,
             activeLocation.widthM,
-            activeLocation.heightM
+            activeLocation.heightM,
+            isVerticalShaftLocation(activeLocation)
           );
           if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
           const { outlinePolygon } = buildDipSurfacePolygonWithOutlineSnap(
@@ -2397,7 +2400,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             r.tunnelDriveDirection,
             liveCrownSign,
             activeLocation.widthM,
-            activeLocation.heightM
+            activeLocation.heightM,
+            isVerticalShaftLocation(activeLocation)
           );
           if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
           const id = prevFeat ? prevFeat.id : `sfeat-3d-${now}-${idx}`;
@@ -2448,7 +2452,8 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
             r.tunnelDriveDirection,
             liveCrownSign,
             activeLocation.widthM,
-            activeLocation.heightM
+            activeLocation.heightM,
+            isVerticalShaftLocation(activeLocation)
           );
           if (idx === 0) initialOrientationToEmit = { dipDirection: est.dipDirection, dipAmount: est.dipAmount };
 
@@ -2566,154 +2571,139 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     return activeRound.jointTraces.find((t) => t.id === selectedTraceId) || null;
   }, [selectedTraceId, activeRound.jointTraces]);
 
-  // 3D Spatial Cutting Disc Plane for currently selected joint
+  // 3D Spatial Cutting Disc Plane for currently selected joint (strictly hinged on drawn trace in both Tunnel & Vertical Shaft modes)
   const inspectedJoint3DDisc = useMemo(() => {
     if (!show3DSpatialDisc || !selectedTraceId) return null;
     const joint = activeRound.jointTraces.find((t) => t.id === selectedTraceId);
     if (!joint || joint.points.length < 2) return null;
 
-    const midPt = joint.points[Math.floor(joint.points.length / 2)];
+    const isVertShaft = isVerticalShaftLocation(activeLocation);
     const geom = getPanelGeom(joint.panel);
-    const u = Math.max(0.01, Math.min(0.99, (midPt.x - geom.boxX) / Math.max(1, geom.boxW)));
-    const v = Math.max(0.01, Math.min(0.99, (midPt.y - geom.boxY) / Math.max(1, geom.boxH)));
 
-    let anchorX = 0;
-    let anchorY = 0.5;
-    let anchorZ = 0.45;
+    const mapPanelPtToNorm3D = (pt: FieldPoint2D): { x: number; y: number; z: number } => {
+      const u = Math.max(0.0001, Math.min(0.9999, (pt.x - geom.boxX) / Math.max(1, geom.boxW)));
+      const v = Math.max(0.0001, Math.min(0.9999, (pt.y - geom.boxY) / Math.max(1, geom.boxH)));
 
-    if (joint.panel === 'face') {
-      anchorX = u - 0.5;
-      anchorY = v;
-      anchorZ = 0.02;
-    } else if (joint.panel === 'crown') {
-      const { nx, ny } = interpolatePerimeterAtV('crown', u);
-      anchorX = nx;
-      anchorY = ny;
-      anchorZ = v;
-    } else if (joint.panel === 'left_wall') {
-      const { nx, ny } = interpolatePerimeterAtV('left_wall', 1 - v);
-      anchorX = nx;
-      anchorY = ny;
-      anchorZ = 1 - u;
-    } else if (joint.panel === 'right_wall') {
+      if (joint.panel === 'face') {
+        return { x: u - 0.5, y: v, z: 0.02 };
+      }
+      if (isVertShaft) {
+        const { nx, ny } = interpolatePerimeterAtV(joint.panel, u);
+        return { x: nx, y: ny, z: 1 - v };
+      }
+      if (joint.panel === 'crown') {
+        const { nx, ny } = interpolatePerimeterAtV('crown', u);
+        return { x: nx, y: ny, z: v };
+      }
+      if (joint.panel === 'left_wall') {
+        const { nx, ny } = interpolatePerimeterAtV('left_wall', 1 - v);
+        return { x: nx, y: ny, z: 1 - u };
+      }
       const { nx, ny } = interpolatePerimeterAtV('right_wall', v);
-      anchorX = nx;
-      anchorY = ny;
-      anchorZ = u;
+      return { x: nx, y: ny, z: u };
+    };
+
+    const p1 = joint.points[0];
+    const p2 = joint.points[joint.points.length - 1];
+    const midPt = joint.points[Math.floor(joint.points.length / 2)];
+
+    const P1 = mapPanelPtToNorm3D(p1);
+    const P2 = mapPanelPtToNorm3D(p2);
+    const Pmid = mapPanelPtToNorm3D(midPt);
+
+    const anchorX = Pmid.x;
+    const anchorY = Pmid.y;
+    const anchorZ = Pmid.z;
+
+    // Exact 3D hinge unit vector along the drawn trace P1 -> P2 on the panel surface:
+    const dx = P2.x - P1.x;
+    const dy = P2.y - P1.y;
+    const dz = P2.z - P1.z;
+    const traceLen3D = Math.hypot(dx, dy, dz) || 1e-4;
+    const uX = dx / traceLen3D;
+    const uY = dy / traceLen3D;
+    const uZ = dz / traceLen3D;
+
+    // Construct orthonormal basis (e1, e2) strictly orthogonal to the trace hinge u = (uX, uY, uZ):
+    // e1 points along the inward/outward panel surface normal; e2 lies in the panel surface perpendicular to u.
+    let surfNx = 0;
+    let surfNy = 0;
+    let surfNz = 1;
+    if (joint.panel === 'face') {
+      surfNx = 0;
+      surfNy = 0;
+      surfNz = 1;
+    } else if (isVertShaft) {
+      const rx = -anchorX;
+      const ry = -(anchorY - 0.5);
+      const rLen = Math.hypot(rx, ry) || 1;
+      surfNx = rx / rLen;
+      surfNy = ry / rLen;
+      surfNz = 0;
+    } else if (joint.panel === 'left_wall') {
+      surfNx = 1;
+      surfNy = 0;
+      surfNz = 0;
+    } else if (joint.panel === 'right_wall') {
+      surfNx = -1;
+      surfNy = 0;
+      surfNz = 0;
+    } else if (joint.panel === 'crown') {
+      surfNx = 0;
+      surfNy = 1;
+      surfNz = 0;
     }
 
-    const relAzRad =
-      (((joint.dipDirection - activeRound.tunnelDriveDirection + 360) % 360) * Math.PI) / 180;
-    const isCrown = joint.panel === 'crown';
+    const dotUS = uX * surfNx + uY * surfNy + uZ * surfNz;
+    let r1x = surfNx - dotUS * uX;
+    let r1y = surfNy - dotUS * uY;
+    let r1z = surfNz - dotUS * uZ;
+    let r1Len = Math.hypot(r1x, r1y, r1z);
+    if (r1Len < 1e-4) {
+      r1x = -uY;
+      r1y = uX;
+      r1z = 0;
+      r1Len = Math.hypot(r1x, r1y, r1z) || 1;
+    }
+    const e1x = r1x / r1Len;
+    const e1y = r1y / r1Len;
+    const e1z = r1z / r1Len;
+
+    // e2 = u x e1 (unit vector in panel surface orthogonal to trace u)
+    const e2x = uY * e1z - uZ * e1y;
+    const e2y = uZ * e1x - uX * e1z;
+    const e2z = uX * e1y - uY * e1x;
+
+    const isCrown = !isVertShaft && joint.panel === 'crown';
     const effectiveDip =
       (joint.dipAmount === 0 || joint.dipAmount == null) && isCrown
         ? 90
         : (joint.dipAmount ?? (isCrown ? 90 : 65));
-    const dipRad = (Math.max(5, Math.min(90, effectiveDip)) * Math.PI) / 180;
 
-    const sinDip = Math.sin(dipRad);
-    const cosDip = Math.cos(dipRad);
-    const nX = sinDip * Math.sin(relAzRad);
-    const nZ = -sinDip * Math.cos(relAzRad);
-    const nY = -cosDip;
+    // Baseline orientation from trace geometry so any manual adjustment to Dip Direction or Dip Angle
+    // smoothly rotates the 3D cutting disc around the stationary trace hinge (uX, uY, uZ):
+    const baseEst = estimateTraceOrientationFromGeometry(
+      joint.points,
+      joint.panel,
+      activeRound.tunnelDriveDirection,
+      joint.crownDipSign || '+90',
+      activeLocation.widthM,
+      activeLocation.heightM,
+      isVertShaft
+    );
+    const deltaDipDirDeg =
+      (((joint.dipDirection ?? baseEst.dipDirection) - baseEst.dipDirection + 540) % 360) - 180;
+    const sideSign = joint.crownDipSign === '-90' ? -1 : 1;
+    const hingeAngleRad = (((effectiveDip * sideSign) + deltaDipDirDeg) * Math.PI) / 180;
 
-    let uX = Math.cos(relAzRad);
-    let uY = 0;
-    let uZ = Math.sin(relAzRad);
+    const sinPhi = Math.sin(hingeAngleRad);
+    const cosPhi = Math.cos(hingeAngleRad);
 
-    let vX = nY * uZ - nZ * uY;
-    let vY = nZ * uX - nX * uZ;
-    let vZ = nX * uY - nY * uX;
+    const vX = sinPhi * e1x + cosPhi * e2x;
+    const vY = sinPhi * e1y + cosPhi * e2y;
+    const vZ = sinPhi * e1z + cosPhi * e2z;
 
-    // Hinge-based joint plane rotation for Face and Walls; dip-amount-based tilt for Crown:
-    if (joint.points && joint.points.length >= 2) {
-      const p1 = joint.points[0];
-      const p2 = joint.points[joint.points.length - 1];
-      const du = p2.x - p1.x;
-      const dv = p2.y - p1.y;
-      const len = Math.hypot(du, dv);
-
-      if (len > 0.001) {
-        if (joint.panel === 'face') {
-          // Face trace hinge:
-          const huX = du / len;
-          const huY = -dv / len;
-          const huZ = 0;
-
-          const hwX = dv / len;
-          const hwY = du / len;
-
-          const isHeading = Math.cos(relAzRad) >= 0;
-          const zSign = isHeading ? 1 : -1;
-
-          uX = huX;
-          uY = huY;
-          uZ = huZ;
-
-          vX = hwX * Math.cos(dipRad);
-          vY = hwY * Math.cos(dipRad);
-          vZ = zSign * Math.sin(dipRad);
-        } else if (joint.panel === 'left_wall') {
-          // Left wall: hinge axis in (Z, Y) wall plane
-          const huZ = du / len;
-          const huY = -dv / len;
-          const huX = 0;
-
-          const hwZ = dv / len;
-          const hwY = du / len;
-
-          const isRockSide = Math.sin(relAzRad) <= 0;
-          const xSign = isRockSide ? -1 : 1;
-
-          uX = huX;
-          uY = huY;
-          uZ = huZ;
-
-          vX = xSign * Math.sin(dipRad);
-          vY = hwY * Math.cos(dipRad);
-          vZ = hwZ * Math.cos(dipRad);
-        } else if (joint.panel === 'right_wall') {
-          // Right wall: hinge axis in (Z, Y) wall plane
-          const huZ = -du / len;
-          const huY = -dv / len;
-          const huX = 0;
-
-          const hwZ = dv / len;
-          const hwY = -du / len;
-
-          const isRockSide = Math.sin(relAzRad) >= 0;
-          const xSign = isRockSide ? 1 : -1;
-
-          uX = huX;
-          uY = huY;
-          uZ = huZ;
-
-          vX = xSign * Math.sin(dipRad);
-          vY = hwY * Math.cos(dipRad);
-          vZ = hwZ * Math.cos(dipRad);
-        } else if (joint.panel === 'crown') {
-          // Crown: mapped trace defines the horizontal strike direction (uX, 0, uZ).
-          // The 3D plane dips at dipRad (ideal = 90°) strictly relative to the strike direction downward (+Y) toward the invert.
-          const huX = du / len;
-          const huZ = dv / len;
-          const huY = 0;
-
-          const sideSign = joint.crownDipSign === '-90' ? -1 : 1;
-          const hwX = -huZ * sideSign;
-          const hwZ = huX * sideSign;
-
-          uX = huX;
-          uY = huY;
-          uZ = huZ;
-
-          vX = hwX * Math.cos(dipRad);
-          vY = Math.sin(dipRad);
-          vZ = hwZ * Math.cos(dipRad);
-        }
-      }
-    }
-
-    const radius = 0.32;
+    const radius = Math.max(0.24, Math.min(0.42, traceLen3D * 0.55));
     const discSvgPts: FieldPoint2D[] = [];
     const steps = 36;
     for (let i = 0; i < steps; i++) {
@@ -2727,16 +2717,17 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     }
 
     const centerSvg = projectTunnel3DPoint(anchorX, anchorY, anchorZ, joint.panel);
+    const halfHingeSpan = Math.max(radius * 0.95, traceLen3D * 0.5);
     const strikeEnd1 = projectTunnel3DPoint(
-      anchorX - radius * 0.95 * uX,
-      anchorY - radius * 0.95 * uY,
-      anchorZ - radius * 0.95 * uZ,
+      anchorX - halfHingeSpan * uX,
+      anchorY - halfHingeSpan * uY,
+      anchorZ - halfHingeSpan * uZ,
       joint.panel
     );
     const strikeEnd2 = projectTunnel3DPoint(
-      anchorX + radius * 0.95 * uX,
-      anchorY + radius * 0.95 * uY,
-      anchorZ + radius * 0.95 * uZ,
+      anchorX + halfHingeSpan * uX,
+      anchorY + halfHingeSpan * uY,
+      anchorZ + halfHingeSpan * uZ,
       joint.panel
     );
     const dipArrowEnd = projectTunnel3DPoint(
@@ -2760,6 +2751,7 @@ export const Field3DTunnelCanvas: React.FC<Field3DTunnelCanvasProps> = React.mem
     selectedTraceId,
     activeRound.jointTraces,
     activeRound.tunnelDriveDirection,
+    activeLocation,
     interpolatePerimeterAtV,
     projectTunnel3DPoint,
     getPanelGeom,

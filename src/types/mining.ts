@@ -147,6 +147,7 @@ export interface MiningLocationItem {
   stopeHeightM: number;
   wallHeightM: number;
   crownRadiusM?: number;
+  customRoofShape?: MiningStopeShape;
   headingDriveAzimuthDeg: number;
   customProfilePoints?: MiningGeologicalPoint[];
   createdAt: string;
@@ -172,6 +173,7 @@ export interface MiningStopeItem {
   stopeWidthM: number;
   stopeHeightM: number;
   stopeShape?: MiningStopeShape;
+  customRoofShape?: MiningStopeShape;
   wallHeightM?: number;
   crownRadiusM?: number;
   headingDriveAzimuthDeg?: number;

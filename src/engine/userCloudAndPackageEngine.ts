@@ -1232,6 +1232,10 @@ async function executeSyncUserWorkspaceToCloud(
     // Ignore local quota errors
   }
 
+  if (firestoreCloudPermissionDenied) {
+    return { synced: true, message: 'Saved workspace to account storage.' };
+  }
+
   try {
     // Save cloud-safe document to Firestore `/user_workspaces/{uid}` with merge: true to avoid concurrent update conflicts
     const payloadJson = buildCloudSafePayloadJson(pkg);
@@ -1249,6 +1253,7 @@ async function executeSyncUserWorkspaceToCloud(
     );
     return { synced: true, message: 'Saved workspace to Google account cloud.' };
   } catch {
+    markFirestoreCloudPermissionDenied();
     return { synced: true, message: 'Saved workspace to account storage.' };
   }
 }
@@ -1271,6 +1276,10 @@ export async function restoreUserWorkspaceFromCloudOrLocal(
     // Ignore
   }
 
+  if (firestoreCloudPermissionDenied) {
+    return null;
+  }
+
   // 2. Fetch Firestore `/user_workspaces/{uid}`
   try {
     const docRef = doc(db, 'user_workspaces', user.uid);
@@ -1287,7 +1296,7 @@ export async function restoreUserWorkspaceFromCloudOrLocal(
       await syncUserWorkspaceToCloud(user);
     }
   } catch {
-    // Ignore offline/network errors
+    markFirestoreCloudPermissionDenied();
   }
   return null;
 }
@@ -1624,6 +1633,9 @@ export async function lookupDeviceDirectoryEntry(
   if (!cleanId || cleanId.length < 3) {
     return { found: false, displayName: '', email: '' };
   }
+  if (firestoreCloudPermissionDenied) {
+    return { found: false, displayName: '', email: '' };
+  }
   try {
     const snap = await getDoc(doc(db, 'device_directory', cleanId));
     if (snap.exists()) {
@@ -1635,7 +1647,7 @@ export async function lookupDeviceDirectoryEntry(
       };
     }
   } catch {
-    // Ignore offline/permission errors
+    markFirestoreCloudPermissionDenied();
   }
   return { found: false, displayName: '', email: '' };
 }
@@ -1657,7 +1669,7 @@ export async function registerOrUpdateUserDeviceId(
     // Ignore
   }
 
-  if (user?.uid) {
+  if (user?.uid && !firestoreCloudPermissionDenied) {
     try {
       const nowIso = new Date().toISOString();
       const dirRef = doc(db, 'device_directory', deviceId);
@@ -1681,7 +1693,7 @@ export async function registerOrUpdateUserDeviceId(
         });
       }
     } catch {
-      // Ignore offline/rules errors
+      markFirestoreCloudPermissionDenied();
     }
   }
 
@@ -2108,10 +2120,12 @@ export async function sendFacePackageToDeviceId(params: {
   ]);
 
   // Also write to Firestore `/device_transfers/{transferId}` for cross-device real-time delivery
-  try {
-    await setDoc(doc(db, 'device_transfers', transferId), transferRecord);
-  } catch {
-    // Fallback to local transfer store if offline
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await setDoc(doc(db, 'device_transfers', transferId), transferRecord);
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return {
@@ -2151,20 +2165,22 @@ export async function submitReviewerDecisionOnTransfer(params: {
   syncTransferDecisionIntoLocalRound(updated);
 
   // Update Firestore `/device_transfers/{transferId}` so the sender receives real-time notification
-  try {
-    await setDoc(
-      doc(db, 'device_transfers', updated.transferId),
-      {
-        status: updated.status,
-        reviewerRemarks: updated.reviewerRemarks,
-        reviewerName: updated.reviewerName,
-        reviewerSign: updated.reviewerSign,
-        updatedAtIso: updated.updatedAtIso,
-      },
-      { merge: true }
-    );
-  } catch {
-    // Ignore offline errors
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await setDoc(
+        doc(db, 'device_transfers', updated.transferId),
+        {
+          status: updated.status,
+          reviewerRemarks: updated.reviewerRemarks,
+          reviewerName: updated.reviewerName,
+          reviewerSign: updated.reviewerSign,
+          updatedAtIso: updated.updatedAtIso,
+        },
+        { merge: true }
+      );
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return updated;
@@ -2574,18 +2590,20 @@ export async function createSharedCollaborationProject(params: {
   setActiveSharedProject(newProject);
 
   // Sync to Firestore if online
-  try {
-    await setDoc(doc(db, 'shared_projects', id), newProject);
-    // Also save lookup by join code
-    await setDoc(doc(db, 'project_join_codes', joinCode), {
-      projectId: id,
-      joinCode,
-      projectName: newProject.projectName,
-      tunnelLocation: newProject.tunnelLocation,
-      createdAt: nowIso,
-    });
-  } catch {
-    // Offline fallback is fine
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await setDoc(doc(db, 'shared_projects', id), newProject);
+      // Also save lookup by join code
+      await setDoc(doc(db, 'project_join_codes', joinCode), {
+        projectId: id,
+        joinCode,
+        projectName: newProject.projectName,
+        tunnelLocation: newProject.tunnelLocation,
+        createdAt: nowIso,
+      });
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return newProject;
@@ -2612,7 +2630,7 @@ export async function joinProjectByCode(params: {
   );
 
   // 2. Try Firestore lookup
-  if (!project) {
+  if (!project && !firestoreCloudPermissionDenied) {
     try {
       const codeSnap = await getDoc(doc(db, 'project_join_codes', cleanCode));
       if (codeSnap.exists()) {
@@ -2629,7 +2647,7 @@ export async function joinProjectByCode(params: {
         }
       }
     } catch {
-      // Offline
+      markFirestoreCloudPermissionDenied();
     }
   }
 
@@ -2669,16 +2687,18 @@ export async function joinProjectByCode(params: {
   saveSharedProjectToStore(project);
   setActiveSharedProject(project);
 
-  try {
-    await updateDoc(doc(db, 'shared_projects', project.id), {
-      allowedDeviceIds: project.allowedDeviceIds,
-      contractorDevices: project.contractorDevices,
-      pmcDevices: project.pmcDevices,
-      clientDevices: project.clientDevices,
-      lastSyncTimestamp: nowIso,
-    });
-  } catch {
-    // Offline
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await updateDoc(doc(db, 'shared_projects', project.id), {
+        allowedDeviceIds: project.allowedDeviceIds,
+        contractorDevices: project.contractorDevices,
+        pmcDevices: project.pmcDevices,
+        clientDevices: project.clientDevices,
+        lastSyncTimestamp: nowIso,
+      });
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return {
@@ -2699,14 +2719,14 @@ export async function allocateDeviceToProjectRole(params: {
   const nowIso = new Date().toISOString();
 
   let project = listStoredSharedProjects().find((p) => p.id === params.projectId);
-  if (!project) {
+  if (!project && !firestoreCloudPermissionDenied) {
     try {
       const snap = await getDoc(doc(db, 'shared_projects', params.projectId));
       if (snap.exists()) {
         project = snap.data() as SharedProjectCollaborationRecord;
       }
     } catch {
-      //
+      markFirestoreCloudPermissionDenied();
     }
   }
 
@@ -2745,16 +2765,18 @@ export async function allocateDeviceToProjectRole(params: {
   project.lastSyncTimestamp = nowIso;
   saveSharedProjectToStore(project);
 
-  try {
-    await updateDoc(doc(db, 'shared_projects', project.id), {
-      allowedDeviceIds: project.allowedDeviceIds,
-      contractorDevices: project.contractorDevices,
-      pmcDevices: project.pmcDevices,
-      clientDevices: project.clientDevices,
-      lastSyncTimestamp: nowIso,
-    });
-  } catch {
-    // Offline
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await updateDoc(doc(db, 'shared_projects', project.id), {
+        allowedDeviceIds: project.allowedDeviceIds,
+        contractorDevices: project.contractorDevices,
+        pmcDevices: project.pmcDevices,
+        clientDevices: project.clientDevices,
+        lastSyncTimestamp: nowIso,
+      });
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return project;
@@ -2776,16 +2798,18 @@ export async function removeAllocatedDeviceFromProject(params: {
 
   saveSharedProjectToStore(project);
 
-  try {
-    await updateDoc(doc(db, 'shared_projects', project.id), {
-      allowedDeviceIds: project.allowedDeviceIds,
-      contractorDevices: project.contractorDevices,
-      pmcDevices: project.pmcDevices,
-      clientDevices: project.clientDevices,
-      lastSyncTimestamp: project.lastSyncTimestamp,
-    });
-  } catch {
-    //
+  if (!firestoreCloudPermissionDenied) {
+    try {
+      await updateDoc(doc(db, 'shared_projects', project.id), {
+        allowedDeviceIds: project.allowedDeviceIds,
+        contractorDevices: project.contractorDevices,
+        pmcDevices: project.pmcDevices,
+        clientDevices: project.clientDevices,
+        lastSyncTimestamp: project.lastSyncTimestamp,
+      });
+    } catch {
+      markFirestoreCloudPermissionDenied();
+    }
   }
 
   return project;
@@ -3390,25 +3414,26 @@ export async function syncMappingForAiTraining(
       }
 
       // 2. Direct Firestore push
-      try {
-        await setDoc(doc(db, 'ai_training_telemetry', recordId), record);
-        // Remove from offline queue on confirmed upload
+      if (!firestoreCloudPermissionDenied) {
         try {
-          const rawUpdated = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
-          if (rawUpdated) {
-            const curQueue: AiTrainingTelemetryRecord[] = JSON.parse(rawUpdated);
-            const nextQueue = curQueue.filter((item) => item.id !== recordId);
-            localStorage.setItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY, JSON.stringify(nextQueue));
+          await setDoc(doc(db, 'ai_training_telemetry', recordId), record);
+          // Remove from offline queue on confirmed upload
+          try {
+            const rawUpdated = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
+            if (rawUpdated) {
+              const curQueue: AiTrainingTelemetryRecord[] = JSON.parse(rawUpdated);
+              const nextQueue = curQueue.filter((item) => item.id !== recordId);
+              localStorage.setItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY, JSON.stringify(nextQueue));
+            }
+          } catch {
+            // Ignore
           }
         } catch {
-          // Ignore
+          markFirestoreCloudPermissionDenied();
         }
-      } catch (fsErr) {
-        // Safe offline queue fallback
-        console.warn('Telemetry queued for offline sync:', fsErr);
       }
-    } catch (err) {
-      console.warn('Telemetry background sync notice:', err);
+    } catch {
+      // Ignore background telemetry sync notice
     }
   }, 10);
 }
@@ -3417,7 +3442,7 @@ export async function syncMappingForAiTraining(
  * Flushes pending offline telemetry items to Firestore.
  */
 export async function flushOfflineAiTelemetryQueue(): Promise<number> {
-  if (typeof window === 'undefined') return 0;
+  if (typeof window === 'undefined' || firestoreCloudPermissionDenied) return 0;
   try {
     const raw = localStorage.getItem(AI_TELEMETRY_OFFLINE_QUEUE_KEY);
     if (!raw) return 0;
@@ -3427,10 +3452,15 @@ export async function flushOfflineAiTelemetryQueue(): Promise<number> {
     let synced = 0;
     const remaining: AiTrainingTelemetryRecord[] = [];
     for (const item of queue) {
+      if (firestoreCloudPermissionDenied) {
+        remaining.push(item);
+        continue;
+      }
       try {
         await setDoc(doc(db, 'ai_training_telemetry', item.id), item);
         synced++;
       } catch {
+        markFirestoreCloudPermissionDenied();
         remaining.push(item);
       }
     }

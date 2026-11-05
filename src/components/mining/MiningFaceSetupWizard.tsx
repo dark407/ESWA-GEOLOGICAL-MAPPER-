@@ -233,40 +233,70 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
     [locationsForProj, selectedLocationId]
   );
 
-  const [locName, setLocName] = useState(activeLoc?.locationName || 'HW-DRV-05');
-  const [locLevel, setLocLevel] = useState(activeLoc?.mineLevel || 'Level 620 mRL');
-  const [locLevelMrl, setLocLevelMrl] = useState<number>(activeLoc?.levelElevationMrl ?? 620);
+  const [locName, setLocName] = useState(
+    activeLoc?.locationName || initialStope?.stopeOrDriftId || 'HW-DRV-05'
+  );
+  const [locLevel, setLocLevel] = useState(
+    activeLoc?.mineLevel || initialStope?.mineLevel || 'Level 620 mRL'
+  );
+  const [locLevelMrl, setLocLevelMrl] = useState<number>(
+    activeLoc?.levelElevationMrl ?? initialStope?.levelElevationMrl ?? 620
+  );
   const [locExcavationType, setLocExcavationType] = useState<MiningExcavationType>(
-    activeLoc?.excavationType || 'ORE_DRIVE'
+    activeLoc?.excavationType || initialStope?.excavationType || 'ORE_DRIVE'
   );
   const [locMiningMethod, setLocMiningMethod] = useState<MiningMethodType>(
-    activeLoc?.miningMethod || 'SUBLEVEL_OPEN_STOPING'
+    activeLoc?.miningMethod || initialStope?.miningMethod || 'SUBLEVEL_OPEN_STOPING'
   );
-  const [locOreBody, setLocOreBody] = useState(activeLoc?.oreBodyName || 'Champion Quartz Lode');
-  const [locCutoffGrade, setLocCutoffGrade] = useState<number>(activeLoc?.targetCutoffGrade ?? 2.50);
+  const [locOreBody, setLocOreBody] = useState(
+    activeLoc?.oreBodyName || initialStope?.oreBodyName || 'Champion Quartz Lode'
+  );
+  const [locCutoffGrade, setLocCutoffGrade] = useState<number>(
+    activeLoc?.targetCutoffGrade ?? initialStope?.targetCutoffGrade ?? 2.50
+  );
 
   // Underground Shape and Dimensions
-  const [locShape, setLocShape] = useState<MiningStopeShape>(activeLoc?.stopeShape || 'd_arch');
-  const [locWidthM, setLocWidthM] = useState<number>(activeLoc?.stopeWidthM ?? 4.8);
-  const [locHeightM, setLocHeightM] = useState<number>(activeLoc?.stopeHeightM ?? 4.2);
-  const [locWallHeightM, setLocWallHeightM] = useState<number>(activeLoc?.wallHeightM ?? 2.8);
-  const [locAzimuthDeg, setLocAzimuthDeg] = useState<number>(activeLoc?.headingDriveAzimuthDeg ?? 45);
-  const [dxfImportedPoints, setDxfImportedPoints] = useState<any[]>(activeLoc?.customProfilePoints || []);
+  const [locShape, setLocShape] = useState<MiningStopeShape>(
+    activeLoc?.stopeShape || initialStope?.stopeShape || 'd_arch'
+  );
+  const [locWidthM, setLocWidthM] = useState<number>(
+    activeLoc?.stopeWidthM ?? initialStope?.stopeWidthM ?? 4.8
+  );
+  const [locHeightM, setLocHeightM] = useState<number>(
+    activeLoc?.stopeHeightM ?? initialStope?.stopeHeightM ?? 4.2
+  );
+  const [locWallHeightM, setLocWallHeightM] = useState<number>(
+    activeLoc?.wallHeightM ?? initialStope?.wallHeightM ?? 2.8
+  );
+  const [locAzimuthDeg, setLocAzimuthDeg] = useState<number>(
+    activeLoc?.headingDriveAzimuthDeg ?? initialStope?.headingDriveAzimuthDeg ?? 45
+  );
+  const [dxfImportedPoints, setDxfImportedPoints] = useState<any[]>(
+    activeLoc?.customProfilePoints || initialStope?.customProfilePoints || []
+  );
   const [dxfFileName, setDxfFileName] = useState('');
-  const [customRoofShape, setCustomRoofShape] = useState<MiningStopeShape>('d_arch');
+  const [customRoofShape, setCustomRoofShape] = useState<MiningStopeShape>(
+    activeLoc?.customRoofShape ||
+      initialStope?.customRoofShape ||
+      (initialStope?.stopeShape &&
+      initialStope.stopeShape !== 'custom_parametric' &&
+      initialStope.stopeShape !== 'dxf_import'
+        ? initialStope.stopeShape
+        : 'd_arch')
+  );
   const [dxfError, setDxfError] = useState<string | null>(null);
   const [dxfFileSizeKb, setDxfFileSizeKb] = useState<number | null>(null);
 
   // Live Location Profile Metrics
   const profileMetrics = useMemo(() => {
-    const effectiveShape = locShape === 'custom_parametric' ? customRoofShape : locShape;
     return generateMiningStopePolygon(
-      effectiveShape,
+      locShape,
       locWidthM,
       locHeightM,
       locWallHeightM,
       locWidthM / 2,
-      locShape === 'dxf_import' ? dxfImportedPoints : undefined
+      locShape === 'dxf_import' ? dxfImportedPoints : undefined,
+      locShape === 'custom_parametric' ? customRoofShape : undefined
     );
   }, [locShape, customRoofShape, locWidthM, locHeightM, locWallHeightM, dxfImportedPoints]);
 
@@ -401,7 +431,14 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
   };
 
   const handleSaveLocation = () => {
-    if (isAddingLocation) {
+    const resolvedCustomPts =
+      locShape === 'dxf_import' && dxfImportedPoints.length >= 3
+        ? dxfImportedPoints
+        : profileMetrics.points;
+    const resolvedRoofShape = locShape === 'custom_parametric' ? customRoofShape : undefined;
+
+    let targetLocationId = selectedLocationId;
+    if (isAddingLocation || !activeLoc) {
       const created = createMiningLocation({
         projectId: selectedProjectId,
         locationName: locName,
@@ -412,16 +449,19 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
         oreBodyName: locOreBody,
         targetCutoffGrade: locCutoffGrade,
         stopeShape: locShape,
+        customRoofShape: resolvedRoofShape,
         stopeWidthM: locWidthM,
         stopeHeightM: locHeightM,
         wallHeightM: locWallHeightM,
         headingDriveAzimuthDeg: locAzimuthDeg,
-        customProfilePoints: locShape === 'dxf_import' ? dxfImportedPoints : profileMetrics.points,
+        customProfilePoints: resolvedCustomPts,
       });
+      targetLocationId = created.id;
       setLocations(loadMiningLocations());
       setSelectedLocationId(created.id);
       setIsAddingLocation(false);
     } else if (activeLoc) {
+      targetLocationId = activeLoc.id;
       updateMiningLocation(activeLoc.id, {
         locationName: locName,
         mineLevel: locLevel,
@@ -431,13 +471,48 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
         oreBodyName: locOreBody,
         targetCutoffGrade: locCutoffGrade,
         stopeShape: locShape,
+        customRoofShape: resolvedRoofShape,
         stopeWidthM: locWidthM,
         stopeHeightM: locHeightM,
         wallHeightM: locWallHeightM,
         headingDriveAzimuthDeg: locAzimuthDeg,
-        customProfilePoints: locShape === 'dxf_import' ? dxfImportedPoints : profileMetrics.points,
+        customProfilePoints: resolvedCustomPts,
       });
       setLocations(loadMiningLocations());
+    }
+
+    // Synchronize existing stopes for this heading/location with the newly fed underground shape & size
+    const currentAllStopes = loadMiningStopes();
+    let updatedAny = false;
+    for (const s of currentAllStopes) {
+      if (
+        s.projectId === selectedProjectId &&
+        (s.locationId === targetLocationId ||
+          s.stopeOrDriftId === locName ||
+          (activeLoc && s.stopeOrDriftId === activeLoc.locationName))
+      ) {
+        updateMiningStope(s.id, {
+          locationId: targetLocationId || s.locationId,
+          stopeOrDriftId: locName,
+          mineLevel: locLevel,
+          levelElevationMrl: locLevelMrl,
+          excavationType: locExcavationType,
+          miningMethod: locMiningMethod,
+          oreBodyName: locOreBody,
+          targetCutoffGrade: locCutoffGrade,
+          stopeShape: locShape,
+          customRoofShape: resolvedRoofShape,
+          stopeWidthM: locWidthM,
+          stopeHeightM: locHeightM,
+          wallHeightM: locWallHeightM,
+          headingDriveAzimuthDeg: locAzimuthDeg,
+          customProfilePoints: resolvedCustomPts,
+        });
+        updatedAny = true;
+      }
+    }
+    if (updatedAny) {
+      setStopes(loadMiningStopes());
     }
   };
 
@@ -446,12 +521,54 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
     setActiveMiningProjectId(selectedProjectId);
     if (selectedLocationId) setActiveMiningLocationId(selectedLocationId);
 
-    // If resuming an existing face
+    const resolvedCustomPts =
+      locShape === 'dxf_import' && dxfImportedPoints.length >= 3
+        ? dxfImportedPoints
+        : profileMetrics.points;
+    const resolvedRoofShape = locShape === 'custom_parametric' ? customRoofShape : undefined;
+
+    // If resuming an existing face, always sync the fed underground shape & dimensions into it!
     if (!isAddingFace && selectedFaceId) {
-      const found = stopes.find((s) => s.id === selectedFaceId);
+      const latestStopes = loadMiningStopes();
+      const found = latestStopes.find((s) => s.id === selectedFaceId) || stopes.find((s) => s.id === selectedFaceId);
       if (found) {
-        setActiveMiningStopeId(found.id);
-        onEnterFaceMapping(found);
+        const syncedStope: MiningStopeItem = {
+          ...found,
+          locationId: selectedLocationId || activeLoc?.id || found.locationId,
+          stopeOrDriftId: locName || found.stopeOrDriftId,
+          mineLevel: locLevel || found.mineLevel,
+          levelElevationMrl: locLevelMrl ?? found.levelElevationMrl,
+          excavationType: locExcavationType || found.excavationType,
+          miningMethod: locMiningMethod || found.miningMethod,
+          oreBodyName: locOreBody || found.oreBodyName,
+          targetCutoffGrade: locCutoffGrade ?? found.targetCutoffGrade,
+          stopeShape: locShape,
+          customRoofShape: resolvedRoofShape,
+          stopeWidthM: locWidthM,
+          stopeHeightM: locHeightM,
+          wallHeightM: locWallHeightM,
+          headingDriveAzimuthDeg: locAzimuthDeg,
+          customProfilePoints: resolvedCustomPts,
+        };
+        updateMiningStope(found.id, {
+          locationId: syncedStope.locationId,
+          stopeOrDriftId: syncedStope.stopeOrDriftId,
+          mineLevel: syncedStope.mineLevel,
+          levelElevationMrl: syncedStope.levelElevationMrl,
+          excavationType: syncedStope.excavationType,
+          miningMethod: syncedStope.miningMethod,
+          oreBodyName: syncedStope.oreBodyName,
+          targetCutoffGrade: syncedStope.targetCutoffGrade,
+          stopeShape: syncedStope.stopeShape,
+          customRoofShape: syncedStope.customRoofShape,
+          stopeWidthM: syncedStope.stopeWidthM,
+          stopeHeightM: syncedStope.stopeHeightM,
+          wallHeightM: syncedStope.wallHeightM,
+          headingDriveAzimuthDeg: syncedStope.headingDriveAzimuthDeg,
+          customProfilePoints: syncedStope.customProfilePoints,
+        });
+        setActiveMiningStopeId(syncedStope.id);
+        onEnterFaceMapping(syncedStope);
         return;
       }
     }
@@ -476,10 +593,11 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
       headingDriveAzimuthDeg: locAzimuthDeg,
       faceInclinationDeg,
       stopeShape: locShape,
+      customRoofShape: resolvedRoofShape,
       stopeWidthM: locWidthM,
       stopeHeightM: locHeightM,
       wallHeightM: locWallHeightM,
-      customProfilePoints: locShape === 'dxf_import' ? dxfImportedPoints : profileMetrics.points,
+      customProfilePoints: resolvedCustomPts,
       mappingMode,
       facePhotoUrl: facePhotoUrl || undefined,
       hangingwallDipDeg: 72,
@@ -789,6 +907,12 @@ export const MiningFaceSetupWizard: React.FC<MiningFaceSetupWizardProps> = ({
                             setLocOreBody(l.oreBodyName);
                             setLocCutoffGrade(l.targetCutoffGrade);
                             setLocShape(l.stopeShape);
+                            if (l.customRoofShape) {
+                              setCustomRoofShape(l.customRoofShape);
+                            }
+                            if (l.customProfilePoints && l.customProfilePoints.length >= 3) {
+                              setDxfImportedPoints(l.customProfilePoints);
+                            }
                             setLocWidthM(l.stopeWidthM);
                             setLocHeightM(l.stopeHeightM);
                             setLocWallHeightM(l.wallHeightM);

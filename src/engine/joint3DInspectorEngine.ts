@@ -1953,9 +1953,12 @@ export function constructPlaneFromTraceHinge(
   let traceStartPt: Vec3D = p1;
   let traceEndPt: Vec3D = p2;
 
-  const useStrikeLineHinge = (!geom.isVerticalShaft && panel === 'crown') || lockStrikeLineHinge;
+  const useStrikeLineHinge =
+    (!geom.isVerticalShaft && panel === 'crown') ||
+    (Boolean(geom.isVerticalShaft) && panel === 'face') ||
+    lockStrikeLineHinge;
 
-  // On vertical panels (Face & Walls), canonicalize the trace hinge vector downward (uz <= 0)
+  // On vertical panels (Tunnel Face & Walls, or Vertical Shaft Quadrant Walls), canonicalize the trace hinge vector downward (uz <= 0)
   // so drawing a trace bottom-to-top vs top-to-bottom never flips the 3D plane 180°.
   if (!useStrikeLineHinge && uz > 0) {
     ux = -ux;
@@ -2000,6 +2003,12 @@ export function constructPlaneFromTraceHinge(
       y: Number((midPoint.y + uy * halfLen).toFixed(3)),
       z: midPoint.z,
     };
+  } else if (geom.isVerticalShaft && panel === 'face') {
+    // Vertical Shaft Bottom Floor (Z = 0.02): p1 and p2 already lie on the horizontal shaft floor.
+    const horizMetricLen = Math.hypot(dx, dy) || 1;
+    ux = dx / horizMetricLen;
+    uy = dy / horizMetricLen;
+    uz = 0;
   } else if (lockStrikeLineHinge) {
     // Strike Line Hinge mode on Face/Wall: lock horizontal strike line from the 2D mapped trace
     const rawDx = pLast.x - pFirst.x;
@@ -2033,22 +2042,14 @@ export function constructPlaneFromTraceHinge(
   let crownHorizDipX = 0;
   let crownHorizDipY = 0;
 
-  if (!useStrikeLineHinge && panel === 'face') {
-    // Face (X = pullM): Hinge vector is (0, uy, uz) with uy^2 + uz^2 = 1.
-    // Let w = (0, -uz, uy) be the in-face perpendicular unit vector.
-    // Any unit normal orthogonal to the trace has the form:
-    //   n = cos(phi) * (1, 0, 0) + sin(phi) * (0, -uz, uy)
-    // To keep upward vertical normal nz = sin(phi) * uy >= 0 and achieve dipAngle = 90° when nz = 0 (phi = 0),
-    // and minimum apparent dip when phi = +/- 90° (cosT = 1 -> sin(phi) = sgnUy * cosT):
+  if (!useStrikeLineHinge && !geom.isVerticalShaft && panel === 'face') {
+    // Tunnel Face (X = pullM): Hinge vector is (0, uy, uz) with uy^2 + uz^2 = 1.
     const sgnUy = uy >= 0 ? 1 : -1;
     const sgnX = directionSide === 'heading' ? 1 : -1;
-    // At dipAngle = 90° (cosT = 0, sinT = 1): normal is purely along +/- X (vertical plane perpendicular to face)
-    // At dipAngle = 0° (cosT = 1, sinT = 0): normal lies in the YZ plane with nz = |uy| >= 0
     nx = sgnX * sinT;
     ny = -uz * sgnUy * cosT;
     nz = Math.abs(uy) * cosT;
 
-    // Downward or in-plane dip vector v = (n x hingeAxis) oriented downward:
     let rawVx = ny * uz - nz * uy;
     let rawVy = nz * ux - nx * uz;
     let rawVz = nx * uy - ny * ux;
@@ -2061,11 +2062,8 @@ export function constructPlaneFromTraceHinge(
     vx = rawVx / vLen;
     vy = rawVy / vLen;
     vz = rawVz / vLen;
-  } else if (!useStrikeLineHinge && (panel === 'left_wall' || panel === 'right_wall')) {
-    // Sidewall (Y = 0 or Y = widthM): Hinge vector is (ux, 0, uz) with ux^2 + uz^2 = 1.
-    // Any unit normal orthogonal to the trace has the form:
-    //   n = sin(phi) * (-uz, 0, ux) + cos(phi) * (0, 1, 0)
-    // To keep upward vertical normal nz = sin(phi) * ux >= 0 and achieve dipAngle = 90° when nz = 0:
+  } else if (!useStrikeLineHinge && !geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall')) {
+    // Tunnel Sidewall (Y = 0 or Y = widthM): Hinge vector is (ux, 0, uz) with ux^2 + uz^2 = 1.
     const sgnUx = ux >= 0 ? 1 : -1;
     const sgnY =
       panel === 'left_wall'
@@ -2091,15 +2089,54 @@ export function constructPlaneFromTraceHinge(
     vx = rawVx / vLen;
     vy = rawVy / vLen;
     vz = rawVz / vLen;
+  } else if (!useStrikeLineHinge && geom.isVerticalShaft && panel !== 'face') {
+    // Vertical Shaft Quadrant Wall (`left_wall` Q1 NE, `crown` Q2 ES, `right_wall` Q3 SW, `shaft_sn` Q4 WN):
+    // Hinge vector is u = (ux, uy, uz) on the cylindrical shaft wall.
+    const h = Math.hypot(ux, uy);
+    let e1x = 0;
+    let e1y = 1;
+    let e2x = 0;
+    let e2y = 0;
+    let e2z = 1;
+    if (h > 1e-4) {
+      e1x = -uy / h;
+      e1y = ux / h;
+      e2x = (-ux * uz) / h;
+      e2y = (-uy * uz) / h;
+      e2z = h;
+    } else {
+      const rCx = midPoint.x - (geom.widthM || 8.0) / 2;
+      const rCy = midPoint.y - (geom.widthM || 8.0) / 2;
+      const rLen = Math.hypot(rCx, rCy) || 1;
+      e1x = rCx / rLen;
+      e1y = rCy / rLen;
+      e2x = -rCy / rLen;
+      e2y = rCx / rLen;
+      e2z = 0;
+    }
+    const sgnRad = directionSide === 'heading' ? 1 : -1;
+    nx = sgnRad * sinT * e1x + cosT * e2x;
+    ny = sgnRad * sinT * e1y + cosT * e2y;
+    nz = cosT * e2z;
+
+    let rawVx = ny * uz - nz * uy;
+    let rawVy = nz * ux - nx * uz;
+    let rawVz = nx * uy - ny * ux;
+    if (rawVz > 1e-6) {
+      rawVx = -rawVx;
+      rawVy = -rawVy;
+      rawVz = -rawVz;
+    }
+    const vLen = Math.hypot(rawVx, rawVy, rawVz) || 1;
+    vx = rawVx / vLen;
+    vy = rawVy / vLen;
+    vz = rawVz / vLen;
   } else {
-    // Crown (ceiling arch) or Strike Line Hinge Mode:
+    // Tunnel Crown (ceiling arch), Vertical Shaft Bottom Face (`geom.isVerticalShaft && panel === 'face'`), or Strike Line Hinge Mode:
     // The mapped trace defines the fixed horizontal STRIKE line hinge (ux, uy, 0).
-    // Decreasing dipAngle from 90° down to 1° rotates the plane strictly around the Strike Line Hinge
-    // downward toward the invert (-Z), NEVER altering the strike direction.
     const horizLen = Math.hypot(ux, uy);
     const sgnSide = directionSide === 'heading' ? 1 : -1;
     if (horizLen > 1e-4) {
-      // Horizontal unit vector strictly +90° (heading) or -90° (collar) clockwise from the strike vector (ux, uy):
       crownHorizDipX = (-uy / horizLen) * sgnSide;
       crownHorizDipY = (ux / horizLen) * sgnSide;
     } else {
@@ -2107,24 +2144,23 @@ export function constructPlaneFromTraceHinge(
       crownHorizDipY = sgnSide;
     }
 
-    // If preferredDipDirectionDeg is supplied, ensure crownHorizDip points in the same hemisphere
-    // so there is never an unexpected 180° flip when strike vector is canonicalized or vertical (90°):
     if (typeof preferredDipDirectionDeg === 'number' && !isNaN(preferredDipDirectionDeg)) {
-      const prefRelRad = degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0)));
-      const prefDx = Math.cos(prefRelRad);
-      const prefDy = Math.sin(prefRelRad);
+      const prefDx = geom.isVerticalShaft
+        ? -Math.cos(degToRad(normalizeAngle360(preferredDipDirectionDeg)))
+        : Math.cos(degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0))));
+      const prefDy = geom.isVerticalShaft
+        ? Math.sin(degToRad(normalizeAngle360(preferredDipDirectionDeg)))
+        : Math.sin(degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0))));
       if (crownHorizDipX * prefDx + crownHorizDipY * prefDy < -1e-4) {
         crownHorizDipX = -crownHorizDipX;
         crownHorizDipY = -crownHorizDipY;
       }
     }
 
-    // Downward dipVector perpendicular to strikeVector, dipping at dipAngle (ideal = 90°) toward the invert (-Z):
     vx = crownHorizDipX * cosT;
     vy = crownHorizDipY * cosT;
     vz = -sinT;
 
-    // Upward unit normal orthogonal to both strikeVector and dipVector:
     nx = crownHorizDipX * sinT;
     ny = crownHorizDipY * sinT;
     nz = cosT;
@@ -2143,9 +2179,12 @@ export function constructPlaneFromTraceHinge(
   } else if (Math.abs(nc) <= 1e-7) {
     nc = 0;
     if (typeof preferredDipDirectionDeg === 'number' && !isNaN(preferredDipDirectionDeg)) {
-      const prefRelRad = degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0)));
-      const prefDx = Math.cos(prefRelRad);
-      const prefDy = Math.sin(prefRelRad);
+      const prefDx = geom.isVerticalShaft
+        ? -Math.cos(degToRad(normalizeAngle360(preferredDipDirectionDeg)))
+        : Math.cos(degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0))));
+      const prefDy = geom.isVerticalShaft
+        ? Math.sin(degToRad(normalizeAngle360(preferredDipDirectionDeg)))
+        : Math.sin(degToRad(normalizeAngle360(preferredDipDirectionDeg - (geom?.driveAzimuthDeg || 0))));
       if (na * prefDx + nb * prefDy < -1e-4) {
         na = -na;
         nb = -nb;
@@ -2159,7 +2198,7 @@ export function constructPlaneFromTraceHinge(
   const safeNc = Math.min(1, Math.max(0, Math.abs(nc)));
   const derivedDipDeg = useStrikeLineHinge ? Math.round(dipAngle) : clampDip(radToDeg(Math.acos(safeNc)));
 
-  // Dip direction azimuth in tunnel-relative coordinates:
+  // Dip direction azimuth:
   let gradX: number;
   let gradY: number;
   if (useStrikeLineHinge) {
@@ -2169,10 +2208,18 @@ export function constructPlaneFromTraceHinge(
     gradX = na;
     gradY = nb;
   }
-  let relAz = radToDeg(Math.atan2(gradY, gradX));
-  if (isNaN(relAz)) relAz = 0;
-  if (relAz < 0) relAz += 360;
-  const derivedDipDirectionDeg = normalizeAngle360(relAz + (geom?.driveAzimuthDeg || 0));
+  let derivedDipDirectionDeg: number;
+  if (geom.isVerticalShaft) {
+    // In Vertical Shaft metric space: North (0°) is -X, East (90°) is +Y, South (180°) is +X, West (270°) is -Y
+    let shaftAz = radToDeg(Math.atan2(gradY, -gradX));
+    if (isNaN(shaftAz)) shaftAz = 0;
+    derivedDipDirectionDeg = normalizeAngle360(shaftAz);
+  } else {
+    let relAz = radToDeg(Math.atan2(gradY, gradX));
+    if (isNaN(relAz)) relAz = 0;
+    if (relAz < 0) relAz += 360;
+    derivedDipDirectionDeg = normalizeAngle360(relAz + (geom?.driveAzimuthDeg || 0));
+  }
 
   // Keep Strike strictly consistent with Right-Hand Rule (DipDir - 90°)
   const strikeRhrDeg = normalizeAngle360(derivedDipDirectionDeg - 90);
@@ -2201,11 +2248,11 @@ export function constructPlaneFromTraceHinge(
 
 /**
  * Constructs a 3D discontinuity plane anchored at the mapped 2D trace midpoint on any panel
- * (`face`, `left_wall`, `right_wall`, or `crown`) that satisfies BOTH the user's exact
- * `(dipDirectionDeg, dipDeg)` orientation AND stays anchored/hinged to the traced joint line.
- * - Changing Dip Direction (0°–359°) rotates the plane smoothly around the traced joint center.
- * - Changing Dip Amount (0°–90°) tilts the plane smoothly around the in-plane trace hinge axis.
- * - At 90° vertical dip, preserves the exact `dipDirectionDeg` without any 180° flip.
+ * (`face`, `left_wall`, `right_wall`, `crown`, or `shaft_sn`) in both Tunnel Mode and Vertical Shaft Mode
+ * that strictly hinges on the drawn joint trace line (`strikeVector = hingeAxis`):
+ * - Changing Dip Direction (0°–359°) smoothly rotates the 3D plane around the stationary drawn trace hinge.
+ * - Changing Dip Amount (0°–90°) smoothly tilts the 3D plane around the stationary drawn trace hinge.
+ * - Never detaches the 3D plane from the drawn trace endpoints `traceStartPoint -> traceEndPoint`.
  */
 export function constructTraceAnchoredPlaneFromOrientation(
   points: FieldPoint2D[],
@@ -2231,9 +2278,13 @@ export function constructTraceAnchoredPlaneFromOrientation(
   let uy = dy / traceLen;
   let uz = dz / traceLen;
 
+  const isHorizontalTracePanel =
+    (!geom.isVerticalShaft && panel === 'crown') ||
+    (Boolean(geom.isVerticalShaft) && panel === 'face');
+
   // Canonicalize vertical panel trace vector downward (uz <= 0) so drawing bottom-to-top vs top-to-bottom
   // always gives the exact same down-dip hinge orientation:
-  if ((geom.isVerticalShaft || panel !== 'crown') && uz > 0) {
+  if (!isHorizontalTracePanel && uz > 0) {
     ux = -ux;
     uy = -uy;
     uz = -uz;
@@ -2254,8 +2305,13 @@ export function constructTraceAnchoredPlaneFromOrientation(
     geom.driveAzimuthDeg != null && !isNaN(geom.driveAzimuthDeg)
       ? normalizeAngle360(geom.driveAzimuthDeg)
       : 0;
-  const relDd = normalizeAngle360(safeDipDir - drive);
-  const alphaRad = degToRad(relDd);
+  const relDd = geom.isVerticalShaft
+    ? safeDipDir
+    : normalizeAngle360(safeDipDir - drive);
+  // When the user also adjusts Dip Amount on a vertical panel, smoothly offset the hinge rotation angle
+  // around the stationary trace hinge without ever moving the trace endpoints off the drawn trace:
+  const dipTiltOffsetDeg = overrideHingeDipAmount ? safeDip - 65 : 0;
+  const alphaRad = degToRad(relDd + dipTiltOffsetDeg);
   const cosA = Math.cos(alphaRad);
   const sinA = Math.sin(alphaRad);
 
@@ -2291,43 +2347,17 @@ export function constructTraceAnchoredPlaneFromOrientation(
       y: Number((midPoint.y + uy * halfLen).toFixed(3)),
       z: midPoint.z,
     };
-  } else if (overrideHingeDipAmount && !geom.isVerticalShaft) {
-    // User confirmed changing Dip Amount on Face or Wall: tilt the trace hinge in the Face/Wall plane
-    // to the new Dip Amount while keeping the trace as the plane's rotational hinge!
-    const deltaRad = degToRad(safeDip);
-    const cosD = safeDip >= 89.99 ? 0 : Math.cos(deltaRad);
-    const sinD = safeDip >= 89.99 ? 1 : Math.sin(deltaRad);
-    const halfLen = traceLen / 2;
-    if (panel === 'face') {
-      const sY = uy >= 0 ? 1 : -1;
-      ux = 0;
-      uy = sY * cosD;
-      uz = -sinD;
-    } else if (panel === 'left_wall' || panel === 'right_wall') {
-      const sX = ux >= 0 ? 1 : -1;
-      ux = sX * cosD;
-      uy = 0;
-      uz = -sinD;
-    }
-    traceStartPt = {
-      x: Number((midPoint.x - ux * halfLen).toFixed(3)),
-      y: Number((midPoint.y - uy * halfLen).toFixed(3)),
-      z: Number((midPoint.z - uz * halfLen).toFixed(3)),
-    };
-    traceEndPt = {
-      x: Number((midPoint.x + ux * halfLen).toFixed(3)),
-      y: Number((midPoint.y + uy * halfLen).toFixed(3)),
-      z: Number((midPoint.z + uz * halfLen).toFixed(3)),
-    };
+  } else if (geom.isVerticalShaft && panel === 'face') {
+    const horizMetricLen = Math.hypot(dx, dy) || 1;
+    ux = dx / horizMetricLen;
+    uy = dy / horizMetricLen;
+    uz = 0;
   }
 
   const hingeAxis: Vec3D = { x: ux, y: uy, z: uz };
 
+  // CASE 1: Tunnel Face (!geom.isVerticalShaft && panel === 'face')
   if (!geom.isVerticalShaft && panel === 'face') {
-    // Strictly hinge the 3D plane on the Face trace vector u = (0, uy, uz) with uy^2 + uz^2 = 1.
-    // Orthonormal basis of u^perp:
-    //   e1 = (1, 0, 0)
-    //   nYZ = (0, sY * |uz|, |uy|)
     const sY = uy >= 0 ? 1 : -1;
     const absUy = Math.abs(uy);
     const absUz = Math.abs(uz);
@@ -2336,8 +2366,8 @@ export function constructTraceAnchoredPlaneFromOrientation(
     const c2 = sY * sinA;
 
     const rawNx = c1;
-    const rawNy = c2 * sY * absUz; // = sinA * |uz|
-    const rawNz = c2 * absUy; // = sY * sinA * |uy|
+    const rawNy = c2 * sY * absUz;
+    const rawNz = c2 * absUy;
 
     let vx = -c2;
     let vy = c1 * sY * absUz;
@@ -2404,11 +2434,8 @@ export function constructTraceAnchoredPlaneFromOrientation(
     };
   }
 
+  // CASE 2: Tunnel Sidewalls (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall'))
   if (!geom.isVerticalShaft && (panel === 'left_wall' || panel === 'right_wall')) {
-    // Strictly hinge the 3D plane on the Wall trace vector u = (ux, 0, uz) with ux^2 + uz^2 = 1.
-    // Orthonormal basis of u^perp:
-    //   e1 = (0, 1, 0)
-    //   nXZ = (sX * |uz|, 0, |ux|)
     const sX = ux >= 0 ? 1 : -1;
     const absUx = Math.abs(ux);
     const absUz = Math.abs(uz);
@@ -2416,9 +2443,9 @@ export function constructTraceAnchoredPlaneFromOrientation(
     const c1 = sinA;
     const c2 = sX * cosA;
 
-    const rawNx = c2 * sX * absUz; // = cosA * |uz|
-    const rawNy = c1; // = sinA
-    const rawNz = c2 * absUx; // = sX * cosA * |ux|
+    const rawNx = c2 * sX * absUz;
+    const rawNy = c1;
+    const rawNz = c2 * absUx;
 
     let vx = c1 * sX * absUz;
     let vy = -c2;
@@ -2485,58 +2512,182 @@ export function constructTraceAnchoredPlaneFromOrientation(
     };
   }
 
-  // Fallback for Crown or Vertical Shaft:
-  const geoPlane = constructJointPlane(safeDipDir, safeDip, midPoint, geom.driveAzimuthDeg);
-  const n = geoPlane.normal;
-  const dotUN = ux * n.x + uy * n.y + uz * n.z;
-  let projX = ux - dotUN * n.x;
-  let projY = uy - dotUN * n.y;
-  let projZ = uz - dotUN * n.z;
-  let projLen = Math.hypot(projX, projY, projZ);
+  // CASE 3: Vertical Shaft Quadrant Walls (geom.isVerticalShaft && panel !== 'face')
+  // Strictly hinge the 3D plane on the cylindrical shaft wall trace vector u = (ux, uy, uz).
+  if (geom.isVerticalShaft && panel !== 'face') {
+    const h = Math.hypot(ux, uy);
+    let e1x = 0;
+    let e1y = 1;
+    let e2x = 0;
+    let e2y = 0;
+    let e2z = 1;
+    if (h > 1e-4) {
+      // e1 is horizontal radial normal to the trace's horizontal tangent; e2 = u x e1 is in-wall orthogonal to u
+      e1x = -uy / h;
+      e1y = ux / h;
+      e2x = (-ux * uz) / h;
+      e2y = (-uy * uz) / h;
+      e2z = h;
+    } else {
+      const rCx = midPoint.x - (geom.widthM || 8.0) / 2;
+      const rCy = midPoint.y - (geom.widthM || 8.0) / 2;
+      const rLen = Math.hypot(rCx, rCy) || 1;
+      e1x = rCx / rLen;
+      e1y = rCy / rLen;
+      e2x = -rCy / rLen;
+      e2y = rCx / rLen;
+      e2z = 0;
+    }
 
-  if (projLen < 1e-4) {
-    projX = geoPlane.strikeVector.x;
-    projY = geoPlane.strikeVector.y;
-    projZ = geoPlane.strikeVector.z;
-    projLen = Math.hypot(projX, projY, projZ) || 1;
+    // In Vertical Shaft metric coordinates: North (0°) is -X, East (90°) is +Y
+    const targetHx = -cosA;
+    const targetHy = sinA;
+    const proj1 = targetHx * e1x + targetHy * e1y;
+    const proj2 = targetHx * e2x + targetHy * e2y;
+    const phi = Math.atan2(proj2, proj1);
+    const c1 = Math.cos(phi);
+    const c2 = Math.sin(phi);
+
+    const rawNx = c1 * e1x + c2 * e2x;
+    const rawNy = c1 * e1y + c2 * e2y;
+    const rawNz = c2 * e2z;
+
+    let vx = -c2 * e1x + c1 * e2x;
+    let vy = -c2 * e1y + c1 * e2y;
+    let vz = c1 * e2z;
+
+    if (Math.abs(vz) > 1e-5) {
+      if (vz > 0) {
+        vx = -vx;
+        vy = -vy;
+        vz = -vz;
+      }
+    } else if (vx * targetHx + vy * targetHy < 0) {
+      vx = -vx;
+      vy = -vy;
+      vz = -vz;
+    }
+
+    const nLen = Math.hypot(rawNx, rawNy, rawNz) || 1;
+    let na = rawNx / nLen;
+    let nb = rawNy / nLen;
+    let nc = rawNz / nLen;
+
+    if (nc < -1e-7) {
+      na = -na;
+      nb = -nb;
+      nc = -nc;
+    } else if (Math.abs(nc) <= 1e-7) {
+      nc = 0;
+      if (na * targetHx + nb * targetHy < -1e-4) {
+        na = -na;
+        nb = -nb;
+      }
+    }
+
+    const vLen = Math.hypot(vx, vy, vz) || 1;
+    const inPlaneDipVector: Vec3D = {
+      x: vx / vLen,
+      y: vy / vLen,
+      z: vz / vLen,
+    };
+
+    const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
+    const strikeRhrDeg = normalizeAngle360(safeDipDir - 90);
+
+    return {
+      panel,
+      a: na,
+      b: nb,
+      c: nc,
+      d,
+      normal: { x: na, y: nb, z: nc },
+      dipVector: inPlaneDipVector,
+      strikeVector: hingeAxis,
+      hingeAxis,
+      traceStartPoint: traceStartPt,
+      traceEndPoint: traceEndPt,
+      traceMidPoint: midPoint,
+      traceLengthM: Number(traceLen.toFixed(2)),
+      hingeDipDeg: safeDip,
+      derivedDipDeg: safeDip,
+      derivedDipDirectionDeg: safeDipDir,
+      strikeRhrDeg,
+      directionSide,
+    };
   }
 
-  const projHingeAxis: Vec3D = {
-    x: projX / projLen,
-    y: projY / projLen,
-    z: projZ / projLen,
-  };
+  // CASE 4: Horizontal Trace Panels — Vertical Shaft Bottom Face (geom.isVerticalShaft && panel === 'face')
+  // and Tunnel Crown (!geom.isVerticalShaft && panel === 'crown').
+  // Strictly hinge the 3D plane on the horizontal trace vector u = (ux, uy, 0) so changing EITHER
+  // Dip Direction (0°..359°) OR Dip Amount (0°..90°) rotates the plane smoothly around the drawn trace hinge!
+  const horizLen = Math.hypot(ux, uy) || 1;
+  const hUx = ux / horizLen;
+  const hUy = uy / horizLen;
+  // e1 = (-hUy, hUx, 0) is horizontal in-floor/in-crown perpendicular to trace u; e2 = (0, 0, 1) is vertical (+Z)
+  const e1x = -hUy;
+  const e1y = hUx;
 
-  let inPlaneDipX = n.y * projHingeAxis.z - n.z * projHingeAxis.y;
-  let inPlaneDipY = n.z * projHingeAxis.x - n.x * projHingeAxis.z;
-  let inPlaneDipZ = n.x * projHingeAxis.y - n.y * projHingeAxis.x;
-  const dotWithTrueDip =
-    inPlaneDipX * geoPlane.dipVector.x +
-    inPlaneDipY * geoPlane.dipVector.y +
-    inPlaneDipZ * geoPlane.dipVector.z;
-  if (dotWithTrueDip < 0) {
-    inPlaneDipX = -inPlaneDipX;
-    inPlaneDipY = -inPlaneDipY;
-    inPlaneDipZ = -inPlaneDipZ;
+  // Natural RHR dip direction perpendicular to the horizontal trace u:
+  const traceBaseDipDirDeg = geom.isVerticalShaft
+    ? normalizeAngle360(radToDeg(Math.atan2(e1y, -e1x)))
+    : normalizeAngle360(radToDeg(Math.atan2(e1y, e1x)) + drive);
+
+  // Relative angular delta from the trace's natural perpendicular dip direction:
+  let deltaDipDirDeg = ((safeDipDir - traceBaseDipDirDeg + 540) % 360) - 180;
+  if (directionSide === 'collar') {
+    deltaDipDirDeg += 180;
   }
-  const inPlaneLen = Math.hypot(inPlaneDipX, inPlaneDipY, inPlaneDipZ) || 1;
+
+  // Combine Dip Amount (safeDip) and Dip Direction rotation (deltaDipDirDeg) into the hinge rotation angle phi around u:
+  const phiRad = degToRad(safeDip + deltaDipDirDeg);
+  const sinPhi = Math.sin(phiRad);
+  const cosPhi = Math.cos(phiRad);
+
+  // Upward normal n and in-plane dip vector v in span(e1, e2), strictly orthogonal to hingeAxis = (hUx, hUy, 0):
+  let na = sinPhi * e1x;
+  let nb = sinPhi * e1y;
+  let nc = cosPhi;
+
+  let vx = cosPhi * e1x;
+  let vy = cosPhi * e1y;
+  let vz = -sinPhi;
+
+  if (nc < -1e-7) {
+    na = -na;
+    nb = -nb;
+    nc = -nc;
+  }
+  if (vz > 1e-6) {
+    vx = -vx;
+    vy = -vy;
+    vz = -vz;
+  }
+
+  const nLen = Math.hypot(na, nb, nc) || 1;
+  na /= nLen;
+  nb /= nLen;
+  nc /= nLen;
+
+  const vLen = Math.hypot(vx, vy, vz) || 1;
   const inPlaneDipVector: Vec3D = {
-    x: inPlaneDipX / inPlaneLen,
-    y: inPlaneDipY / inPlaneLen,
-    z: inPlaneDipZ / inPlaneLen,
+    x: vx / vLen,
+    y: vy / vLen,
+    z: vz / vLen,
   };
 
+  const d = -(na * midPoint.x + nb * midPoint.y + nc * midPoint.z);
   const strikeRhrDeg = normalizeAngle360(safeDipDir - 90);
 
   return {
     panel,
-    a: geoPlane.a,
-    b: geoPlane.b,
-    c: geoPlane.c,
-    d: geoPlane.d,
-    normal: geoPlane.normal,
+    a: na,
+    b: nb,
+    c: nc,
+    d,
+    normal: { x: na, y: nb, z: nc },
     dipVector: inPlaneDipVector,
-    strikeVector: projHingeAxis,
+    strikeVector: hingeAxis,
     hingeAxis,
     traceStartPoint: traceStartPt,
     traceEndPoint: traceEndPt,

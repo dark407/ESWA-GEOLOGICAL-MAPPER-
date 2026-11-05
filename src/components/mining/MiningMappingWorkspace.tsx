@@ -100,6 +100,7 @@ import {
 } from '../../engine/miningStorageEngine';
 import {
   generateMiningStopePolygon,
+  detectAndExtractClosedPencilLoop,
   calculateCompositeFaceAssays,
   calculateLaubscherMrmr,
   evaluateMathewsStability,
@@ -118,10 +119,7 @@ import { MiningChannelsWindow } from './MiningChannelsWindow';
 import { MiningStructureWindow } from './MiningStructureWindow';
 import { MiningGeotechWindow } from './MiningGeotechWindow';
 import { MiningExportsWindow } from './MiningExportsWindow';
-import {
-  exportCanvasesAsPdfDocument,
-  renderSvgElementToHighResPngDataUrl,
-} from '../../engine/fieldMappingEngine';
+import { MiningMultiPageDossierModal } from './MiningMultiPageDossierModal';
 
 export type MiningCanvasTool =
   | 'SELECT'
@@ -470,11 +468,13 @@ export function createSampleMiningFaceDataset(
 }
 
 export interface MiningMappingWorkspaceProps {
+  initialStope?: MiningStopeItem;
   onBackToMainWindow: () => void;
   onChangeIndustryMode?: (mode: IndustryMode) => void;
 }
 
 export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
+  initialStope,
   onBackToMainWindow,
   onChangeIndustryMode,
 }) => {
@@ -559,11 +559,12 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const projects = useMemo(() => loadMiningProjects(), [isSetupWizardOpen, isStorageModalOpen]);
   const stopes = useMemo(() => loadMiningStopes(), [isSetupWizardOpen, isStorageModalOpen]);
 
-  const activeProjId = getActiveMiningProjectId() || projects[0]?.id;
-  const activeStopeId = getActiveMiningStopeId() || stopes[0]?.id;
+  const activeProjId = getActiveMiningProjectId() || initialStope?.projectId || projects[0]?.id;
+  const activeStopeId = getActiveMiningStopeId() || initialStope?.id || stopes[0]?.id;
 
   const currentProject = projects.find((p) => p.id === activeProjId) || projects[0];
-  const currentStope = stopes.find((s) => s.id === activeStopeId) || stopes[0];
+  const currentStope =
+    stopes.find((s) => s.id === activeStopeId) || initialStope || stopes[0];
 
   // Primary Face Geometrical Parameters
   const [driftId, setDriftId] = useState<string>(currentStope?.stopeOrDriftId || 'HW-DRV-04');
@@ -574,6 +575,12 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [stopeWidth, setStopeWidth] = useState<number>(currentStope?.stopeWidthM ?? 4.8);
   const [stopeHeight, setStopeHeight] = useState<number>(currentStope?.stopeHeightM ?? 4.2);
   const [stopeShape, setStopeShape] = useState<MiningStopeShape>(currentStope?.stopeShape || 'd_arch');
+  const [customRoofShape, setCustomRoofShape] = useState<MiningStopeShape>(
+    currentStope?.customRoofShape || 'd_arch'
+  );
+  const [customProfilePoints, setCustomProfilePoints] = useState<MiningGeologicalPoint[]>(
+    currentStope?.customProfilePoints || []
+  );
   const [wallHeight, setWallHeight] = useState<number>(currentStope?.wallHeightM ?? 2.8);
   const [headingAzimuth, setHeadingAzimuth] = useState<number>(currentStope?.headingDriveAzimuthDeg ?? 45);
   const [chainage, setChainage] = useState<string>(currentStope?.currentHeadingRdChainage || 'CH 125.4m');
@@ -692,7 +699,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     setChannelSamples(next.samples);
   };
 
-  // Re-sync state when active stope changes
+  // Re-sync state when active stope or its fed geometry changes
   useEffect(() => {
     if (currentStope) {
       setMineLevel(currentStope.mineLevel || 'Level 620 mRL');
@@ -703,6 +710,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       setStopeWidth(currentStope.stopeWidthM ?? 4.8);
       setStopeHeight(currentStope.stopeHeightM ?? 4.2);
       setStopeShape(currentStope.stopeShape || 'd_arch');
+      setCustomRoofShape(currentStope.customRoofShape || 'd_arch');
+      setCustomProfilePoints(currentStope.customProfilePoints || []);
       setWallHeight(currentStope.wallHeightM ?? 2.8);
       setHeadingAzimuth(currentStope.headingDriveAzimuthDeg ?? 45);
       setChainage(currentStope.currentHeadingRdChainage || 'CH 125.4m');
@@ -720,7 +729,14 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       setSelectedFeatureId(null);
       setSelectedSampleId(null);
     }
-  }, [currentStope?.id]);
+  }, [
+    currentStope?.id,
+    currentStope?.stopeShape,
+    currentStope?.customRoofShape,
+    currentStope?.stopeWidthM,
+    currentStope?.stopeHeightM,
+    currentStope?.wallHeightM,
+  ]);
 
   // Global Keyboard listener: Enter to commit feature, Backspace to undo point, Escape to cancel, Space to pan
   useEffect(() => {
@@ -786,17 +802,32 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
   const [jointFactorB, setJointFactorB] = useState<number>(0.50);
   const [gravityFactorC, setGravityFactorC] = useState<number>(4.0);
 
-  // Stope Closed Face Polygon & Metrics
+  // Stope Closed Face Polygon & Metrics (Strictly matches fed underground shape & size)
   const profileMetrics = useMemo(() => {
+    const activeCustomPts =
+      customProfilePoints && customProfilePoints.length >= 3
+        ? customProfilePoints
+        : currentStope?.customProfilePoints;
     return generateMiningStopePolygon(
       stopeShape,
       stopeWidth,
       stopeHeight,
       wallHeight,
       stopeWidth / 2,
-      stopeShape === 'dxf_import' ? currentStope?.customProfilePoints : undefined
+      stopeShape === 'dxf_import' || (stopeShape === 'custom_parametric' && !customRoofShape)
+        ? activeCustomPts
+        : undefined,
+      stopeShape === 'custom_parametric' ? customRoofShape : undefined
     );
-  }, [stopeShape, stopeWidth, stopeHeight, wallHeight, currentStope?.customProfilePoints]);
+  }, [
+    stopeShape,
+    customRoofShape,
+    stopeWidth,
+    stopeHeight,
+    wallHeight,
+    customProfilePoints,
+    currentStope?.customProfilePoints,
+  ]);
 
   // Channel Sample Composites & Grade Dilution
   const composites = useMemo(() => {
@@ -856,6 +887,11 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       stopeWidthM: stopeWidth,
       stopeHeightM: stopeHeight,
       stopeShape,
+      customRoofShape: stopeShape === 'custom_parametric' ? customRoofShape : undefined,
+      customProfilePoints:
+        stopeShape === 'dxf_import' && customProfilePoints.length >= 3
+          ? customProfilePoints
+          : profileMetrics.points,
       wallHeightM: wallHeight,
       headingDriveAzimuthDeg: headingAzimuth,
       currentHeadingRdChainage: chainage,
@@ -998,9 +1034,9 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     [features, channelSamples, selectedFeatureId, selectedSampleId]
   );
 
-  // Complete Feature Action
+  // Complete Feature Action (Supports auto-closing Pencil / Spline / Polyline loops into Chosen Element Polygons!)
   const handleCommitFeature = useCallback(
-    (ptsToCommit?: MiningGeologicalPoint[]) => {
+    (ptsToCommit?: MiningGeologicalPoint[], forceClosedPolygon?: boolean) => {
       const rawPts = ptsToCommit || draftPointsRef.current || currentDraftPoints;
       // Filter out duplicate identical points while preserving start and end points
       const cleanPts = rawPts.filter((p, idx) => {
@@ -1022,15 +1058,35 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         return;
       }
 
+      // Check if the Pencil (or SPL / Polyline) stroke forms a closed loop:
+      // If closed, the closed portion automatically becomes a filled POLYGON of the chosen element!
+      const closedLoopCheck =
+        activeTool === 'PENCIL' || activeTool === 'SPL' || activeTool === 'POLYLINE'
+          ? detectAndExtractClosedPencilLoop(cleanPts, stopeWidth, stopeHeight)
+          : { isClosed: false, closedPoints: cleanPts };
+
       const isSpl = activeTool === 'SPL' || activeTool === 'PENCIL';
-      const isPolygon = activeTool === 'POLYGON';
+      const isPolygon =
+        activeTool === 'POLYGON' || Boolean(forceClosedPolygon) || closedLoopCheck.isClosed;
+      const finalPoints =
+        closedLoopCheck.isClosed && closedLoopCheck.closedPoints.length >= 3
+          ? closedLoopCheck.closedPoints
+          : cleanPts;
 
       const targetType: MiningGeologicalFeatureType = featureClassification;
       let color = '#D97706';
       let name = 'Geological Feature';
 
       if (featureClassification === 'ORE_BOUNDARY') {
-        name = `${selectedOreCategory.replace('_', ' ')} Ore Lode`;
+        const gradeLabel =
+          selectedOreCategory === 'HIGH_GRADE'
+            ? 'High Grade'
+            : selectedOreCategory === 'MEDIUM_GRADE'
+            ? 'Medium Grade'
+            : selectedOreCategory === 'LOW_GRADE'
+            ? 'Low Grade'
+            : 'Internal Waste';
+        name = `${gradeLabel} Ore Lode`;
         color =
           selectedOreCategory === 'HIGH_GRADE'
             ? '#DC2626'
@@ -1070,7 +1126,7 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         surfaceType: 'DEVELOPMENT_FACE',
         featureType: targetType,
         geometryType: isPolygon ? 'POLYGON' : 'POLYLINE',
-        points: cleanPts,
+        points: finalPoints,
         name,
         colorHex: color,
         strokeWidth: strokeWidthSetting,
@@ -1106,6 +1162,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
       features,
       channelSamples,
       sheetNames.geologistName,
+      stopeWidth,
+      stopeHeight,
     ]
   );
   handleCommitFeatureRef.current = handleCommitFeature;
@@ -1239,13 +1297,13 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
     }
 
     if (activeTool === 'SPL' || activeTool === 'POLYLINE' || activeTool === 'POLYGON') {
-      // Check if clicking close to the first point of a polygon to close it!
-      if (activeTool === 'POLYGON' && draftPointsRef.current.length >= 3) {
+      // Check if clicking close to the first point of a trace/polygon to close the loop as the chosen element!
+      if (draftPointsRef.current.length >= 3) {
         const p0 = draftPointsRef.current[0];
         const p0Canvas = meterToCanvas(p0.x, p0.y);
         const distPx = Math.hypot(px - p0Canvas.px, py - p0Canvas.py);
-        if (distPx < 25) {
-          handleCommitFeature(draftPointsRef.current);
+        if (distPx < 26) {
+          handleCommitFeature([...draftPointsRef.current, p0], true);
           return;
         }
       }
@@ -1991,16 +2049,26 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
               {/* TOP CAD VIEWPORT TOOLBAR */}
               <div className="flex-none px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
                 {/* Metric Coordinates and Active Profile Status */}
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <span className="flex items-center gap-1.5 font-bold text-amber-400">
+                <div className="flex items-center gap-2 text-slate-300 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsSetupWizardOpen(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 font-bold text-amber-300 cursor-pointer transition-colors"
+                    title="Click to Change Underground Excavation Shape & Dimensions"
+                  >
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span className="truncate">
-                      {stopeShape.replace('_', ' ').toUpperCase()} ({stopeWidth.toFixed(1)}m W × {stopeHeight.toFixed(1)}m H)
+                      {(stopeShape === 'custom_parametric'
+                        ? `CUSTOM (${customRoofShape.replace('_', ' ')})`
+                        : stopeShape.replace('_', ' ')
+                      ).toUpperCase()}{' '}
+                      · {stopeWidth.toFixed(1)}m W × {stopeHeight.toFixed(1)}m H (Wall {wallHeight.toFixed(1)}m)
                     </span>
-                  </span>
+                  </button>
                   <span className="text-slate-700">|</span>
                   <span className="text-slate-400 hidden sm:inline">
-                    Area: <strong className="text-slate-200">{profileMetrics.areaM2} m²</strong>
+                    Area: <strong className="text-slate-200">{profileMetrics.areaM2} m²</strong> · HR:{' '}
+                    <strong className="text-cyan-300">{profileMetrics.hydraulicRadiusM} m</strong>
                   </span>
                   <span className="text-slate-700 hidden sm:inline">|</span>
                   <span className="text-cyan-400 flex items-center gap-1 font-bold">
@@ -2295,29 +2363,68 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       <polygon points="2,2 7,4 4,9" fill="#DC2626" fillOpacity="0.75" stroke="#991B1B" strokeWidth="0.6" />
                       <polygon points="9,9 14,8 12,14" fill="#EA580C" fillOpacity="0.8" stroke="#9A3412" strokeWidth="0.6" />
                     </pattern>
+
+                    {/* Fault Zone Gouge Pattern */}
+                    <pattern id="faultZonePattern" width="14" height="14" patternUnits="userSpaceOnUse">
+                      <rect width="14" height="14" fill="#DC2626" fillOpacity="0.32" />
+                      <line x1="0" y1="14" x2="14" y2="0" stroke="#991B1B" strokeWidth="1.5" />
+                      <line x1="0" y1="7" x2="7" y2="0" stroke="#991B1B" strokeWidth="1.2" strokeDasharray="2 2" />
+                    </pattern>
+
+                    {/* Ductile Shear Zone Pattern */}
+                    <pattern id="shearZonePattern" width="14" height="14" patternUnits="userSpaceOnUse">
+                      <rect width="14" height="14" fill="#E11D48" fillOpacity="0.30" />
+                      <path d="M 0,10 Q 3.5,6 7,10 T 14,10" fill="none" stroke="#9F1239" strokeWidth="1.3" />
+                      <path d="M 0,4 Q 3.5,0 7,4 T 14,4" fill="none" stroke="#9F1239" strokeWidth="1.3" />
+                    </pattern>
+
+                    {/* Jointed Zone Pattern */}
+                    <pattern id="jointZonePattern" width="12" height="12" patternUnits="userSpaceOnUse">
+                      <rect width="12" height="12" fill="#0284C7" fillOpacity="0.28" />
+                      <line x1="0" y1="6" x2="12" y2="6" stroke="#0369A1" strokeWidth="1.2" />
+                      <line x1="6" y1="0" x2="6" y2="12" stroke="#0369A1" strokeWidth="1.0" strokeDasharray="3 3" />
+                    </pattern>
+
+                    {/* Metamorphic Foliation Pattern */}
+                    <pattern id="foliationZonePattern" width="12" height="12" patternUnits="userSpaceOnUse">
+                      <rect width="12" height="12" fill="#7C3AED" fillOpacity="0.28" />
+                      <line x1="0" y1="3" x2="12" y2="3" stroke="#5B21B6" strokeWidth="1.2" strokeDasharray="5 2" />
+                      <line x1="0" y1="9" x2="12" y2="9" stroke="#5B21B6" strokeWidth="1.2" strokeDasharray="5 2" />
+                    </pattern>
+
+                    {/* Lithological Unit / Contact Zone Pattern */}
+                    <pattern id="lithContactPattern" width="14" height="14" patternUnits="userSpaceOnUse">
+                      <rect width="14" height="14" fill="#059669" fillOpacity="0.30" />
+                      <line x1="0" y1="7" x2="14" y2="7" stroke="#065F46" strokeWidth="1.2" />
+                      <circle cx="4" cy="4" r="1.2" fill="#065F46" />
+                      <circle cx="10" cy="11" r="1.2" fill="#065F46" />
+                    </pattern>
+
+                    {/* Exact Clip Path matching the fed Underground Stope Shape & Dimensions */}
+                    <clipPath id="miningStopeFaceClip">
+                      <polygon
+                        points={profileMetrics.points
+                          .map((p) => {
+                            const { px, py } = meterToCanvas(p.x, p.y);
+                            return `${px},${py}`;
+                          })
+                          .join(' ')}
+                      />
+                    </clipPath>
                   </defs>
 
                   {/* INNER CAD VIEWPORT TRANSFORM GROUP (ZOOM & PAN) */}
                   <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                    {/* 1. Surrounding Unexcavated Host Rock with Strata Hatch Pattern */}
+                    {/* 1. Clean CAD Viewport Backdrop (No extra outer rectangular box around the stope shape) */}
                     <rect
-                      x="-1000"
-                      y="-1000"
-                      width={canvasW + 2000}
-                      height={canvasH + 2000}
+                      x="-2000"
+                      y="-2000"
+                      width={canvasW + 4000}
+                      height={canvasH + 4000}
                       fill={activeTheme.hostRockFill}
                     />
-                    <rect
-                      x="0"
-                      y="0"
-                      width={canvasW}
-                      height={canvasH}
-                      fill="url(#hostRockPattern)"
-                      stroke={activeTheme.hostRockStroke}
-                      strokeWidth="1"
-                    />
 
-                    {/* 2. Excavated Stope Face Rock Interior */}
+                    {/* 2. Excavated Underground Stope Face Interior (Strictly matches fed shape & size) */}
                     <polygon
                       points={profileMetrics.points
                         .map((p) => {
@@ -2343,129 +2450,145 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       pointerEvents="none"
                     />
 
-                    {/* 3. Metric CAD Grid with high contrast (0.5m minor, 1.0m major) */}
-                    {showGrid && (
-                      <g opacity={activeTheme.gridOpacity}>
-                        {/* Minor 0.5m and Major 1.0m vertical grid lines */}
-                        {Array.from({ length: Math.ceil(stopeWidth * 2) + 1 }).map((_, i) => {
-                          const xm = i * 0.5;
-                          if (xm > stopeWidth) return null;
-                          const isMajor = i % 2 === 0;
-                          const pB = meterToCanvas(xm, 0);
-                          const pT = meterToCanvas(xm, stopeHeight);
-                          return (
-                            <line
-                              key={`grid-x-${i}`}
-                              x1={pB.px}
-                              y1={pT.py}
-                              x2={pB.px}
-                              y2={pB.py}
-                              stroke={isMajor ? activeTheme.gridMajor : activeTheme.gridMinor}
-                              strokeWidth={isMajor ? '1.4' : '0.8'}
-                              strokeDasharray={isMajor ? '4 4' : '2 3'}
-                            />
-                          );
-                        })}
-                        {/* Minor 0.5m and Major 1.0m horizontal grid lines */}
-                        {Array.from({ length: Math.ceil(stopeHeight * 2) + 1 }).map((_, i) => {
-                          const ym = i * 0.5;
-                          if (ym > stopeHeight) return null;
-                          const isMajor = i % 2 === 0;
-                          const pL = meterToCanvas(0, ym);
-                          const pR = meterToCanvas(stopeWidth, ym);
-                          return (
-                            <line
-                              key={`grid-y-${i}`}
-                              x1={pL.px}
-                              y1={pL.py}
-                              x2={pR.px}
-                              y2={pR.py}
-                              stroke={isMajor ? activeTheme.gridMajor : activeTheme.gridMinor}
-                              strokeWidth={isMajor ? '1.4' : '0.8'}
-                              strokeDasharray={isMajor ? '4 4' : '2 3'}
-                            />
-                          );
-                        })}
-                      </g>
-                    )}
+                    {/* Clipped Interior Layers (Grid, Centerline, Grade Line, Orthophoto strictly inside the fed underground shape) */}
+                    <g clipPath="url(#miningStopeFaceClip)">
+                      {/* 3. Metric CAD Grid with high contrast (0.5m minor, 1.0m major) */}
+                      {showGrid && (
+                        <g opacity={activeTheme.gridOpacity}>
+                          {/* Minor 0.5m and Major 1.0m vertical grid lines */}
+                          {Array.from({ length: Math.ceil(stopeWidth * 2) + 1 }).map((_, i) => {
+                            const xm = i * 0.5;
+                            if (xm > stopeWidth) return null;
+                            const isMajor = i % 2 === 0;
+                            const pB = meterToCanvas(xm, 0);
+                            const pT = meterToCanvas(xm, stopeHeight);
+                            return (
+                              <line
+                                key={`grid-x-${i}`}
+                                x1={pB.px}
+                                y1={pT.py}
+                                x2={pB.px}
+                                y2={pB.py}
+                                stroke={isMajor ? activeTheme.gridMajor : activeTheme.gridMinor}
+                                strokeWidth={isMajor ? '1.4' : '0.8'}
+                                strokeDasharray={isMajor ? '4 4' : '2 3'}
+                              />
+                            );
+                          })}
+                          {/* Minor 0.5m and Major 1.0m horizontal grid lines */}
+                          {Array.from({ length: Math.ceil(stopeHeight * 2) + 1 }).map((_, i) => {
+                            const ym = i * 0.5;
+                            if (ym > stopeHeight) return null;
+                            const isMajor = i % 2 === 0;
+                            const pL = meterToCanvas(0, ym);
+                            const pR = meterToCanvas(stopeWidth, ym);
+                            return (
+                              <line
+                                key={`grid-y-${i}`}
+                                x1={pL.px}
+                                y1={pL.py}
+                                x2={pR.px}
+                                y2={pR.py}
+                                stroke={isMajor ? activeTheme.gridMajor : activeTheme.gridMinor}
+                                strokeWidth={isMajor ? '1.4' : '0.8'}
+                                strokeDasharray={isMajor ? '4 4' : '2 3'}
+                              />
+                            );
+                          })}
+                        </g>
+                      )}
 
-                    {/* 4. Centerline Laser Reference Line (Crown Apex to Floor) */}
+                      {/* 4. Centerline Laser Reference Line (Crown Apex to Floor) */}
+                      {(() => {
+                        const pTop = meterToCanvas(stopeWidth / 2, stopeHeight);
+                        const pBot = meterToCanvas(stopeWidth / 2, 0);
+                        return (
+                          <g className="pointer-events-none">
+                            <line
+                              x1={pTop.px}
+                              y1={pTop.py}
+                              x2={pBot.px}
+                              y2={pBot.py}
+                              stroke={activeTheme.centerline}
+                              strokeWidth="2"
+                              strokeDasharray="6 4"
+                            />
+                            <circle cx={pTop.px} cy={pTop.py} r="4.5" fill={activeTheme.centerline} />
+                            <circle cx={pBot.px} cy={pBot.py} r="4.5" fill={activeTheme.centerline} />
+                          </g>
+                        );
+                      })()}
+
+                      {/* 5. Grade Reference Line across waist height (1.50m) */}
+                      {(() => {
+                        const gradeY = Math.min(stopeHeight * 0.5, 1.5);
+                        const pLeft = meterToCanvas(0, gradeY);
+                        const pRight = meterToCanvas(stopeWidth, gradeY);
+                        return (
+                          <g className="pointer-events-none">
+                            <line
+                              x1={pLeft.px}
+                              y1={pLeft.py}
+                              x2={pRight.px}
+                              y2={pRight.py}
+                              stroke="#EAB308"
+                              strokeWidth="1.8"
+                              strokeDasharray="6 3"
+                              strokeOpacity="0.85"
+                            />
+                            <text
+                              x={pLeft.px + 12}
+                              y={pLeft.py - 6}
+                              fill="#EAB308"
+                              fontSize="9"
+                              fontWeight="bold"
+                              fontFamily="monospace"
+                            >
+                              {gradeY.toFixed(2)}m GRADE LINE (CHANNELS)
+                            </text>
+                          </g>
+                        );
+                      })()}
+
+                      {/* Calibrated Orthophoto Underlay (clipped to exact stope shape) */}
+                      {photoCalibration.imageUrl && showPhoto && (
+                        <image
+                          href={photoCalibration.imageUrl}
+                          x={originX}
+                          y={originY - stopeHeight * scale}
+                          width={stopeWidth * scale}
+                          height={stopeHeight * scale}
+                          preserveAspectRatio="none"
+                          opacity={photoCalibration.opacity}
+                        />
+                      )}
+                    </g>
+
+                    {/* Centerline Header Callout above Crown Apex */}
                     {(() => {
                       const pTop = meterToCanvas(stopeWidth / 2, stopeHeight);
-                      const pBot = meterToCanvas(stopeWidth / 2, 0);
+                      const shapeLabel =
+                        stopeShape === 'custom_parametric'
+                          ? `CUSTOM (${customRoofShape.replace('_', ' ').toUpperCase()})`
+                          : stopeShape.replace('_', ' ').toUpperCase();
                       return (
-                        <g className="pointer-events-none">
-                          <line
-                            x1={pTop.px}
-                            y1={pTop.py}
-                            x2={pBot.px}
-                            y2={pBot.py}
-                            stroke={activeTheme.centerline}
-                            strokeWidth="2"
-                            strokeDasharray="6 4"
-                          />
-                          <circle cx={pTop.px} cy={pTop.py} r="4.5" fill={activeTheme.centerline} />
-                          <circle cx={pBot.px} cy={pBot.py} r="4.5" fill={activeTheme.centerline} />
-                          <text
-                            x={pTop.px}
-                            y={pTop.py - 14}
-                            fill={activeTheme.centerline}
-                            stroke={activeTheme.textHalo}
-                            strokeWidth="2.5"
-                            paintOrder="stroke"
-                            fontSize="10"
-                            fontWeight="bold"
-                            fontFamily="monospace"
-                            textAnchor="middle"
-                          >
-                            CL · CENTERLINE (Apex +{stopeHeight}m)
-                          </text>
-                        </g>
+                        <text
+                          x={pTop.px}
+                          y={pTop.py - 14}
+                          fill={activeTheme.centerline}
+                          stroke={activeTheme.textHalo}
+                          strokeWidth="2.5"
+                          paintOrder="stroke"
+                          fontSize="10"
+                          fontWeight="bold"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                          className="pointer-events-none"
+                        >
+                          {shapeLabel} · {stopeWidth}m W × {stopeHeight}m H (Wall {wallHeight}m)
+                        </text>
                       );
                     })()}
-
-                    {/* 5. Grade Reference Line across waist height (1.50m) */}
-                    {(() => {
-                      const pLeft = meterToCanvas(0, 1.5);
-                      const pRight = meterToCanvas(stopeWidth, 1.5);
-                      return (
-                        <g className="pointer-events-none">
-                          <line
-                            x1={pLeft.px}
-                            y1={pLeft.py}
-                            x2={pRight.px}
-                            y2={pRight.py}
-                            stroke="#EAB308"
-                            strokeWidth="1.8"
-                            strokeDasharray="6 3"
-                            strokeOpacity="0.85"
-                          />
-                          <text
-                            x={pLeft.px + 8}
-                            y={pLeft.py - 6}
-                            fill="#EAB308"
-                            fontSize="9"
-                            fontWeight="bold"
-                            fontFamily="monospace"
-                          >
-                            1.50m GRADE LINE (CHANNELS)
-                          </text>
-                        </g>
-                      );
-                    })()}
-
-                    {/* Calibrated Orthophoto Underlay (if available) */}
-                    {photoCalibration.imageUrl && showPhoto && (
-                      <image
-                        href={photoCalibration.imageUrl}
-                        x={originX}
-                        y={originY - stopeHeight * scale}
-                        width={stopeWidth * scale}
-                        height={stopeHeight * scale}
-                        preserveAspectRatio="none"
-                        opacity={photoCalibration.opacity}
-                      />
-                    )}
 
                     {/* -------------------------------------------------------- */}
                     {/* DRAWN GEOLOGICAL FEATURES (POLYGONS, POLYLINES, SYMBOLS)  */}
@@ -2556,19 +2679,20 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                           );
                         }
 
-                        // 2. CLOSED POLYGON (ORE BODY / VEIN / ALTERATION / BRECCIA / LITHO REGION)
+                        // 2. CLOSED POLYGON (ORE BODY / VEIN / ALTERATION / BRECCIA / FAULT / SHEAR / JOINT / LITHO REGION)
                         if (f.geometryType === 'POLYGON' && f.points.length >= 3) {
                           const dPath = f.isSpline
                             ? pointsToSplinePath(canvasPts, true)
                             : canvasPts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px},${p.py}`).join(' ') + ' Z';
 
+                          const upperName = (f.name || '').toUpperCase();
                           let fillUrl = f.colorHex;
                           if (f.featureType === 'ORE_BOUNDARY') {
-                            fillUrl = f.name.includes('High')
+                            fillUrl = upperName.includes('HIGH')
                               ? 'url(#oreHighGradePattern)'
-                              : f.name.includes('Med')
+                              : upperName.includes('MED')
                               ? 'url(#oreMedGradePattern)'
-                              : f.name.includes('Low')
+                              : upperName.includes('LOW')
                               ? 'url(#oreLowGradePattern)'
                               : 'url(#wasteDykePattern)';
                           } else if (f.featureType === 'VEIN') {
@@ -2577,6 +2701,16 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                             fillUrl = 'url(#alterationHaloPattern)';
                           } else if (f.featureType === 'BRECCIA') {
                             fillUrl = 'url(#faultBrecciaPattern)';
+                          } else if (f.featureType === 'FAULT') {
+                            fillUrl = 'url(#faultZonePattern)';
+                          } else if (f.featureType === 'SHEAR') {
+                            fillUrl = 'url(#shearZonePattern)';
+                          } else if (f.featureType === 'JOINT') {
+                            fillUrl = 'url(#jointZonePattern)';
+                          } else if (f.featureType === 'FOLIATION') {
+                            fillUrl = 'url(#foliationZonePattern)';
+                          } else if (f.featureType === 'LITH_CONTACT') {
+                            fillUrl = 'url(#lithContactPattern)';
                           }
 
                           return (
@@ -3001,8 +3135,23 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                       const draftCanvasPts = currentDraftPoints.map((p) => meterToCanvas(p.x, p.y));
                       const curCanvas = meterToCanvas(cursorMeters.x, cursorMeters.y);
                       const isSpl = activeTool === 'SPL' || activeTool === 'PENCIL';
-                      const isPolygon = activeTool === 'POLYGON';
-                      const previewPts = activeTool === 'PENCIL' ? draftCanvasPts : [...draftCanvasPts, curCanvas];
+                      const liveLoopCheck =
+                        activeTool === 'PENCIL' || activeTool === 'SPL' || activeTool === 'POLYLINE'
+                          ? detectAndExtractClosedPencilLoop(
+                              activeTool === 'PENCIL'
+                                ? currentDraftPoints
+                                : [...currentDraftPoints, cursorMeters],
+                              stopeWidth,
+                              stopeHeight
+                            )
+                          : { isClosed: false, closedPoints: currentDraftPoints };
+                      const isPolygon = activeTool === 'POLYGON' || liveLoopCheck.isClosed;
+                      const previewPts =
+                        liveLoopCheck.isClosed && liveLoopCheck.closedPoints.length >= 3
+                          ? liveLoopCheck.closedPoints.map((p) => meterToCanvas(p.x, p.y))
+                          : activeTool === 'PENCIL'
+                          ? draftCanvasPts
+                          : [...draftCanvasPts, curCanvas];
                       const previewColor =
                         featureClassification === 'FAULT'
                           ? '#DC2626'
@@ -3018,24 +3167,61 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                           ? '#9333EA'
                           : featureClassification === 'BRECCIA'
                           ? '#EA580C'
+                          : featureClassification === 'ORE_BOUNDARY'
+                          ? selectedOreCategory === 'HIGH_GRADE'
+                            ? '#DC2626'
+                            : selectedOreCategory === 'MEDIUM_GRADE'
+                            ? '#D97706'
+                            : selectedOreCategory === 'LOW_GRADE'
+                            ? '#CA8A04'
+                            : '#475569'
                           : '#D97706';
+
+                      const previewFillUrl =
+                        featureClassification === 'ORE_BOUNDARY'
+                          ? selectedOreCategory === 'HIGH_GRADE'
+                            ? 'url(#oreHighGradePattern)'
+                            : selectedOreCategory === 'MEDIUM_GRADE'
+                            ? 'url(#oreMedGradePattern)'
+                            : selectedOreCategory === 'LOW_GRADE'
+                            ? 'url(#oreLowGradePattern)'
+                            : 'url(#wasteDykePattern)'
+                          : featureClassification === 'VEIN'
+                          ? 'url(#quartzVeinPattern)'
+                          : featureClassification === 'ALTERATION_HALO'
+                          ? 'url(#alterationHaloPattern)'
+                          : featureClassification === 'BRECCIA'
+                          ? 'url(#faultBrecciaPattern)'
+                          : featureClassification === 'FAULT'
+                          ? 'url(#faultZonePattern)'
+                          : featureClassification === 'SHEAR'
+                          ? 'url(#shearZonePattern)'
+                          : featureClassification === 'JOINT'
+                          ? 'url(#jointZonePattern)'
+                          : featureClassification === 'FOLIATION'
+                          ? 'url(#foliationZonePattern)'
+                          : featureClassification === 'LITH_CONTACT'
+                          ? 'url(#lithContactPattern)'
+                          : previewColor;
 
                       return (
                         <g className="pointer-events-none">
                           {isSpl && previewPts.length >= 2 ? (
                             <path
                               d={pointsToSplinePath(previewPts, isPolygon)}
-                              fill={isPolygon ? 'rgba(239, 68, 68, 0.25)' : 'none'}
+                              fill={isPolygon ? previewFillUrl : 'none'}
+                              fillOpacity={isPolygon ? 0.52 : 0}
                               stroke={previewColor}
                               strokeWidth={Math.max(3, strokeWidthSetting)}
-                              strokeDasharray={activeTool === 'PENCIL' ? undefined : '6 3'}
+                              strokeDasharray={activeTool === 'PENCIL' && !isPolygon ? undefined : '6 3'}
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
                           ) : isPolygon ? (
                             <polygon
                               points={previewPts.map((p) => `${p.px},${p.py}`).join(' ')}
-                              fill="rgba(245, 158, 11, 0.25)"
+                              fill={previewFillUrl}
+                              fillOpacity={0.52}
                               stroke={previewColor}
                               strokeWidth={Math.max(2.5, strokeWidthSetting)}
                               strokeDasharray="5 3"
@@ -3063,6 +3249,34 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
                                 />
                               )}
                             </>
+                          )}
+
+                          {/* Live Closed Loop Snap Ring & Badge */}
+                          {liveLoopCheck.isClosed && previewPts.length >= 3 && (
+                            <g>
+                              <circle
+                                cx={previewPts[0].px}
+                                cy={previewPts[0].py}
+                                r="11"
+                                fill="rgba(16, 185, 129, 0.25)"
+                                stroke="#10B981"
+                                strokeWidth="2.5"
+                              />
+                              <text
+                                x={previewPts.reduce((acc, p) => acc + p.px, 0) / previewPts.length}
+                                y={previewPts.reduce((acc, p) => acc + p.py, 0) / previewPts.length}
+                                textAnchor="middle"
+                                fontSize="10"
+                                fontWeight="black"
+                                fontFamily="monospace"
+                                fill="#10B981"
+                                stroke="#020617"
+                                strokeWidth="3"
+                                paintOrder="stroke"
+                              >
+                                ✓ CLOSED PORTION → CHOSEN ELEMENT
+                              </text>
+                            </g>
                           )}
 
                           {/* Vertex points with numbers (only for multi-click SPL / POLYLINE / POLYGON) */}
@@ -3823,6 +4037,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
               setStopeWidth(newStope.stopeWidthM ?? 4.8);
               setStopeHeight(newStope.stopeHeightM ?? 4.2);
               setStopeShape(newStope.stopeShape || 'd_arch');
+              setCustomRoofShape(newStope.customRoofShape || 'd_arch');
+              setCustomProfilePoints(newStope.customProfilePoints || []);
               setWallHeight(newStope.wallHeightM ?? 2.8);
               setHeadingAzimuth(newStope.headingDriveAzimuthDeg ?? 45);
               setChainage(newStope.currentHeadingRdChainage || 'Cut #1');
@@ -3836,7 +4052,22 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
               setRedoStack([]);
             }
           }}
-          initialStope={currentStope}
+          initialStope={{
+            ...(currentStope || ({} as MiningStopeItem)),
+            stopeOrDriftId: driftId,
+            mineLevel,
+            oreBodyName,
+            targetCutoffGrade: cutoffGrade,
+            blastPullMeters: blastPull,
+            stopeWidthM: stopeWidth,
+            stopeHeightM: stopeHeight,
+            stopeShape,
+            customRoofShape,
+            customProfilePoints,
+            wallHeightM: wallHeight,
+            headingDriveAzimuthDeg: headingAzimuth,
+            currentHeadingRdChainage: chainage,
+          }}
         />
       )}
 
@@ -3857,6 +4088,8 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
             setStopeWidth(targetStope.stopeWidthM ?? 4.8);
             setStopeHeight(targetStope.stopeHeightM ?? 4.2);
             setStopeShape(targetStope.stopeShape || 'd_arch');
+            setCustomRoofShape(targetStope.customRoofShape || 'd_arch');
+            setCustomProfilePoints(targetStope.customProfilePoints || []);
             setWallHeight(targetStope.wallHeightM ?? 2.8);
             setHeadingAzimuth(targetStope.headingDriveAzimuthDeg ?? 45);
             setChainage(targetStope.currentHeadingRdChainage || 'Cut #1');
@@ -3872,554 +4105,28 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         }}
       />
 
-      {/* 3. Printable PDF Face Sheet Modal */}
-      {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto font-mono print:bg-white print:p-0">
-          <div className="a4-page w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-950 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col justify-between gap-4 max-h-[92vh] overflow-y-auto print:max-h-none print:shadow-none print:rounded-none">
-            <div className="space-y-4">
-              {/* Title Block with Left & Right Logo Fit Boxes */}
-              <div className="border-2 border-slate-950 p-3 flex items-center justify-between gap-3">
-                {/* Left Logo Box */}
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div className="eswa-logo-fit-box w-[110px] h-[46px] border border-slate-300 rounded bg-white p-1 flex items-center justify-center overflow-hidden">
-                    {sheetLogos.left ? (
-                      <img
-                        src={sheetLogos.left}
-                        alt="Left Company Logo"
-                        className="max-h-full max-w-full w-auto h-auto object-contain block"
-                      />
-                    ) : (
-                      <span className="text-[9px] font-black text-slate-500 uppercase text-center leading-tight">
-                        {currentProject?.mineName || 'MINE LOGO'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 print:hidden">
-                    <label className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer">
-                      Logo
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            if (typeof reader.result === 'string') {
-                              updateSheetLogo('left', reader.result);
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                    {sheetLogos.left && (
-                      <button
-                        type="button"
-                        onClick={() => updateSheetLogo('left', undefined)}
-                        className="px-1 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[8px] font-bold text-rose-700 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Center Title */}
-                <div className="text-center flex-1 min-w-0 px-2">
-                  <h1 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-950">
-                    UNDERGROUND MINING GEOLOGICAL FACE SHEET
-                  </h1>
-                  <p className="text-[11px] text-slate-700 font-bold mt-0.5 truncate">
-                    {currentProject?.projectName || 'Underground Mining Project'} · {currentProject?.mineName || 'Mine Site'}
-                  </p>
-                  <div className="text-[10px] text-slate-600 font-bold mt-0.5 flex items-center justify-center gap-1.5">
-                    <span>Date: {new Date().toLocaleDateString()} · Geologist:</span>
-                    <input
-                      type="text"
-                      value={sheetNames.geologistName}
-                      onChange={(e) => updateSheetName('geologistName', e.target.value)}
-                      placeholder="Enter Geologist Name..."
-                      className="w-36 px-1.5 py-0.2 border-b border-slate-400 bg-transparent text-slate-900 font-bold text-[10px] focus:border-slate-900 outline-none print:border-none print:placeholder-transparent"
-                    />
-                  </div>
-                </div>
-
-                {/* Right Logo Box */}
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div className="eswa-logo-fit-box w-[110px] h-[46px] border border-slate-300 rounded bg-white p-1 flex items-center justify-center overflow-hidden">
-                    {sheetLogos.right ? (
-                      <img
-                        src={sheetLogos.right}
-                        alt="Right Company Logo"
-                        className="max-h-full max-w-full w-auto h-auto object-contain block"
-                      />
-                    ) : (
-                      <span className="text-[9px] font-black text-slate-500 uppercase text-center leading-tight">
-                        GRADE CONTROL
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 print:hidden">
-                    <label className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer">
-                      Logo
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            if (typeof reader.result === 'string') {
-                              updateSheetLogo('right', reader.result);
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                    {sheetLogos.right && (
-                      <button
-                        type="button"
-                        onClick={() => updateSheetLogo('right', undefined)}
-                        className="px-1 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[8px] font-bold text-rose-700 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Stope Location & Metadata Table */}
-              <div className="grid grid-cols-4 gap-3 text-xs border border-slate-400 p-3 rounded bg-slate-50">
-                <div>
-                  <span className="text-slate-500 font-bold block text-[10px] uppercase">Heading / Stope ID:</span>
-                  <strong>{driftId}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-bold block text-[10px] uppercase">Mine Level RL:</span>
-                  <strong>{mineLevel}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-bold block text-[10px] uppercase">Face Station / Chainage:</span>
-                  <strong>{chainage}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-bold block text-[10px] uppercase">Shape / Azimuth:</span>
-                  <strong>{stopeShape.toUpperCase()} ({stopeWidth}m×{stopeHeight}m) · {headingAzimuth}°</strong>
-                </div>
-              </div>
-
-              {/* Face Drawing Preview (Includes Stope Boundary, All Mapped Features, and Channel Samples) */}
-              <div className="h-72 border-2 border-slate-900 rounded bg-white flex items-center justify-center p-2">
-                <svg id="mining-print-face-svg" viewBox={`0 0 ${canvasW} ${canvasH}`} className="w-full h-full">
-                  <LithologyPatternDefs prefix="mining-print" forPrintSheet={true} />
-                  {/* Stope Closed Boundary */}
-                  <polygon
-                    points={profileMetrics.points
-                      .map((p) => {
-                        const { px, py } = meterToCanvas(p.x, p.y);
-                        return `${px},${py}`;
-                      })
-                      .join(' ')}
-                    fill="#F8FAFC"
-                    stroke="#0F172A"
-                    strokeWidth="3"
-                  />
-
-                  {/* Mapped Geological Features (Polygons, Splines, Polylines, Symbols) */}
-                  {features
-                    .filter((f) => f.visible !== false && f.points && f.points.length > 0)
-                    .map((feat) => {
-                      const canvasPts = feat.points.map((pt) => meterToCanvas(pt.x, pt.y));
-                      if (feat.geometryType === 'POINT') {
-                        const pt = canvasPts[0];
-                        const symType = (feat.lithologyCode || 'joint') as GeologicalSymbolType;
-                        return (
-                          <g key={feat.id} transform={`translate(${pt.px}, ${pt.py})`}>
-                            <g transform={`rotate(${feat.strikeDeg ?? 45})`}>
-                              <StructuralGeologicalSymbolGlyph
-                                symbolType={symType}
-                                color={feat.colorHex || '#DC2626'}
-                                scale={1.1}
-                                dipDeg={feat.dipDeg ?? 65}
-                              />
-                            </g>
-                            <text y="-10" fontSize="9" fontWeight="bold" textAnchor="middle" fill="#0F172A">
-                              {feat.name}
-                            </text>
-                          </g>
-                        );
-                      }
-                      const isClosed = feat.geometryType === 'POLYGON';
-                      const useSmooth = feat.isSpline || feat.drawTool === 'PENCIL' || feat.drawTool === 'SPL';
-                      const pathData = useSmooth
-                        ? pointsToSplinePath(canvasPts, isClosed)
-                        : canvasPts
-                            .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.px.toFixed(1)} ${p.py.toFixed(1)}`)
-                            .join(' ') + (isClosed ? ' Z' : '');
-                      return (
-                        <g key={feat.id}>
-                          <path
-                            d={pathData}
-                            fill={isClosed ? feat.colorHex || '#EF4444' : 'none'}
-                            fillOpacity={isClosed ? feat.fillOpacity ?? 0.35 : 0}
-                            stroke={feat.colorHex || '#0F172A'}
-                            strokeWidth={feat.strokeWidth || 2.5}
-                            strokeDasharray={
-                              feat.featureType === 'FAULT'
-                                ? '8 4'
-                                : feat.featureType === 'SHEAR'
-                                ? '5 2'
-                                : undefined
-                            }
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </g>
-                      );
-                    })}
-
-                  {/* Channel Samples Line */}
-                  {channelSamples.map((s) => {
-                    const p1 = meterToCanvas(s.fromMeter, stopeHeight * 0.45);
-                    const p2 = meterToCanvas(s.toMeter, stopeHeight * 0.45);
-                    return (
-                      <g key={s.id}>
-                        <line x1={p1.px} y1={p1.py} x2={p2.px} y2={p2.py} stroke="#DC2626" strokeWidth="4" />
-                        <text
-                          x={(p1.px + p2.px) / 2}
-                          y={p1.py - 8}
-                          fill="#000000"
-                          fontSize="10"
-                          fontWeight="bold"
-                          textAnchor="middle"
-                        >
-                          {s.sampleNumber} ({typeof s.assayGrade === 'number' ? s.assayGrade.toFixed(2) : s.gradeValue}g/t)
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              </div>
-
-              {/* Assays Table */}
-              <div className="space-y-1.5">
-                <h3 className="font-black text-xs uppercase border-b-2 border-slate-900 pb-1">
-                  Channel Sampling Assays &amp; Composite Summary ({features.length} Geological Features • {channelSamples.length} Channels)
-                </h3>
-                <table className="w-full text-left text-xs border-collapse border border-slate-400">
-                  <thead className="bg-slate-200">
-                    <tr>
-                      <th className="p-1.5 border border-slate-400">Sample ID</th>
-                      <th className="p-1.5 border border-slate-400">Interval (m)</th>
-                      <th className="p-1.5 border border-slate-400">Assay Grade</th>
-                      <th className="p-1.5 border border-slate-400">SG</th>
-                      <th className="p-1.5 border border-slate-400">Category</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {channelSamples.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="p-3 text-center text-slate-500 italic">
-                          No channel samples recorded on face yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      channelSamples.map((s) => (
-                        <tr key={s.id}>
-                          <td className="p-1.5 border border-slate-400 font-bold">{s.sampleNumber}</td>
-                          <td className="p-1.5 border border-slate-400">
-                            {s.fromMeter} – {s.toMeter} m
-                          </td>
-                          <td className="p-1.5 border border-slate-400 font-bold">
-                            {typeof s.assayGrade === 'number' ? s.assayGrade.toFixed(2) : s.gradeValue} g/t
-                          </td>
-                          <td className="p-1.5 border border-slate-400">{s.specificGravity || 3.35}</td>
-                          <td className="p-1.5 border border-slate-400 font-bold">{s.zoneCategory || 'ORE'}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Sign-Off Block & Bottom Actions */}
-            <div className="space-y-3 pt-3 border-t-2 border-slate-900">
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="border border-slate-400 p-2.5 rounded bg-slate-50">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10px] font-black uppercase text-slate-600">Mapped By (Mine Geologist)</div>
-                    <div className="flex items-center gap-1 print:hidden">
-                      <label className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-100 border border-slate-300 text-[9px] font-bold text-slate-700 cursor-pointer">
-                        Upload PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              if (typeof reader.result === 'string') {
-                                updateSheetSign('geologist', reader.result);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {sheetSigns.geologist && (
-                        <button
-                          type="button"
-                          onClick={() => updateSheetSign('geologist', undefined)}
-                          className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[9px] font-bold text-rose-700 cursor-pointer"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={sheetNames.geologistName}
-                    onChange={(e) => updateSheetName('geologistName', e.target.value)}
-                    placeholder="Enter Mine Geologist Name..."
-                    className="w-full mt-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
-                  />
-                  <div className="eswa-signature-fit-box h-11 w-full bg-white border border-slate-300 rounded mt-1.5 p-1 flex items-center justify-center overflow-hidden">
-                    {sheetSigns.geologist ? (
-                      <img
-                        src={sheetSigns.geologist}
-                        alt="Mine Geologist Signature"
-                        className="max-h-full max-w-full w-auto h-auto object-contain block"
-                      />
-                    ) : (
-                      <span className="text-[9px] text-slate-400 italic">Signature / Stamp Area</span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1 pt-0.5 flex justify-between">
-                    <span>Signature &amp; Date</span>
-                    <span>{new Date().toLocaleDateString()}</span>
-                  </div>
-                </div>
-
-                <div className="border border-slate-400 p-2.5 rounded bg-slate-50">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10px] font-black uppercase text-slate-600">Approved By (Chief Mine Geologist)</div>
-                    <div className="flex items-center gap-1 print:hidden">
-                      <label className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-100 border border-slate-300 text-[9px] font-bold text-slate-700 cursor-pointer">
-                        Upload PNG
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              if (typeof reader.result === 'string') {
-                                updateSheetSign('chief', reader.result);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {sheetSigns.chief && (
-                        <button
-                          type="button"
-                          onClick={() => updateSheetSign('chief', undefined)}
-                          className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-[9px] font-bold text-rose-700 cursor-pointer"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={sheetNames.chiefName}
-                    onChange={(e) => updateSheetName('chiefName', e.target.value)}
-                    placeholder="Enter Chief Mine Geologist Name..."
-                    className="w-full mt-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-bold text-slate-900 text-xs focus:border-slate-900 outline-none print:border-none print:bg-transparent print:p-0 print:placeholder-transparent"
-                  />
-                  <div className="eswa-signature-fit-box h-11 w-full bg-white border border-slate-300 rounded mt-1.5 p-1 flex items-center justify-center overflow-hidden">
-                    {sheetSigns.chief ? (
-                      <img
-                        src={sheetSigns.chief}
-                        alt="Chief Mine Geologist Signature"
-                        className="max-h-full max-w-full w-auto h-auto object-contain block"
-                      />
-                    ) : (
-                      <span className="text-[9px] text-slate-400 italic">Signature / Stamp Area</span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1 pt-0.5 flex justify-between">
-                    <span>Signature &amp; Date</span>
-                    <span>{new Date().toLocaleDateString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 print:hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsPrintModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-xs font-bold text-slate-800 cursor-pointer"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const svgEl = document.getElementById('mining-print-face-svg') as unknown as SVGSVGElement | null;
-                    const facePng = await renderSvgElementToHighResPngDataUrl(svgEl, 3200);
-                    const DPI_SCALE = 2.0; // 1240x1754 -> 2480x3508 (True 300 DPI ISO A4 Portrait)
-                    const W = 1240;
-                    const H = 1754;
-                    const c = document.createElement('canvas');
-                    c.width = Math.round(W * DPI_SCALE);
-                    c.height = Math.round(H * DPI_SCALE);
-                    const ctx = c.getContext('2d')!;
-                    ctx.scale(DPI_SCALE, DPI_SCALE);
-                    ctx.imageSmoothingEnabled = true;
-                    ctx.imageSmoothingQuality = 'high';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, W, H);
-                    ctx.strokeStyle = '#0f172a';
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(28, 28, W - 56, H - 56);
-
-                    ctx.fillStyle = '#0f172a';
-                    ctx.fillRect(36, 36, W - 72, 74);
-                    ctx.fillStyle = '#f59e0b';
-                    ctx.font = 'bold 21px monospace';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('UNDERGROUND MINING GEOLOGICAL FACE SHEET (300 DPI)', W / 2, 68);
-                    ctx.fillStyle = '#f8fafc';
-                    ctx.font = 'bold 13.5px monospace';
-                    ctx.fillText(
-                      `${currentProject?.projectName || 'Mining Project'}  |  Heading: ${driftId} (${chainage})  |  Level: ${mineLevel}  |  Shape: ${stopeShape.toUpperCase()} (${stopeWidth}m×${stopeHeight}m)`,
-                      W / 2,
-                      96
-                    );
-
-                    const finishExport = () => {
-                      let y = 780;
-                      ctx.textAlign = 'left';
-                      ctx.fillStyle = '#0f172a';
-                      ctx.font = 'bold 15px monospace';
-                      ctx.fillText(
-                        `CHANNEL ASSAYS & COMPOSITE SUMMARY — Weighted Grade: ${composites.weightedGrade} g/t  |  Dilution: ${composites.dilutionPercentByMass}%  |  Verdict: ${composites.verdict}`,
-                        44,
-                        y
-                      );
-                      y += 14;
-                      ctx.fillStyle = '#0f172a';
-                      ctx.fillRect(36, y, W - 72, 30);
-                      ctx.fillStyle = '#ffffff';
-                      ctx.font = 'bold 12px monospace';
-                      const cols = [
-                        { label: 'SAMPLE ID', w: 200 },
-                        { label: 'INTERVAL (m)', w: 240 },
-                        { label: 'ASSAY GRADE', w: 240 },
-                        { label: 'SG', w: 180 },
-                        { label: 'CATEGORY', w: 308 },
-                      ];
-                      let x = 36;
-                      cols.forEach((col) => {
-                        ctx.fillText(col.label, x + 10, y + 20);
-                        x += col.w;
-                      });
-                      y += 30;
-                      channelSamples.slice(0, 14).forEach((s, idx) => {
-                        ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-                        ctx.fillRect(36, y, W - 72, 30);
-                        ctx.strokeStyle = '#cbd5e1';
-                        ctx.strokeRect(36, y, W - 72, 30);
-                        ctx.fillStyle = '#0f172a';
-                        ctx.font = 'bold 12px monospace';
-                        const vals = [
-                          s.sampleNumber,
-                          `${s.fromMeter} – ${s.toMeter} m`,
-                          `${typeof s.assayGrade === 'number' ? s.assayGrade.toFixed(2) : s.gradeValue} g/t`,
-                          String(s.specificGravity || 3.35),
-                          s.zoneCategory || 'ORE',
-                        ];
-                        let rx = 36;
-                        vals.forEach((v, i) => {
-                          ctx.fillText(v, rx + 10, y + 20);
-                          rx += cols[i].w;
-                        });
-                        y += 30;
-                      });
-
-                      ctx.strokeStyle = '#0f172a';
-                      ctx.lineWidth = 2;
-                      ctx.strokeRect(36, H - 84, W - 72, 46);
-                      ctx.fillStyle = '#0f172a';
-                      ctx.font = 'bold 13.5px monospace';
-                      ctx.fillText(
-                        `Mapped By (Mine Geologist): ${sheetNames.geologistName || '____________________'}   |   Approved By (Chief Geologist): ${sheetNames.chiefName || '____________________'}`,
-                        50,
-                        H - 55
-                      );
-
-                      const safeCh = chainage.replace(/[^a-zA-Z0-9_-]/g, '_');
-                      exportCanvasesAsPdfDocument([c], `${driftId}_${safeCh}_Mining_Face_Sheet_300DPI.pdf`, 'portrait', 'A4');
-                    };
-
-                    if (facePng) {
-                      const img = new Image();
-                      img.crossOrigin = 'anonymous';
-                      img.onload = () => {
-                        ctx.strokeStyle = '#0f172a';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(36, 124, W - 72, 620);
-                        const availW = W - 96;
-                        const availH = 600;
-                        const sc = Math.min(availW / Math.max(1, img.width), availH / Math.max(1, img.height));
-                        const dw = img.width * sc;
-                        const dh = img.height * sc;
-                        ctx.drawImage(img, (W - dw) / 2, 134 + (availH - dh) / 2, dw, dh);
-                        finishExport();
-                      };
-                      img.onerror = () => finishExport();
-                      img.src = facePng;
-                    } else {
-                      finishExport();
-                    }
-                  }}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-2 cursor-pointer shadow-md"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download PDF (300 DPI)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="px-5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print / Save A4 PDF</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 3. Multi-Page Underground Mining Analytical Dossier Modal (300 DPI PDF & Editable Word) */}
+      <MiningMultiPageDossierModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        driftId={driftId}
+        chainage={chainage}
+        mineLevel={mineLevel}
+        stopeShape={stopeShape}
+        customRoofShape={customRoofShape}
+        stopeWidth={stopeWidth}
+        stopeHeight={stopeHeight}
+        wallHeight={wallHeight}
+        headingAzimuth={headingAzimuth}
+        faceDip={currentStope?.faceInclinationDeg ?? 90}
+        currentStope={currentStope}
+        currentProject={currentProject}
+        features={features}
+        channelSamples={channelSamples}
+        composites={composites}
+        mrmrResult={mrmrResult}
+        mathewsResult={mathewsResult}
+      />
     </div>
   );
 };

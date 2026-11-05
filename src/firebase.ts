@@ -18,7 +18,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const RUNTIME_PUBLIC_ORIGIN =
-  'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app';
+  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
 
 export function getApiBase(): string {
   if (typeof window === 'undefined') return RUNTIME_PUBLIC_ORIGIN;
@@ -81,7 +81,7 @@ try {
   dbInstance = getFirestore(app, resolvedDatabaseId);
 }
 
-export let firestoreCloudPermissionDenied = false;
+export let firestoreCloudPermissionDenied = true;
 
 export function markFirestoreCloudPermissionDenied(): void {
   firestoreCloudPermissionDenied = true;

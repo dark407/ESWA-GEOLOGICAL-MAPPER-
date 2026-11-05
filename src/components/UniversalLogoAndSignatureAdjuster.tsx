@@ -737,6 +737,7 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
     cropConfig?: LogoOrSignatureCropConfig
   ) => void;
   darkTheme?: boolean;
+  stackedLayout?: boolean;
 }> = ({
   roleLabel,
   nameValue,
@@ -746,6 +747,7 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
   onNameChange,
   onSignChange,
   darkTheme = false,
+  stackedLayout = false,
 }) => {
   const [isSignCropOpen, setIsSignCropOpen] = useState(false);
   const isImageSign = Boolean(signValue && signValue.startsWith('data:image/'));
@@ -768,7 +770,13 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
   };
 
   return (
-    <div className="flex items-center justify-between gap-1.5">
+    <div
+      className={
+        stackedLayout
+          ? 'grid grid-cols-[auto_1fr_auto] items-center gap-x-1.5 gap-y-1.5 w-full'
+          : 'flex items-center justify-between gap-1.5'
+      }
+    >
       <span
         className={`font-black uppercase shrink-0 ${
           darkTheme ? 'text-slate-200' : 'text-slate-950'
@@ -782,10 +790,10 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
         type="text"
         value={nameValue}
         onChange={(e) => onNameChange(e.target.value)}
-        placeholder="Name"
-        className={`eswa-borderless-report-input border-0 border-none bg-transparent px-1 py-0 font-bold w-[34%] min-w-0 focus:outline-none shadow-none ${
-          darkTheme ? 'text-white' : 'text-slate-950'
-        }`}
+        placeholder="Enter Name..."
+        className={`eswa-borderless-report-input border-0 border-none bg-transparent px-1 py-0.5 font-bold min-w-0 focus:outline-none shadow-none ${
+          stackedLayout ? 'col-span-2 w-full border-b border-dotted border-slate-300' : 'w-[34%]'
+        } ${darkTheme ? 'text-white' : 'text-slate-950'}`}
       />
 
       <span
@@ -801,10 +809,10 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
         type="text"
         value={isImageSign ? '' : signValue}
         onChange={(e) => onSignChange(e.target.value)}
-        placeholder="Sign"
-        className={`eswa-borderless-report-input border-0 border-none bg-transparent px-1 py-0 italic font-semibold w-[20%] min-w-0 focus:outline-none shadow-none ${
-          isImageSign ? 'hidden' : ''
-        } ${darkTheme ? 'text-amber-300' : 'text-slate-950'}`}
+        placeholder="Type or upload PNG"
+        className={`eswa-borderless-report-input border-0 border-none bg-transparent px-1 py-0.5 italic font-semibold min-w-0 focus:outline-none shadow-none ${
+          stackedLayout ? 'w-full' : 'w-[20%]'
+        } ${isImageSign ? 'hidden' : ''} ${darkTheme ? 'text-amber-300' : 'text-slate-950'}`}
       />
 
       {/* When PNG signature is uploaded: show borderless PNG signature + Crop/Adjust on click */}
@@ -812,7 +820,7 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
         <div
           onClick={() => setIsSignCropOpen(true)}
           title="Click to crop, resize, or reposition signature PNG"
-          className="eswa-signature-fit-box h-7 min-w-[72px] max-w-[115px] px-0.5 relative shrink-0 cursor-pointer group"
+          className="eswa-signature-fit-box h-7 min-w-[72px] max-w-[125px] px-0.5 relative shrink-0 cursor-pointer group"
         >
           <img
             src={signValue}
@@ -837,20 +845,20 @@ export const ReportBorderlessGeologistSignRow: React.FC<{
       )}
 
       {/* Action Buttons: Upload PNG & Crop/Adjust (Hidden in Print) */}
-      <div className="flex items-center gap-0.5 shrink-0 print:hidden">
+      <div className="flex items-center justify-end gap-1 shrink-0 print:hidden">
         {isImageSign && (
           <button
             type="button"
             onClick={() => setIsSignCropOpen(true)}
             title="Crop & Adjust Signature PNG"
-            className="px-1 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[7.5px] font-bold text-emerald-800 cursor-pointer"
+            className="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[8px] font-bold text-emerald-800 cursor-pointer"
           >
             Adjust
           </button>
         )}
         <label
           title="Upload Signature PNG (Transparent or White Background)"
-          className="px-1 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[7.5px] font-bold text-slate-700 cursor-pointer shrink-0"
+          className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[8px] font-bold text-slate-700 cursor-pointer shrink-0"
         >
           PNG
           <input

@@ -1,6 +1,6 @@
 {
-  "summary": "Architecture and execution plan for integrating Probe Hole Drilling and Grouting modules in the NATM Main Window:\n- Places side-by-side Probe Hole Drilling and Grouting action cards directly after Tunnel Monitoring & Instrumentation.\n- Implements dedicated Probe Hole Drilling Workspace Modal with Simple Logging (depth, penetration rate, water inflow, RQD/rock class) and Advanced Look-Ahead Analysis (interactive tunnel face collar map, MWD specific energy logs, 3D probe fan projection, and hazard prediction).\n- Implements dedicated Grouting Workspace Modal with pre-excavation umbrella & consolidation ring layouts, hole-by-hole grout logging (W:C ratio, injection pressure, volume take), Lugeon water test analysis, GIN refusal curves, and high-fidelity PDF report generation.\n- Guarantees full compatibility across User and Master editions for both Android APK and Windows Desktop EXE.",
-  "updatedAt": "2026-11-03T16:18:49.890579443Z",
+  "summary": "Comprehensive architectural and UX implementation plan for Multi-Page ISO A4 Analytical Dossier Reports tailored specifically for TBM Mechanized Tunneling and Underground Hardrock Mining, featuring domain-authentic engineering sections, dynamic auto-hide for unlogged optional fields, universal dual-logo/signature cropping, and 300 DPI multi-page PDF + editable Word DOCX exports.",
+  "updatedAt": "2026-11-05T18:21:26.971006763Z",
   "requestFeedback": true,
   "userFacing": true
 }

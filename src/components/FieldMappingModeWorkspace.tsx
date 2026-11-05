@@ -4663,6 +4663,50 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         setLiveDipDirection(est.dipDirection);
         setLiveDipAmount(est.dipAmount);
       }
+
+      // If the user closed the Pencil loop (start & end points meet after drawing a loop),
+      // immediately convert the closed portion into the chosen element!
+      let pendingArcLen = 0;
+      for (let i = 1; i < nextPendingPts.length; i++) {
+        pendingArcLen += Math.hypot(
+          nextPendingPts[i].x - nextPendingPts[i - 1].x,
+          nextPendingPts[i].y - nextPendingPts[i - 1].y
+        );
+      }
+      const startEndGap =
+        nextPendingPts.length >= 4
+          ? Math.hypot(
+              nextPendingPts[0].x - nextPendingPts[nextPendingPts.length - 1].x,
+              nextPendingPts[0].y - nextPendingPts[nextPendingPts.length - 1].y
+            )
+          : Infinity;
+      if (
+        (activeTool === '1_lithology' ||
+          activeTool === '2_vein_foliation' ||
+          activeTool === '4_dip_surface') &&
+        nextPendingPts.length >= 4 &&
+        startEndGap < 48 &&
+        pendingArcLen >= Math.max(75, startEndGap * 2.3)
+      ) {
+        const closedPoly =
+          startEndGap > 0.5 ? [...nextPendingPts, nextPendingPts[0]] : nextPendingPts;
+        commitPending2DTraceToRound({
+          tool: activeTool,
+          subTool: activeDrawSubTool,
+          panel: targetPanel,
+          points: closedPoly,
+          polygon: closedPoly,
+          isClosed: true,
+          dipDirection: est.dipDirection,
+          dipAmount: est.dipAmount,
+          strike: est.strike,
+        } as any);
+        setPending2DTrace(null);
+        setCurrentPoints([]);
+        pointerStartClientRef.current = null;
+        return;
+      }
+
       setPending2DTrace({
         tool: activeTool,
         subTool: activeDrawSubTool,

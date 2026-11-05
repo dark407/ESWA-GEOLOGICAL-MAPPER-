@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
 import App from './App';
 import { MasterAdminPortalWebsite } from './components/MasterAdminPortalWebsite';
 import {
@@ -29,7 +28,6 @@ import {
   getStoredGeologistProfiles,
   syncGeologistProfileFromRegisteredUser,
 } from './engine/userCloudAndPackageEngine';
-import { db } from './firebase';
 
 export const RootApplicationRouter: React.FC = () => {
 
