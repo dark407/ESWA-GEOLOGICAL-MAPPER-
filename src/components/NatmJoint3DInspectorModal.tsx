@@ -47,6 +47,7 @@ import {
   ArrowRight,
   Crosshair,
   Zap,
+  Camera,
 } from 'lucide-react';
 import {
   FieldJointTrace,
@@ -94,6 +95,7 @@ import {
   computeEndpointPivotedTracePoints,
 } from '../engine/joint3DInspectorEngine';
 import { AdvancedGeologicalAnalysisModal } from './AdvancedGeologicalAnalysisModal';
+import { DigitalTwinPhotogrammetryModal } from './DigitalTwinPhotogrammetryModal';
 import { createTunnelGeometry } from '../engine/geometryEngine';
 import { Joint, JointSet, SurfaceType } from '../types/tunnel';
 
@@ -106,6 +108,7 @@ export interface NatmJoint3DInspectorModalProps {
   allRoundDipSurfaces?: FieldDipPlaneSurface[];
   initialInspectTargetType?: 'joint' | 'dip_surface';
   tunnelGeometry: TunnelSpatialGeometry;
+  existingPhotos?: Partial<Record<FieldPanelId, string>>;
   onSaveJoint: (updatedJoint: FieldJointTrace) => void;
   onSaveDipSurface?: (updatedSurface: FieldDipPlaneSurface) => void;
 }
@@ -596,6 +599,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
     currentJoint.panel === 'crown' && currentJoint.crownDipSign === '-90' ? 'collar' : 'heading'
   );
   const [showIntensityMethodModal, setShowIntensityMethodModal] = useState<boolean>(false);
+  const [showDigitalTwinModal, setShowDigitalTwinModal] = useState<boolean>(false);
 
   // Dip Half-Circle Sense ('inwards' = Dip Inwards into rock/heading, 'outwards' = Dip Outwards toward excavation/collar)
   const [dipHalfCircleSense, setDipHalfCircleSense] = useState<DipHalfCircleSense>(
@@ -3518,6 +3522,15 @@ const NatmJoint3DInspectorModalContent: React.FC<
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDigitalTwinModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-mono text-[11px] font-bold flex items-center gap-1.5 shadow cursor-pointer transition-colors"
+              title="Open 3D Digital Twin & Photogrammetry Workbench to extract exact 3D facet Dip Direction & Dip Amount"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>3D Digital Twin &amp; Photogrammetry</span>
+            </button>
             {/* Horizontal & Vertical Adaptive Mode Segmented Controls */}
             <div className="flex items-center p-0.5 rounded-xl bg-slate-800/90 border border-slate-700/80 font-mono text-[11px] font-bold shadow-inner">
               <button
@@ -7040,6 +7053,41 @@ const NatmJoint3DInspectorModalContent: React.FC<
             jointSets={convertedJointSets}
           />
         </div>
+      )}
+
+      {/* EMBEDDED 3D DIGITAL TWIN & PHOTOGRAMMETRY WORKBENCH */}
+      {showDigitalTwinModal && (
+        <DigitalTwinPhotogrammetryModal
+          isOpen={showDigitalTwinModal}
+          onClose={() => setShowDigitalTwinModal(false)}
+          geometry={tunnelGeometry}
+          initialPanel={currentJoint.panel || 'face'}
+          existingJointTraces={allRoundJoints}
+          existingDipSurfaces={allRoundDipSurfaces}
+          onSaveJointTrace={(newTrace) => {
+            onSaveJoint(newTrace);
+          }}
+          onSaveDipSurface={(newSurface) => {
+            if (onSaveDipSurface) onSaveDipSurface(newSurface);
+          }}
+          onUpdateExistingJointTrace={(_traceId, newDipDir, newDipAmt, _newStrike, newSense) => {
+            setDipHalfCircleSense(newSense);
+            setHingeDipSide(newSense === 'inwards' ? 'heading' : 'collar');
+            setDipDirection(Math.round(newDipDir));
+            setDipAmount(Math.round(newDipAmt));
+            setHingeDipDeg(Math.round(newDipAmt));
+            setMeasurementSource('PHOTOGRAMMETRY_MULTIVIEW');
+          }}
+          onApplyToActiveInspector={(fit) => {
+            setDipHalfCircleSense(fit.dipHalfCircleSense);
+            setHingeDipSide(fit.dipHalfCircleSense === 'inwards' ? 'heading' : 'collar');
+            setDipDirection(Math.round(fit.dipDirectionDeg));
+            setDipAmount(Math.round(fit.dipAmountDeg));
+            setHingeDipDeg(Math.round(fit.dipAmountDeg));
+            setJointSetId(fit.setId);
+            setMeasurementSource('PHOTOGRAMMETRY_MULTIVIEW');
+          }}
+        />
       )}
     </div>
   );

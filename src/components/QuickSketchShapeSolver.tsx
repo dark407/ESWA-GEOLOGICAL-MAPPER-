@@ -3235,23 +3235,76 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
 
       // Ensure at least 2 control points exist
       if (pts.length >= 2) {
-        const firstPt = pts[0];
-        const lastSeg = activeTunnelSegments[activeTunnelSegments.length - 1];
-        const closesLoop =
-          pts.length >= 3 && Math.hypot(lastSeg.to.x - firstPt.x, lastSeg.to.y - firstPt.y) < 0.25;
-
-        const hasActiveLeftWall =
+        let hasActiveLeftWall =
           !openPortions.leftWall &&
           activeTunnelSegments.some((s) => s.portion === 'leftWall' && !s.isPortionOpen);
         const hasActiveCrown =
           !openPortions.crown &&
           activeTunnelSegments.some((s) => s.portion === 'crown' && !s.isPortionOpen);
-        const hasActiveRightWall =
+        let hasActiveRightWall =
           !openPortions.rightWall &&
           activeTunnelSegments.some((s) => s.portion === 'rightWall' && !s.isPortionOpen);
-        const hasActiveInvert =
+        let hasActiveInvert =
           !openPortions.invert &&
           activeTunnelSegments.some((s) => s.portion === 'invert' && !s.isPortionOpen);
+
+        // If user only added Crown segment(s) in Manual CAD mode without disabling Left/Right Walls,
+        // synthesize the Left Wall and Right Wall segments extending downward below SPL so the
+        // lower half of the tunnel below SPL is present and mappable on the Face canvas.
+        if (
+          hasActiveCrown &&
+          !hasActiveLeftWall &&
+          !hasActiveRightWall &&
+          !openPortions.leftWall &&
+          !openPortions.rightWall &&
+          (leftWallHeightM > 0.2 || rightWallHeightM > 0.2)
+        ) {
+          const sortedByX = [...pts].sort((a, b) => a.x - b.x);
+          const leftSplPt = sortedByX[0];
+          const rightSplPt = sortedByX[sortedByX.length - 1];
+          const lwH = Math.max(0.5, leftWallHeightM || 3.8);
+          const rwH = Math.max(0.5, rightWallHeightM || lwH);
+          const leftInvId = findOrAddPt(
+            { x: leftSplPt.x, y: Number((leftSplPt.y - lwH).toFixed(3)) },
+            'left_invert'
+          );
+          const rightInvId = findOrAddPt(
+            { x: rightSplPt.x, y: Number((rightSplPt.y - rwH).toFixed(3)) },
+            'right_invert'
+          );
+          segments.unshift({
+            id: 'seg_synth_left_wall',
+            fromPointId: leftInvId,
+            toPointId: leftSplPt.id,
+            type: 'line',
+            zoneRole: 'leftWall',
+            lockedLengthMeters: Number(lwH.toFixed(2)),
+            includeInTopStrip: true,
+          });
+          segments.push({
+            id: 'seg_synth_right_wall',
+            fromPointId: rightSplPt.id,
+            toPointId: rightInvId,
+            type: 'line',
+            zoneRole: 'rightWall',
+            lockedLengthMeters: Number(rwH.toFixed(2)),
+            includeInTopStrip: true,
+          });
+          hasActiveLeftWall = true;
+          hasActiveRightWall = true;
+        }
+
+        // If Left Wall, Crown, and Right Wall are present and Invert is not marked open,
+        // ensure Invert closure is active even if the user didn't add an explicit 4th Invert segment.
+        if (hasActiveLeftWall && hasActiveCrown && hasActiveRightWall && !openPortions.invert) {
+          hasActiveInvert = true;
+        }
+
+        const firstPt = pts[0];
+        const lastSeg = activeTunnelSegments[activeTunnelSegments.length - 1];
+        const closesLoop =
+          (pts.length >= 3 && Math.hypot(lastSeg.to.x - firstPt.x, lastSeg.to.y - firstPt.y) < 0.25) ||
+          (hasActiveLeftWall && hasActiveCrown && hasActiveRightWall && hasActiveInvert);
 
         const allY = pts.map((p) => p.y);
         const minY = Math.min(...allY);
@@ -3260,7 +3313,7 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
         const sumSegLen = (portionKey: 'leftWall' | 'crown' | 'rightWall' | 'invert') => {
           const ovr = parseFloat(portionLengthOverrides[portionKey]);
           if (Number.isFinite(ovr) && ovr > 0) return ovr;
-          return activeTunnelSegments
+          const drawnSum = activeTunnelSegments
             .filter((s) => s.portion === portionKey && !s.isPortionOpen)
             .reduce(
               (acc, s) =>
@@ -3270,6 +3323,10 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
                   : s.lengthM),
               0
             );
+          if (drawnSum > 0) return drawnSum;
+          if (portionKey === 'leftWall' && hasActiveLeftWall) return Math.max(0.5, leftWallHeightM || 3.8);
+          if (portionKey === 'rightWall' && hasActiveRightWall) return Math.max(0.5, rightWallHeightM || 3.8);
+          return 0;
         };
 
         const leftWallLen = sumSegLen('leftWall');
@@ -4586,11 +4643,13 @@ export const QuickSketchShapeSolver: React.FC<QuickSketchShapeSolverProps> = ({
       if (built.portion === 'leftWall') {
         setManualPortion('crown');
         setManualGeomType('arc');
+        setManualClosePointMode('from_angle_length');
         setManualAngleInput('0');
         setManualLengthInput('8.00');
       } else if (built.portion === 'crown') {
         setManualPortion('rightWall');
         setManualGeomType('line');
+        setManualClosePointMode('from_angle_length');
         setManualAngleInput('-90');
         setManualLengthInput('4.00');
       } else if (built.portion === 'rightWall') {

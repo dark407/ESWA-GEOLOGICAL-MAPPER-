@@ -773,6 +773,34 @@ export interface FieldProjectChainageRange {
   toM: number;
 }
 
+export interface DigitalTwinRawTunnelPhoto {
+  id: string;
+  fileName: string;
+  dataUrl: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  aspectRatio: number;
+  focalLengthMm: number;
+  targetZone: 'auto' | FieldPanelId | 'oblique_left' | 'oblique_right';
+  /** Whether this photo is the Primary shot for a portion, a Supporting close-up/oblique shot for that portion, or a General Multi-Angle tie photo */
+  photoRole?: 'primary' | 'supporting' | 'multi_angle';
+  uploadedAt: string;
+  /** AI-detected extra spillover/overlap captured around the edges of this photo (e.g., wide-angle Face photo capturing extra wall/crown rim, or Wall photo capturing upper Crown arch) */
+  crossPortionSpillover?: {
+    extraLeftWallPct?: number;
+    extraRightWallPct?: number;
+    extraCrownTopPct?: number;
+    extraFaceEdgePct?: number;
+    coverageSubRegion?: 'full' | 'left_haunch' | 'center_vault' | 'right_haunch' | 'upper_arch' | 'lower_bench';
+  };
+  cameraPose?: {
+    position: [number, number, number];
+    lookAt: [number, number, number];
+    fovDeg: number;
+    overlapScore?: number;
+  };
+}
+
 export interface FieldExcavationRound {
   id: string;
   projectId: string;
@@ -803,6 +831,8 @@ export interface FieldExcavationRound {
   collectedPhotos: FieldCollectedPhoto[];
   /** Per-panel Photo Fit configuration for the 4 tunnel surface photos (Face, Crown, Left Wall, Right Wall) */
   photoFits?: Partial<Record<FieldPanelId, FieldPhotoFitConfig>>;
+  /** Separate unedited multi-angle tunnel photos uploaded specifically in Step 5: 3D Digital Twin (BETA) */
+  digitalTwinRawPhotos?: DigitalTwinRawTunnelPhoto[];
   /** Whether Advance (MATLAB & CV Filters) is open on the Face Canvas */
   advanceCanvasEnabled?: boolean;
   /** Per-panel Move, Rotate (0/90/180/270), Vertical Mirror, Horizontal Mirror state for Stage 4 (Face Canvas) */
@@ -5395,8 +5425,71 @@ export function computeFaceTunnelOutlineDetails(
   let rightWallPoly: { x: number; y: number }[] = [];
   let crownPoly: { x: number; y: number }[] = [];
   let invertPoly: { x: number; y: number }[] = [];
+  let closedFillPoly: { x: number; y: number }[] = [];
   let closedFillPathD = '';
   let wallStrokePathD = '';
+
+  const chainScreenSegments = (
+    segPolys: { x: number; y: number }[][],
+    targetOrder: 'bottom_to_top' | 'left_to_right'
+  ): { x: number; y: number }[] => {
+    if (segPolys.length === 0) return [];
+    const pools = segPolys.map((s) => [...s]);
+    let chain = [...pools.shift()!];
+    while (pools.length > 0) {
+      const head = chain[0];
+      const tail = chain[chain.length - 1];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      let bestMode: 'append' | 'append_rev' | 'prepend' | 'prepend_rev' = 'append';
+      for (let i = 0; i < pools.length; i++) {
+        const cand = pools[i];
+        const c0 = cand[0];
+        const c1 = cand[cand.length - 1];
+        const dTail0 = Math.hypot(tail.x - c0.x, tail.y - c0.y);
+        const dTail1 = Math.hypot(tail.x - c1.x, tail.y - c1.y);
+        const dHead1 = Math.hypot(head.x - c1.x, head.y - c1.y);
+        const dHead0 = Math.hypot(head.x - c0.x, head.y - c0.y);
+        if (dTail0 < bestDist) {
+          bestDist = dTail0;
+          bestIdx = i;
+          bestMode = 'append';
+        }
+        if (dTail1 < bestDist) {
+          bestDist = dTail1;
+          bestIdx = i;
+          bestMode = 'append_rev';
+        }
+        if (dHead1 < bestDist) {
+          bestDist = dHead1;
+          bestIdx = i;
+          bestMode = 'prepend';
+        }
+        if (dHead0 < bestDist) {
+          bestDist = dHead0;
+          bestIdx = i;
+          bestMode = 'prepend_rev';
+        }
+      }
+      const chosen = pools.splice(bestIdx, 1)[0];
+      if (bestMode === 'append') chain = [...chain, ...chosen];
+      else if (bestMode === 'append_rev') chain = [...chain, ...chosen.slice().reverse()];
+      else if (bestMode === 'prepend') chain = [...chosen, ...chain];
+      else chain = [...chosen.slice().reverse(), ...chain];
+    }
+    if (chain.length >= 2) {
+      const first = chain[0];
+      const last = chain[chain.length - 1];
+      // Note: in SVG screen space, bottom (invert) has LARGER y and top (SPL/crown) has SMALLER y
+      if (
+        (targetOrder === 'bottom_to_top' && first.y < last.y) ||
+        (targetOrder === 'left_to_right' && first.x > last.x)
+      ) {
+        chain.reverse();
+      }
+    }
+    return chain;
+  };
 
   // 1. Custom Tunnel Shape (`freeform_custom`)
   if (
@@ -5414,10 +5507,13 @@ export function computeFaceTunnelOutlineDetails(
       });
 
       const strokeSubpaths: string[] = [];
-      let hasAnyOpenSegment = false;
+      const lwSegs: { x: number; y: number }[][] = [];
+      const rwSegs: { x: number; y: number }[][] = [];
+      const crSegs: { x: number; y: number }[][] = [];
+      const invSegs: { x: number; y: number }[][] = [];
+
       for (const seg of ev.segmentMetrics) {
         if (seg.zoneRole === 'open') {
-          hasAnyOpenSegment = true;
           continue;
         }
         const segEnabled =
@@ -5426,7 +5522,6 @@ export function computeFaceTunnelOutlineDetails(
           (seg.zoneRole === 'rightWall' && hasRightWall) ||
           (seg.zoneRole === 'invert' && hasInvert);
         if (!segEnabled || seg.sampledPoints.length < 2) {
-          hasAnyOpenSegment = true;
           continue;
         }
 
@@ -5437,70 +5532,72 @@ export function computeFaceTunnelOutlineDetails(
         strokeSubpaths.push(dCmd);
 
         if (seg.zoneRole === 'leftWall') {
-          leftWallPoly.push(...scrPts);
+          lwSegs.push(scrPts);
         } else if (seg.zoneRole === 'rightWall') {
-          rightWallPoly.push(...scrPts);
+          rwSegs.push(scrPts);
         } else if (seg.zoneRole === 'crown') {
-          crownPoly.push(...scrPts);
+          crSegs.push(scrPts);
         } else if (seg.zoneRole === 'invert') {
-          invertPoly.push(...scrPts);
+          invSegs.push(scrPts);
         }
       }
 
-      // Orient leftWallPoly and rightWallPoly from bottom (invert, larger y) upward to SPL (smaller y)
-      if (
-        leftWallPoly.length >= 2 &&
-        leftWallPoly[0].y < leftWallPoly[leftWallPoly.length - 1].y
-      ) {
-        leftWallPoly.reverse();
-      }
-      if (
-        rightWallPoly.length >= 2 &&
-        rightWallPoly[0].y < rightWallPoly[rightWallPoly.length - 1].y
-      ) {
-        rightWallPoly.reverse();
-      }
-      // Orient crownPoly and invertPoly from left (smaller x) to right (larger x)
-      if (crownPoly.length >= 2 && crownPoly[0].x > crownPoly[crownPoly.length - 1].x) {
-        crownPoly.reverse();
-      }
-      if (invertPoly.length >= 2 && invertPoly[0].x > invertPoly[invertPoly.length - 1].x) {
-        invertPoly.reverse();
+      leftWallPoly = chainScreenSegments(lwSegs, 'bottom_to_top');
+      rightWallPoly = chainScreenSegments(rwSegs, 'bottom_to_top');
+      crownPoly = chainScreenSegments(crSegs, 'left_to_right');
+      invertPoly = chainScreenSegments(invSegs, 'left_to_right');
+
+      // Build a guaranteed non-self-intersecting clockwise perimeter polygon (`closedFillPoly`)
+      // that always encloses both the Crown (above SPL) and the Walls/Bench (below SPL down to `bottom`).
+      const rawOrderedFill: { x: number; y: number }[] = [];
+      if (leftWallPoly.length >= 2) {
+        rawOrderedFill.push(...leftWallPoly);
+      } else if (crownPoly.length >= 2) {
+        rawOrderedFill.push({ x: crownPoly[0].x, y: bottom }, crownPoly[0]);
+      } else {
+        rawOrderedFill.push({ x: left, y: bottom }, { x: left, y: springY });
       }
 
-      const enabledScrPts: { x: number; y: number }[] = [];
-      for (const seg of ev.segmentMetrics) {
-        if (seg.zoneRole === 'open') continue;
-        const segEnabled =
-          (seg.zoneRole === 'leftWall' && hasLeftWall) ||
-          (seg.zoneRole === 'crown' && hasCrown) ||
-          (seg.zoneRole === 'rightWall' && hasRightWall) ||
-          (seg.zoneRole === 'invert' && hasInvert);
-        if (!segEnabled) continue;
-        for (const pt of seg.sampledPoints) {
-          const scr = toScr(pt);
-          const prev = enabledScrPts[enabledScrPts.length - 1];
-          if (!prev || Math.hypot(prev.x - scr.x, prev.y - scr.y) > 0.5) {
-            enabledScrPts.push(scr);
-          }
+      if (crownPoly.length >= 2) {
+        rawOrderedFill.push(...crownPoly);
+      } else {
+        rawOrderedFill.push({ x: left, y: top }, { x: right, y: top });
+      }
+
+      if (rightWallPoly.length >= 2) {
+        rawOrderedFill.push(...rightWallPoly.slice().reverse());
+      } else if (crownPoly.length >= 2) {
+        const lastCr = crownPoly[crownPoly.length - 1];
+        rawOrderedFill.push(lastCr, { x: lastCr.x, y: bottom });
+      } else {
+        rawOrderedFill.push({ x: right, y: springY }, { x: right, y: bottom });
+      }
+
+      if (invertPoly.length >= 2) {
+        rawOrderedFill.push(...invertPoly.slice().reverse());
+      }
+
+      for (const pt of rawOrderedFill) {
+        const prev = closedFillPoly[closedFillPoly.length - 1];
+        if (!prev || Math.hypot(prev.x - pt.x, prev.y - pt.y) > 0.5) {
+          closedFillPoly.push(pt);
         }
       }
-      const allScrPts = enabledScrPts.length >= 2 ? enabledScrPts : ev.crossSectionPoints.map(toScr);
-      const fillPts = [...allScrPts];
-      if (!ev.isClosed && fillPts.length >= 2) {
-        const firstP = fillPts[0];
-        const lastP = fillPts[fillPts.length - 1];
-        if (!hasRightWall && hasLeftWall && hasCrown) {
-          fillPts.push({ x: lastP.x, y: firstP.y });
-        } else if (!hasLeftWall && hasRightWall && hasCrown) {
-          fillPts.unshift({ x: firstP.x, y: lastP.y });
-        } else if (!hasCrown && hasLeftWall && hasRightWall) {
-          fillPts.push({ x: right, y: top }, { x: left, y: top });
+
+      // Ensure the closed fill polygon reaches down to `bottom` below SPL if all drawn points were above SPL
+      if (closedFillPoly.length >= 2) {
+        const maxPolyY = Math.max(...closedFillPoly.map((p) => p.y));
+        if (maxPolyY < bottom - 4) {
+          const firstP = closedFillPoly[0];
+          const lastP = closedFillPoly[closedFillPoly.length - 1];
+          closedFillPoly.unshift({ x: firstP.x, y: bottom });
+          closedFillPoly.push({ x: lastP.x, y: bottom });
         }
       }
+
       closedFillPathD =
-        fillPts.length >= 2
-          ? fillPts
+        closedFillPoly.length >= 2
+          ? closedFillPoly
               .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
               .join(' ') + ' Z'
           : '';
@@ -5520,6 +5617,10 @@ export function computeFaceTunnelOutlineDetails(
       const scrPts = pts.map(toScr);
       const segCount = isClosed ? pts.length : pts.length - 1;
       const strokeSubpaths: string[] = [];
+      const lwSegs: { x: number; y: number }[][] = [];
+      const rwSegs: { x: number; y: number }[][] = [];
+      const crSegs: { x: number; y: number }[][] = [];
+      const invSegs: { x: number; y: number }[][] = [];
       for (let i = 0; i < segCount; i++) {
         const p1 = pts[i];
         const p2 = pts[(i + 1) % pts.length];
@@ -5528,16 +5629,16 @@ export function computeFaceTunnelOutlineDetails(
         const s2 = scrPts[(i + 1) % pts.length];
         let includeSeg = false;
         if (role === 'leftWall' && hasLeftWall) {
-          leftWallPoly.push(s1, s2);
+          lwSegs.push([s1, s2]);
           includeSeg = true;
         } else if (role === 'rightWall' && hasRightWall) {
-          rightWallPoly.push(s1, s2);
+          rwSegs.push([s1, s2]);
           includeSeg = true;
         } else if (role === 'crown' && hasCrown) {
-          crownPoly.push(s1, s2);
+          crSegs.push([s1, s2]);
           includeSeg = true;
         } else if (role === 'invert' && hasInvert) {
-          invertPoly.push(s1, s2);
+          invSegs.push([s1, s2]);
           includeSeg = true;
         }
         if (includeSeg) {
@@ -5546,29 +5647,33 @@ export function computeFaceTunnelOutlineDetails(
           );
         }
       }
-      if (
-        leftWallPoly.length >= 2 &&
-        leftWallPoly[0].y < leftWallPoly[leftWallPoly.length - 1].y
-      ) {
-        leftWallPoly.reverse();
-      }
-      if (
-        rightWallPoly.length >= 2 &&
-        rightWallPoly[0].y < rightWallPoly[rightWallPoly.length - 1].y
-      ) {
-        rightWallPoly.reverse();
-      }
-      if (crownPoly.length >= 2 && crownPoly[0].x > crownPoly[crownPoly.length - 1].x) {
-        crownPoly.reverse();
-      }
+      leftWallPoly = chainScreenSegments(lwSegs, 'bottom_to_top');
+      rightWallPoly = chainScreenSegments(rwSegs, 'bottom_to_top');
+      crownPoly = chainScreenSegments(crSegs, 'left_to_right');
+      invertPoly = chainScreenSegments(invSegs, 'left_to_right');
+
       const activeFillPts = [
-        ...leftWallPoly,
+        ...(leftWallPoly.length >= 2
+          ? leftWallPoly
+          : crownPoly.length >= 2
+          ? [{ x: crownPoly[0].x, y: bottom }, crownPoly[0]]
+          : []),
         ...crownPoly,
-        ...rightWallPoly.slice().reverse(),
+        ...(rightWallPoly.length >= 2
+          ? rightWallPoly.slice().reverse()
+          : crownPoly.length >= 2
+          ? [crownPoly[crownPoly.length - 1], { x: crownPoly[crownPoly.length - 1].x, y: bottom }]
+          : []),
         ...invertPoly.slice().reverse(),
       ];
       const fillSourcePts = activeFillPts.length >= 2 ? activeFillPts : scrPts;
-      const openCmd = fillSourcePts
+      for (const pt of fillSourcePts) {
+        const prev = closedFillPoly[closedFillPoly.length - 1];
+        if (!prev || Math.hypot(prev.x - pt.x, prev.y - pt.y) > 0.5) {
+          closedFillPoly.push(pt);
+        }
+      }
+      const openCmd = closedFillPoly
         .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
         .join(' ');
       closedFillPathD = `${openCmd} Z`;
@@ -5837,8 +5942,24 @@ export function computeFaceTunnelOutlineDetails(
     })),
   ];
 
+  if (closedFillPoly.length < 3) {
+    const stdPts = [
+      ...leftWallPoly,
+      ...crownPoly,
+      ...rightWallPoly.slice().reverse(),
+      ...(invertPoly.length >= 2 ? invertPoly.slice().reverse() : []),
+    ];
+    for (const pt of stdPts) {
+      const prev = closedFillPoly[closedFillPoly.length - 1];
+      if (!prev || Math.hypot(prev.x - pt.x, prev.y - pt.y) > 0.5) {
+        closedFillPoly.push(pt);
+      }
+    }
+  }
+
   return {
     closedFillPathD,
+    closedFillPoly,
     wallStrokePathD,
     leftWallPoly,
     crownPoly,
@@ -6140,35 +6261,15 @@ export function isPointInsideFieldPanelOutline(
   const archRy = Math.max(20, springY - boxY) + tolerancePx;
 
   // 1. Custom Freeform Cross-Section Polygon (only when shape === 'freeform_custom')
-  if (
-    location.shape === 'freeform_custom' &&
-    location.customCrossSectionPoints &&
-    location.customCrossSectionPoints.length >= 2
-  ) {
-    // If custom shape is open/unclosed, allow drawing anywhere within the face bounding box
-    // or closed fill region
-    if (!geom.isClosed) {
+  if (location.shape === 'freeform_custom') {
+    const details = computeFaceTunnelOutlineDetails(location, boxX, boxY, boxW, boxH);
+    const poly = details.closedFillPoly;
+    if (!poly || poly.length < 3) {
       return true;
     }
-    const pts = location.customCrossSectionPoints;
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (const p of pts) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const spanX = Math.max(0.5, maxX - minX);
-    const spanY = Math.max(0.5, maxY - minY);
-    const poly = pts.map((p) => ({
-      x: boxX + ((p.x - minX) / spanX) * boxW,
-      y: boxY + boxH - ((p.y - minY) / spanY) * boxH,
-    }));
 
     let inside = false;
+    let minEdgeDist = Infinity;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const xi = poly[i].x;
       const yi = poly[i].y;
@@ -6178,8 +6279,25 @@ export function isPointInsideFieldPanelOutline(
         yi > pt.y !== yj > pt.y &&
         pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi + 1e-9) + xi;
       if (intersect) inside = !inside;
+
+      const dx = xj - xi;
+      const dy = yj - yi;
+      const l2 = dx * dx + dy * dy;
+      const t =
+        l2 <= 1e-6
+          ? 0
+          : Math.max(0, Math.min(1, ((pt.x - xi) * dx + (pt.y - yi) * dy) / l2));
+      const d = Math.hypot(pt.x - (xi + t * dx), pt.y - (yi + t * dy));
+      if (d < minEdgeDist) minEdgeDist = d;
     }
-    return inside;
+
+    if (inside) {
+      if (tolerancePx < 0) {
+        return minEdgeDist >= Math.max(0, -tolerancePx - 1.5);
+      }
+      return true;
+    }
+    return minEdgeDist <= Math.max(1.5, tolerancePx);
   }
 
   // 2. Circular Tunnel Face
@@ -10416,12 +10534,15 @@ export function getExactFieldPanelPerimeterLoop(
     geom.boxW,
     geom.boxH
   );
-  const rawLoop: FieldPoint2D[] = [
-    ...details.leftWallPoly,
-    ...details.crownPoly,
-    ...details.rightWallPoly.slice().reverse(),
-    ...(details.hasInvert ? details.invertPoly.slice().reverse() : []),
-  ];
+  const rawLoop: FieldPoint2D[] =
+    location.shape === 'freeform_custom' && details.closedFillPoly.length >= 3
+      ? [...details.closedFillPoly]
+      : [
+          ...details.leftWallPoly,
+          ...details.crownPoly,
+          ...details.rightWallPoly.slice().reverse(),
+          ...(details.hasInvert ? details.invertPoly.slice().reverse() : []),
+        ];
 
   if (!excBounds.hasBenchDivision || excBounds.benchY === null || rawLoop.length < 3) {
     return rawLoop;

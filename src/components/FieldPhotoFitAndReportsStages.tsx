@@ -2859,6 +2859,7 @@ export const FieldPhotoFitStage: React.FC<{
   onUpdateRound: (updater: (prev: FieldExcavationRound) => FieldExcavationRound) => void;
   onBackToUpload: () => void;
   onProceedToFaceCanvas: () => void;
+  onProceedToDigitalTwin3D?: () => void;
 }> = ({
   activeLocation,
   activeRound,
@@ -2866,6 +2867,7 @@ export const FieldPhotoFitStage: React.FC<{
   onUpdateRound,
   onBackToUpload,
   onProceedToFaceCanvas,
+  onProceedToDigitalTwin3D,
 }) => {
   const [selectedPanel, setSelectedPanel] = useState<FieldPanelId>('face');
   const [activeTab, setActiveTab] = useState<'angle' | 'mesh' | 'crop_extent' | 'scale' | 'quality'>('angle');
@@ -2901,6 +2903,46 @@ export const FieldPhotoFitStage: React.FC<{
   const pinchStartZoomRef = useRef<number>(1.0);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleReplaceSelectedPanelPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (!dataUrl) return;
+      onUpdateRound((prev) => {
+        const filteredPhotos = (prev.collectedPhotos || []).filter(
+          (p) => p.panel !== selectedPanel
+        );
+        const currentFit = getFieldPhotoFitConfig(prev, selectedPanel);
+        return {
+          ...prev,
+          collectedPhotos: [
+            ...filteredPhotos,
+            {
+              id: `ph-rep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              panel: selectedPanel,
+              label: file.name || `${selectedPanel} Photo`,
+              dataUrl,
+              capturedAt: new Date().toISOString(),
+            },
+          ],
+          photoFits: {
+            ...(prev.photoFits || {}),
+            [selectedPanel]: {
+              ...currentFit,
+              warpedDataUrl: undefined,
+              filteredDataUrl: undefined,
+            },
+          },
+        };
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const isSurface = mappingDomain !== 'TUNNEL';
   const surfMap = getSurfacePanelLabelMap(mappingDomain);
@@ -3313,8 +3355,15 @@ export const FieldPhotoFitStage: React.FC<{
             </div>
           </div>
 
-          {/* 4 Surface Selector Tabs */}
+          {/* 4 Surface Selector Tabs + Direct Replace Photo Button */}
           <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar mouse-scrollable">
+            <input
+              ref={replacePhotoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleReplaceSelectedPanelPhoto}
+            />
             {panelTabs.map((pInfo, idx) => {
               const hasPhoto = activeRound.collectedPhotos.some((p) => p.panel === pInfo.id);
               const isSel = selectedPanel === pInfo.id;
@@ -3334,6 +3383,17 @@ export const FieldPhotoFitStage: React.FC<{
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => replacePhotoInputRef.current?.click()}
+              className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white border border-sky-400/60 shadow cursor-pointer transition-all"
+              title={`Replace or upload photo for ${panelTabs.find((p) => p.id === selectedPanel)?.shortLabel || selectedPanel}`}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>
+                {activePhoto ? 'Replace Photo' : 'Upload Photo'} ({panelTabs.find((p) => p.id === selectedPanel)?.shortLabel})
+              </span>
+            </button>
           </div>
         </div>
 
@@ -3783,36 +3843,46 @@ export const FieldPhotoFitStage: React.FC<{
           {/* Right Columns (4 of 12 in landscape, 3-4 on desktop): Professional Photo Fit & Shape Alignment Controls */}
           <div className="landscape:col-span-4 lg:col-span-4 xl:col-span-3 h-full min-h-0 bg-slate-950 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between overflow-y-auto no-scrollbar mouse-scrollable gap-2.5">
             <div>
-              {/* Header with Title & Reset */}
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
-                <h3 className="text-xs font-bold font-mono uppercase text-amber-300 flex items-center gap-1.5">
-                  <Sliders className="w-4 h-4 text-amber-400" />
-                  Edit Controls ({panelTabs.find((p) => p.id === selectedPanel)?.shortLabel})
+              {/* Header with Title, Replace Photo & Reset */}
+              <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-2 mb-2.5">
+                <h3 className="text-xs font-bold font-mono uppercase text-amber-300 flex items-center gap-1.5 truncate">
+                  <Sliders className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="truncate">Edit ({panelTabs.find((p) => p.id === selectedPanel)?.shortLabel})</span>
                 </h3>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updatePanelFit(selectedPanel, {
-                      scalePct: 100,
-                      scaleXPct: 100,
-                      scaleYPct: 100,
-                      offsetX: 0,
-                      offsetY: 0,
-                      rotationDeg: 0,
-                      skewXDeg: 0,
-                      skewYDeg: 0,
-                      mirrorH: false,
-                      mirrorV: false,
-                      fitMode: 'cover',
-                      cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
-                      meshCorners: { tl: { x: 0, y: 0 }, tr: { x: 0, y: 0 }, br: { x: 0, y: 0 }, bl: { x: 0, y: 0 } },
-                    })
-                  }
-                  className="px-2 py-0.8 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 cursor-pointer"
-                  title="Reset all fit transformations to neutral default"
-                >
-                  <RefreshCw className="w-3 h-3" /> Reset Fit
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => replacePhotoInputRef.current?.click()}
+                    className="px-2 py-1 rounded bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[10px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Replace the current portion's photo directly inside Photo Fit"
+                  >
+                    <Upload className="w-3 h-3" /> Replace Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updatePanelFit(selectedPanel, {
+                        scalePct: 100,
+                        scaleXPct: 100,
+                        scaleYPct: 100,
+                        offsetX: 0,
+                        offsetY: 0,
+                        rotationDeg: 0,
+                        skewXDeg: 0,
+                        skewYDeg: 0,
+                        mirrorH: false,
+                        mirrorV: false,
+                        fitMode: 'cover',
+                        cropExtent: { leftPct: 0, rightPct: 0, topPct: 0, bottomPct: 0 },
+                        meshCorners: { tl: { x: 0, y: 0 }, tr: { x: 0, y: 0 }, br: { x: 0, y: 0 }, bl: { x: 0, y: 0 } },
+                      })
+                    }
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                    title="Reset all fit transformations to neutral default"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Reset
+                  </button>
+                </div>
               </div>
 
               {/* 5 Functional Navigation Tabs */}
@@ -4628,14 +4698,29 @@ export const FieldPhotoFitStage: React.FC<{
             Back: 3. Upload 4 Photos
           </button>
 
-          <button
-            type="button"
-            onClick={onProceedToFaceCanvas}
-            className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg cursor-pointer"
-          >
-            Confirm Photo Fit &amp; Open 5. {isSurface ? surfMap.face.shortLabel : 'Face Canvas'}
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isSurface && onProceedToDigitalTwin3D && (
+              <button
+                type="button"
+                onClick={onProceedToFaceCanvas}
+                className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                title="Skip 3D Digital Twin Tunnel/Shaft stage and proceed directly to Face Canvas"
+              >
+                Skip 3D Digital Twin → 6. Face Canvas
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={!isSurface && onProceedToDigitalTwin3D ? onProceedToDigitalTwin3D : onProceedToFaceCanvas}
+              className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg cursor-pointer"
+            >
+              {!isSurface && onProceedToDigitalTwin3D
+                ? 'Confirm Photo Fit & Open 5. 3D Digital Twin (BETA) →'
+                : `Confirm Photo Fit & Open 5. ${isSurface ? surfMap.face.shortLabel : 'Face Canvas'}`}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

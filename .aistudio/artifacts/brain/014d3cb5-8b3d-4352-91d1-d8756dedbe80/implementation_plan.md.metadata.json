@@ -1,6 +1,6 @@
 {
-  "summary": "Step-by-step implementation plan for the 3D Digital Twin & Photogrammetry Workbench in ESWA GEOLOGICAL MAPPER, supporting single/multi-photo 3D rock surface reconstruction, calibrated photo-draping across Tunnel, Vertical Shaft, and Surface domains, 4-method Dip Direction/Dip Amount extraction (3-point/polygon facet click, 2D trace-to-3D relief projection, multi-photo cross-surface triangulation, and automated rock facet normal clustering), continuous multi-round chainage stitching, and zero-lag sync with the 3D Joint Inspector.",
-  "updatedAt": "2026-11-05T22:01:50.022571864Z",
+  "summary": "Implementation plan for Cross-Portion Overlap & Missing-Coverage AI Photogrammetry Engine, Per-Portion Primary + Supporting Photo Bays, and Deferred 3D Digital Twin Rendering.",
+  "updatedAt": "2026-11-06T19:05:27.846715076Z",
   "requestFeedback": true,
   "userFacing": true
 }

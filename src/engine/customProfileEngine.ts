@@ -676,42 +676,28 @@ export function evaluateCustomProfileGeometry(
       (zoneRole === 'crown' && surfCfgSeg?.hasCrown !== false) ||
       (zoneRole === 'invert' && surfCfgSeg?.hasInvert !== false);
 
-    const isIncludedInTopStrip =
-      seg.includeInTopStrip !== false && zoneRole !== 'open' && isPortionEnabledBySurface;
+    // Note: `includeInTopStrip: false` on an `invert` segment only excludes the floor from the
+    // 3-panel unfolded top strip log (Left Wall + Crown + Right Wall); the invert segment is still
+    // an active solid boundary of the 2D Face cross-section unless zoneRole === 'open' or hasInvert === false!
+    const isSolidCrossSectionSegment =
+      zoneRole !== 'open' &&
+      isPortionEnabledBySurface &&
+      (zoneRole === 'invert' || seg.includeInTopStrip !== false);
 
-    // Append sampled vertices ONLY for active, non-open, enabled portions
-    if (isIncludedInTopStrip) {
-      for (let k = 0; k < sampled.length; k++) {
-        if (crossSectionPoints.length > 0 && k === 0) {
-          const prevPt = crossSectionPoints[crossSectionPoints.length - 1];
-          if (prevPt && Math.hypot(prevPt.x - sampled[0].x, prevPt.y - sampled[0].y) < 0.05) {
-            continue;
-          }
-        }
-        if (idx === activeSegments.length - 1 && profile.isClosed && k === sampled.length - 1) {
-          const firstPt = crossSectionPoints[0];
-          if (firstPt && Math.hypot(firstPt.x - sampled[k].x, firstPt.y - sampled[k].y) < 0.05) {
-            continue;
-          }
-        }
-        crossSectionPoints.push(sampled[k]);
-      }
-    }
-
-    if (zoneRole === 'leftWall' && isIncludedInTopStrip) {
+    if (zoneRole === 'leftWall' && isSolidCrossSectionSegment) {
       hasDrawnLeftWallSeg = true;
       leftWallArcLength += segArcLength;
       leftWallMaxY = Math.max(leftWallMaxY, pFrom.y, pTo.y);
       leftWallMinY = Math.min(leftWallMinY, pFrom.y, pTo.y);
-    } else if (zoneRole === 'rightWall' && isIncludedInTopStrip) {
+    } else if (zoneRole === 'rightWall' && isSolidCrossSectionSegment) {
       hasDrawnRightWallSeg = true;
       rightWallArcLength += segArcLength;
       rightWallMaxY = Math.max(rightWallMaxY, pFrom.y, pTo.y);
       rightWallMinY = Math.min(rightWallMinY, pFrom.y, pTo.y);
-    } else if (zoneRole === 'crown' && isIncludedInTopStrip) {
+    } else if (zoneRole === 'crown' && isSolidCrossSectionSegment) {
       hasDrawnCrownSeg = true;
       crownArcLength += segArcLength;
-    } else if (zoneRole === 'invert' && isIncludedInTopStrip) {
+    } else if (zoneRole === 'invert' && isSolidCrossSectionSegment) {
       hasDrawnInvertSeg = true;
       invertLength += segArcLength;
     }
@@ -733,6 +719,125 @@ export function evaluateCustomProfileGeometry(
     });
   }
 
+  // Build a continuous, non-self-intersecting perimeter loop for `crossSectionPoints`
+  // ordered around the tunnel boundary: Left Wall (invert -> SPL) -> Crown (left -> right)
+  // -> Right Wall (SPL -> invert) -> Invert (right -> left).
+  const pushUniqueCrossPt = (pt: { x: number; y: number }) => {
+    const prev = crossSectionPoints[crossSectionPoints.length - 1];
+    if (!prev || Math.hypot(prev.x - pt.x, prev.y - pt.y) >= 0.03) {
+      crossSectionPoints.push(pt);
+    }
+  };
+
+  const surfCfg = profile.surfaceConfig;
+  const activeSolidMetrics = segmentMetrics.filter((m, idx) => {
+    const rawSeg = activeSegments[idx];
+    const enabledBySurf =
+      (m.zoneRole === 'leftWall' && surfCfg?.hasLeftWall !== false) ||
+      (m.zoneRole === 'rightWall' && surfCfg?.hasRightWall !== false) ||
+      (m.zoneRole === 'crown' && surfCfg?.hasCrown !== false) ||
+      (m.zoneRole === 'invert' && surfCfg?.hasInvert !== false);
+    return (
+      m.zoneRole !== 'open' &&
+      enabledBySurf &&
+      (m.zoneRole === 'invert' || rawSeg?.includeInTopStrip !== false) &&
+      m.sampledPoints.length >= 2
+    );
+  });
+
+  const chainZoneSegments = (
+    zoneSegs: EvaluatedSegmentMetrics[],
+    targetOrder: 'bottom_to_top' | 'top_to_bottom' | 'left_to_right' | 'right_to_left'
+  ): { x: number; y: number }[] => {
+    if (zoneSegs.length === 0) return [];
+    const pools = zoneSegs.map((s) => [...s.sampledPoints]);
+    let chain = [...pools.shift()!];
+    while (pools.length > 0) {
+      const head = chain[0];
+      const tail = chain[chain.length - 1];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      let bestMode: 'append' | 'append_rev' | 'prepend' | 'prepend_rev' = 'append';
+      for (let i = 0; i < pools.length; i++) {
+        const cand = pools[i];
+        const c0 = cand[0];
+        const c1 = cand[cand.length - 1];
+        const dTail0 = Math.hypot(tail.x - c0.x, tail.y - c0.y);
+        const dTail1 = Math.hypot(tail.x - c1.x, tail.y - c1.y);
+        const dHead1 = Math.hypot(head.x - c1.x, head.y - c1.y);
+        const dHead0 = Math.hypot(head.x - c0.x, head.y - c0.y);
+        if (dTail0 < bestDist) {
+          bestDist = dTail0;
+          bestIdx = i;
+          bestMode = 'append';
+        }
+        if (dTail1 < bestDist) {
+          bestDist = dTail1;
+          bestIdx = i;
+          bestMode = 'append_rev';
+        }
+        if (dHead1 < bestDist) {
+          bestDist = dHead1;
+          bestIdx = i;
+          bestMode = 'prepend';
+        }
+        if (dHead0 < bestDist) {
+          bestDist = dHead0;
+          bestIdx = i;
+          bestMode = 'prepend_rev';
+        }
+      }
+      const chosen = pools.splice(bestIdx, 1)[0];
+      if (bestMode === 'append') chain = [...chain, ...chosen];
+      else if (bestMode === 'append_rev') chain = [...chain, ...chosen.slice().reverse()];
+      else if (bestMode === 'prepend') chain = [...chosen, ...chain];
+      else chain = [...chosen.slice().reverse(), ...chain];
+    }
+    if (chain.length >= 2) {
+      const first = chain[0];
+      const last = chain[chain.length - 1];
+      if (
+        (targetOrder === 'bottom_to_top' && first.y > last.y) ||
+        (targetOrder === 'top_to_bottom' && first.y < last.y) ||
+        (targetOrder === 'left_to_right' && first.x > last.x) ||
+        (targetOrder === 'right_to_left' && first.x < last.x)
+      ) {
+        chain.reverse();
+      }
+    }
+    return chain;
+  };
+
+  const lwPts = chainZoneSegments(
+    activeSolidMetrics.filter((m) => m.zoneRole === 'leftWall'),
+    'bottom_to_top'
+  );
+  const crPts = chainZoneSegments(
+    activeSolidMetrics.filter((m) => m.zoneRole === 'crown'),
+    'left_to_right'
+  );
+  const rwPts = chainZoneSegments(
+    activeSolidMetrics.filter((m) => m.zoneRole === 'rightWall'),
+    'top_to_bottom'
+  );
+  const invPts = chainZoneSegments(
+    activeSolidMetrics.filter((m) => m.zoneRole === 'invert'),
+    'right_to_left'
+  );
+
+  for (const p of lwPts) pushUniqueCrossPt(p);
+  for (const p of crPts) pushUniqueCrossPt(p);
+  for (const p of rwPts) pushUniqueCrossPt(p);
+  for (const p of invPts) pushUniqueCrossPt(p);
+
+  if (crossSectionPoints.length >= 3) {
+    const firstPt = crossSectionPoints[0];
+    const lastPt = crossSectionPoints[crossSectionPoints.length - 1];
+    if (Math.hypot(firstPt.x - lastPt.x, firstPt.y - lastPt.y) < 0.04) {
+      crossSectionPoints.pop();
+    }
+  }
+
   const allEvalPts = crossSectionPoints.length >= 2 ? crossSectionPoints : pts;
   const minX = Number(Math.min(...allEvalPts.map((p) => p.x)).toFixed(3));
   const maxX = Number(Math.max(...allEvalPts.map((p) => p.x)).toFixed(3));
@@ -742,9 +847,10 @@ export function evaluateCustomProfileGeometry(
   const width = Number(Math.max(1.0, maxX - minX).toFixed(3));
   const height = Number(Math.max(1.0, maxY - minY).toFixed(3));
 
-  const surfCfg = profile.surfaceConfig;
-  const hasAnyOpenSegment = activeSegments.some(
-    (s) => s.zoneRole === 'open' || s.includeInTopStrip === false
+  const hasAnyOpenNonInvertSegment = activeSegments.some(
+    (s) =>
+      s.zoneRole === 'open' ||
+      (s.zoneRole !== 'invert' && s.includeInTopStrip === false)
   );
   // If the surfaceConfig explicitly defines presence, respect that configuration.
   // Otherwise, determine presence from the actual drawn segments for that zone.
@@ -770,11 +876,11 @@ export function evaluateCustomProfileGeometry(
   const hasInvert =
     surfCfg?.hasInvert !== undefined
       ? surfCfg.hasInvert
-      : hasDrawnInvertSeg || (profile.isClosed !== false && !hasAnyOpenSegment && invertLength > 0.01);
+      : hasDrawnInvertSeg || (profile.isClosed !== false && !hasAnyOpenNonInvertSegment);
 
   const isClosed =
     profile.isClosed !== false &&
-    !hasAnyOpenSegment &&
+    !hasAnyOpenNonInvertSegment &&
     hasLeftWall &&
     hasRightWall &&
     hasCrown &&
