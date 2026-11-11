@@ -296,175 +296,11 @@ export function calculateBoreholeSummary(borehole: BoreholeRecord): BoreholeSumm
   };
 }
 
-const STORAGE_KEY = 'eswa_geotechnical_borehole_records_v1';
-const ACTIVE_BOREHOLE_KEY = 'eswa_active_borehole_id_v1';
+const STORAGE_KEY = 'eswa_geotechnical_borehole_records_v2_clean';
+const ACTIVE_BOREHOLE_KEY = 'eswa_active_borehole_id_v2_clean';
 
 export function createDefaultBorehole(): BoreholeRecord {
-  const nowStr = new Date().toISOString().split('T')[0];
-  return {
-    id: 'bh-tunnel-portal-01',
-    boreholeId: 'BH-01',
-    projectName: 'Infrastructure Tunnel Package-02',
-    tunnelName: 'Main Drive (Southbound)',
-    chainageLabel: 'Ch. 120+450',
-    collarElevation: 1420.5,
-    coordinates: {
-      northing: '2,845,612.35 m N',
-      easting: '412,890.12 m E',
-      elevation: '1,420.50 m a.s.l.',
-    },
-    inclinationDeg: -90,
-    azimuthDeg: 0,
-    drillingMethod: 'Wireline Diamond Core (Triple Tube HQ3)',
-    coreDiameter: 'HQ3 (61.1 mm)',
-    drillingContractor: 'Alpha Geotechnical Drilling Consortium',
-    pmcConsultant: 'Arup & Partners International Geotechnics',
-    clientEmployer: 'National Highway & Infrastructure Authority',
-    loggedBy: '',
-    reviewedBy: '',
-    startDate: nowStr,
-    completionDate: nowStr,
-    waterTableDepth: 6.8,
-    runs: [
-      {
-        id: 'run-1',
-        runNumber: 1,
-        depthFrom: 0.0,
-        depthTo: 3.0,
-        runLength: 3.0,
-        coreRecovered: 2.2,
-        soundPiecesOver10cm: 0.9,
-        tcrPercent: 73.3,
-        rqdPercent: 30.0,
-        rqdRating: 'Poor',
-        lithology: 'Granite',
-        lithologyColor: '#FB7185',
-        weathering: 'W4',
-        strengthGrade: 'R2',
-        fractureFrequency: 14,
-        coreBoxNumber: 1,
-        discontinuitiesDescription: 'Sub-horizontal jointing, iron oxide staining, clay-silt infill up to 2mm',
-        remarks: 'Overburden soil-rock interface transition; core moderately fragmented',
-      },
-      {
-        id: 'run-2',
-        runNumber: 2,
-        depthFrom: 3.0,
-        depthTo: 6.0,
-        runLength: 3.0,
-        coreRecovered: 2.85,
-        soundPiecesOver10cm: 1.95,
-        tcrPercent: 95.0,
-        rqdPercent: 65.0,
-        rqdRating: 'Fair',
-        lithology: 'Granite',
-        lithologyColor: '#FB7185',
-        weathering: 'W3',
-        strengthGrade: 'R3',
-        fractureFrequency: 6,
-        coreBoxNumber: 1,
-        discontinuitiesDescription: 'J1: Dip 62°, rough planar, tight contact; J2: Dip 28°, undulating',
-        remarks: 'Entering moderately weathered bedrock block; core recovery improved significantly',
-      },
-      {
-        id: 'run-3',
-        runNumber: 3,
-        depthFrom: 6.0,
-        depthTo: 9.0,
-        runLength: 3.0,
-        coreRecovered: 2.98,
-        soundPiecesOver10cm: 2.65,
-        tcrPercent: 99.3,
-        rqdPercent: 88.3,
-        rqdRating: 'Good',
-        lithology: 'Granite',
-        lithologyColor: '#FB7185',
-        weathering: 'W2',
-        strengthGrade: 'R4',
-        fractureFrequency: 3,
-        coreBoxNumber: 2,
-        discontinuitiesDescription: 'J1: Dip 70°, rough stepped, calcite healed; Joint walls unweathered',
-        remarks: 'Solid cylindrical core sticks >35cm length. Minor drill induced breaks',
-      },
-      {
-        id: 'run-4',
-        runNumber: 4,
-        depthFrom: 9.0,
-        depthTo: 12.0,
-        runLength: 3.0,
-        coreRecovered: 3.0,
-        soundPiecesOver10cm: 2.88,
-        tcrPercent: 100.0,
-        rqdPercent: 96.0,
-        rqdRating: 'Excellent',
-        lithology: 'Granite',
-        lithologyColor: '#FB7185',
-        weathering: 'W1',
-        strengthGrade: 'R5',
-        fractureFrequency: 1,
-        coreBoxNumber: 2,
-        discontinuitiesDescription: 'Fresh competent granitic gneiss, very tight pristine joints',
-        remarks: 'Excellent tunnel crown benchmark horizon. Water ingress recorded nil.',
-      },
-      {
-        id: 'run-5',
-        runNumber: 5,
-        depthFrom: 12.0,
-        depthTo: 15.0,
-        runLength: 3.0,
-        coreRecovered: 3.0,
-        soundPiecesOver10cm: 2.92,
-        tcrPercent: 100.0,
-        rqdPercent: 97.3,
-        rqdRating: 'Excellent',
-        lithology: 'Quartzite',
-        lithologyColor: '#EAB308',
-        weathering: 'W1',
-        strengthGrade: 'R5',
-        fractureFrequency: 1,
-        coreBoxNumber: 3,
-        discontinuitiesDescription: 'Quartz vein intrusion contact at 13.4m, hard and intact',
-        remarks: 'Target excavation invert rock grade verified; highly competent rock mass',
-      },
-    ],
-    photos: [
-      {
-        id: 'photo-box-1',
-        boxNumber: 1,
-        depthFrom: 0.0,
-        depthTo: 6.0,
-        photoUrl: '',
-        photoTitle: 'Core Box #01 (0.00m to 6.00m) - Runs 1 & 2',
-        takenAt: nowStr,
-        condition: 'Wet',
-        notes: 'High-clarity core tray record under natural daylight. Showing transition from W4 to W3 granite.',
-      },
-      {
-        id: 'photo-box-2',
-        boxNumber: 2,
-        depthFrom: 6.0,
-        depthTo: 12.0,
-        photoUrl: '',
-        photoTitle: 'Core Box #02 (6.00m to 12.00m) - Runs 3 & 4',
-        takenAt: nowStr,
-        condition: 'Wet',
-        notes: 'Competent sound core cylinders with continuous RQD > 88%. Fresh granitic bedrock.',
-      },
-    ],
-    signOff: {
-      contractorName: '',
-      contractorDate: nowStr,
-      contractorDesignation: '',
-      pmcName: '',
-      pmcDate: nowStr,
-      pmcDesignation: '',
-      clientName: '',
-      clientDate: nowStr,
-      clientDesignation: '',
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  return createEmptyBorehole('BH-01');
 }
 
 export function createEmptyBorehole(boreholeId = 'BH-01'): BoreholeRecord {
@@ -934,11 +770,7 @@ export function createBenchmarkCavernBorehole(): BoreholeRecord {
  * Returns the complete set of 3 standard benchmark geotechnical boreholes
  */
 export function getAllBenchmarkBoreholes(): BoreholeRecord[] {
-  return [
-    createDefaultBorehole(),
-    createBenchmarkFaultZoneBorehole(),
-    createBenchmarkCavernBorehole(),
-  ];
+  return [];
 }
 
 /**

@@ -6966,6 +6966,12 @@ export const FieldTunnelBenchHatchAndLineSvg: React.FC<{
   darkBackground = false,
   idSuffix = 'default',
 }) => {
+  if (
+    (round?.mappingDomain && round.mappingDomain !== 'TUNNEL') ||
+    (location?.mappingDomain && location.mappingDomain !== 'TUNNEL')
+  ) {
+    return null;
+  }
   if (isVerticalShaftLocation(location)) {
     const cx = boxX + boxW / 2;
     const cy = boxY + boxH / 2;

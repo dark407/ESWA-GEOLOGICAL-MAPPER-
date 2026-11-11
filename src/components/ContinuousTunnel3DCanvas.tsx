@@ -44,6 +44,17 @@ export interface ContinuousTunnel3DCanvasProps {
   className?: string;
 }
 
+export interface Tunnel3DShapeOptions {
+  tunnelShape?: string;
+  archHeightM?: number;
+  customCrossSectionPoints?: Point2D[];
+  hasLeftWall?: boolean;
+  hasCrown?: boolean;
+  hasRightWall?: boolean;
+  hasInvert?: boolean;
+  shaftSubMode?: 'FULL_CIRCLE' | 'HALF_CIRCLE_LEFT' | 'HALF_CIRCLE_RIGHT';
+}
+
 /** Convert 2D unwrapped strip point (x = chainage/depth, y = perimeter) to 3D Cartesian coordinates for both Tunnel and Vertical Shaft */
 export function unrolledToTunnel3D(
   ch: number,
@@ -55,7 +66,8 @@ export function unrolledToTunnel3D(
   rightWallHeight: number,
   tunnelWidth: number,
   excavationMode: 'TUNNEL' | 'SHAFT' = 'TUNNEL',
-  totalPerimOverride?: number
+  totalPerimOverride?: number,
+  shapeOpts?: Tunnel3DShapeOptions
 ): THREE.Vector3 {
   const radius = tunnelWidth / 2;
   const totalPerimeter =
@@ -65,7 +77,13 @@ export function unrolledToTunnel3D(
     // Vertical Shaft: Y axis is vertical depth downward from collar, X-Z plane is circular shaft cross-section
     const totalDepth = Math.max(1, toRd - fromRd);
     const yHeight = Math.max(0, totalDepth - (ch - fromRd));
-    const angle = (yPerimeter / Math.max(0.001, totalPerimeter)) * Math.PI * 2; // 0 (N) -> PI/2 (E) -> PI (S) -> 3PI/2 (W)
+    const uNorm = Math.max(0, Math.min(1, yPerimeter / Math.max(0.001, totalPerimeter)));
+    let angle = uNorm * Math.PI * 2; // 0 (N) -> PI/2 (E) -> PI (S) -> 3PI/2 (W)
+    if (shapeOpts?.shaftSubMode === 'HALF_CIRCLE_RIGHT') {
+      angle = uNorm * Math.PI;
+    } else if (shapeOpts?.shaftSubMode === 'HALF_CIRCLE_LEFT') {
+      angle = Math.PI + uNorm * Math.PI;
+    }
     const x = radius * Math.sin(angle);
     const z = -radius * Math.cos(angle);
     return new THREE.Vector3(x, yHeight, z);
@@ -73,23 +91,93 @@ export function unrolledToTunnel3D(
 
   // Horizontal/Inclined Tunnel: Z axis along tunnel drive direction
   const z = ch - fromRd;
+
+  // 1. Custom Freeform / Simple CAD Cross-Section Points
+  const customPts = shapeOpts?.customCrossSectionPoints;
+  if (customPts && customPts.length >= 2) {
+    const cumLengths: number[] = [0];
+    let totalPolyLen = 0;
+    for (let i = 1; i < customPts.length; i++) {
+      const segLen = Math.hypot(
+        customPts[i].x - customPts[i - 1].x,
+        customPts[i].y - customPts[i - 1].y
+      );
+      totalPolyLen += segLen;
+      cumLengths.push(totalPolyLen);
+    }
+    if (totalPolyLen > 0.01) {
+      const uNorm = Math.max(0, Math.min(1, yPerimeter / Math.max(0.001, totalPerimeter)));
+      const targetDist = uNorm * totalPolyLen;
+      for (let i = 0; i < customPts.length - 1; i++) {
+        const d0 = cumLengths[i];
+        const d1 = cumLengths[i + 1];
+        if (targetDist <= d1 || i === customPts.length - 2) {
+          const segSpan = Math.max(1e-5, d1 - d0);
+          const localT = Math.max(0, Math.min(1, (targetDist - d0) / segSpan));
+          const px = customPts[i].x + (customPts[i + 1].x - customPts[i].x) * localT;
+          const py = customPts[i].y + (customPts[i + 1].y - customPts[i].y) * localT;
+          return new THREE.Vector3(px, py, z);
+        }
+      }
+    }
+  }
+
+  const shapeNorm = (shapeOpts?.tunnelShape || 'horseshoe').toLowerCase();
+  const totalHeight = Math.max(
+    leftWallHeight + 0.5,
+    shapeOpts?.archHeightM || leftWallHeight + radius
+  );
+  const archRise = Math.max(0.4, totalHeight - leftWallHeight);
+
+  // 2. Rectangular / Box Cut Profile
+  if (shapeNorm.includes('rect')) {
+    if (yPerimeter <= leftWallHeight) {
+      const t = Math.max(0, Math.min(1, yPerimeter / Math.max(0.001, leftWallHeight)));
+      return new THREE.Vector3(-radius, t * totalHeight, z);
+    } else if (yPerimeter <= leftWallHeight + crownWidth) {
+      const t = Math.max(
+        0,
+        Math.min(1, (yPerimeter - leftWallHeight) / Math.max(0.001, crownWidth))
+      );
+      return new THREE.Vector3(-radius + t * (2 * radius), totalHeight, z);
+    } else {
+      const fromBottom = Math.max(0, totalPerimeter - yPerimeter);
+      const t = Math.max(0, Math.min(1, fromBottom / Math.max(0.001, rightWallHeight)));
+      return new THREE.Vector3(radius, t * totalHeight, z);
+    }
+  }
+
+  // 3. Circular Tunnel / TBM Profile
+  if (shapeNorm.includes('circ')) {
+    const uNorm = Math.max(0, Math.min(1, yPerimeter / Math.max(0.001, totalPerimeter)));
+    // Map perimeter from bottom-left (-0.25*PI) over crown (0.5*PI) to bottom-right (1.25*PI)
+    const angle = -0.25 * Math.PI + uNorm * (1.5 * Math.PI);
+    const x = -radius * Math.cos(angle);
+    const y = radius + radius * Math.sin(angle);
+    return new THREE.Vector3(x, Math.max(0, y), z);
+  }
+
+  // 4. D-Shaped, Horseshoe, Modified Horseshoe, Top Heading
   let x = 0;
   let y = 0;
+  const wallInwardTaper = shapeNorm.includes('horseshoe') ? radius * 0.08 : 0;
 
   if (yPerimeter <= leftWallHeight) {
-    // Left Wall (Vertical from floor to springline)
-    x = -radius;
+    // Left Wall (from floor to springline)
+    const t = Math.max(0, Math.min(1, yPerimeter / Math.max(0.001, leftWallHeight)));
+    x = -radius + (1 - Math.sin(t * Math.PI * 0.5)) * wallInwardTaper;
     y = Math.max(0, yPerimeter);
   } else if (yPerimeter <= leftWallHeight + crownWidth) {
-    // Crown Arch (Semi-circle from left springline to right springline)
+    // Crown Arch (from left springline to right springline with exact archRise)
     const t = (yPerimeter - leftWallHeight) / Math.max(0.001, crownWidth);
     const angle = t * Math.PI; // 0 to PI
     x = -radius * Math.cos(angle);
-    y = leftWallHeight + radius * Math.sin(angle);
+    y = leftWallHeight + archRise * Math.sin(angle);
   } else {
-    // Right Wall (Vertical from springline to floor)
-    x = radius;
+    // Right Wall (from springline to floor)
     const fromBottom = Math.max(0, totalPerimeter - yPerimeter);
+    const t = Math.max(0, Math.min(1, fromBottom / Math.max(0.001, rightWallHeight)));
+    x = radius - (1 - Math.sin(t * Math.PI * 0.5)) * wallInwardTaper;
     y = fromBottom;
   }
 
@@ -145,9 +233,33 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   const crownWidth = dataset.crownWidthM || dataset.crownArcLengthM || 9.0;
   const rightWallHeight = dataset.rightWallHeightM || dataset.rightWallArcLengthM || 4.5;
   const tunnelWidth = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 10.0;
+  const archHeightM = dataset.tunnelArchHeightM || leftWallHeight + tunnelWidth * 0.4;
   const totalPerimeterM =
     (dataset.upperZoneWidthM || 0) + (dataset.lowerZoneWidthM || 0) ||
     leftWallHeight + crownWidth + rightWallHeight;
+
+  const shapeOpts: Tunnel3DShapeOptions = useMemo(
+    () => ({
+      tunnelShape: dataset.tunnelShape,
+      archHeightM,
+      customCrossSectionPoints: dataset.customCrossSectionPoints,
+      hasLeftWall: dataset.hasLeftWall ?? true,
+      hasCrown: dataset.hasCrown ?? true,
+      hasRightWall: dataset.hasRightWall ?? true,
+      hasInvert: dataset.hasInvert ?? false,
+      shaftSubMode: dataset.shaftSubMode,
+    }),
+    [
+      dataset.tunnelShape,
+      archHeightM,
+      dataset.customCrossSectionPoints,
+      dataset.hasLeftWall,
+      dataset.hasCrown,
+      dataset.hasRightWall,
+      dataset.hasInvert,
+      dataset.shaftSubMode,
+    ]
+  );
 
   // High-precision 3D joint inspection schedule
   const jointInspectionList = useMemo(
@@ -192,8 +304,12 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     cameraRef.current = camera;
 
-    // Set initial orbit target at tunnel center
-    cameraOrbitRef.current.target.set(0, leftWallHeight * 0.7, totalLengthM / 2);
+    // Set initial orbit target at tunnel or vertical shaft center
+    cameraOrbitRef.current.target.set(
+      0,
+      isShaft ? totalLengthM * 0.5 : leftWallHeight * 0.7,
+      isShaft ? 0 : totalLengthM / 2
+    );
     cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.85);
 
     const updateCameraPos = () => {
@@ -230,7 +346,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
     // 5. Floor Reference Grid
     const gridHelper = new THREE.GridHelper(Math.max(60, totalLengthM + 20), 40, 0x94a3b8, 0xe2e8f0);
-    gridHelper.position.set(0, -0.05, totalLengthM / 2);
+    gridHelper.position.set(0, -0.05, isShaft ? 0 : totalLengthM / 2);
     scene.add(gridHelper);
 
     // Render loop
@@ -259,7 +375,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         container.removeChild(renderer.domElement);
       }
     };
-  }, [totalLengthM, leftWallHeight]);
+  }, [totalLengthM, leftWallHeight, isShaft]);
 
   // Re-build 3D tunnel meshes when dataset, traces, or display settings change
   useEffect(() => {
@@ -314,7 +430,8 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           rightWallHeight,
           tunnelWidth,
           excavationMode,
-          totalPerimeter
+          totalPerimeter,
+          shapeOpts
         );
         positions.push(pt.x, pt.y, pt.z);
 
@@ -326,8 +443,24 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       }
     }
 
+    const hasCustomPts = Boolean(
+      shapeOpts.customCrossSectionPoints && shapeOpts.customCrossSectionPoints.length >= 2
+    );
+
     for (let j = 0; j < vSegments; j++) {
       for (let i = 0; i < uSegments; i++) {
+        // Skip open sides when not using a continuous custom polyline
+        if (!isShaft && !hasCustomPts) {
+          const midY = ((i + 0.5) / uSegments) * totalPerimeter;
+          if (midY <= leftWallHeight && shapeOpts.hasLeftWall === false) continue;
+          if (
+            midY > leftWallHeight &&
+            midY <= leftWallHeight + crownWidth &&
+            shapeOpts.hasCrown === false
+          )
+            continue;
+          if (midY > leftWallHeight + crownWidth && shapeOpts.hasRightWall === false) continue;
+        }
         const a = j * (uSegments + 1) + i;
         const b = (j + 1) * (uSegments + 1) + i;
         const c = (j + 1) * (uSegments + 1) + (i + 1);
@@ -366,6 +499,22 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     wireMesh.userData.isTunnelEntity = true;
     scene.add(wireMesh);
 
+    // Optional Invert Floor Slab if hasInvert is enabled in TUNNEL mode
+    if (!isShaft && shapeOpts.hasInvert) {
+      const invGeo = new THREE.PlaneGeometry(tunnelWidth, totalLengthM);
+      const invMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: Math.min(0.65, tunnelOpacity),
+      });
+      const invMesh = new THREE.Mesh(invGeo, invMat);
+      invMesh.rotation.x = Math.PI / 2;
+      invMesh.position.set(0, 0, totalLengthM / 2);
+      invMesh.userData.isTunnelEntity = true;
+      scene.add(invMesh);
+    }
+
     // 2. Chainage / Shaft Depth Rings & Tick Annotations
     if (showChainageRings) {
       const ringStep = Math.max(2, Math.min(5, Math.round(totalLengthM / 6)));
@@ -374,7 +523,19 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         for (let i = 0; i <= 36; i++) {
           const yP = (i / 36) * totalPerimeter;
           ringPoints.push(
-            unrolledToTunnel3D(ch, yP, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
+            unrolledToTunnel3D(
+              ch,
+              yP,
+              fromRd,
+              toRd,
+              leftWallHeight,
+              crownWidth,
+              rightWallHeight,
+              tunnelWidth,
+              excavationMode,
+              totalPerimeter,
+              shapeOpts
+            )
           );
         }
         const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPoints);
@@ -397,7 +558,8 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           rightWallHeight,
           tunnelWidth,
           excavationMode,
-          totalPerimeter
+          totalPerimeter,
+          shapeOpts
         );
         if (isShaft) {
           crownTop.z -= 1.2;
@@ -446,7 +608,8 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
                 rightWallHeight,
                 tunnelWidth,
                 excavationMode,
-                totalPerimeter
+                totalPerimeter,
+                shapeOpts
               )
             );
           }
@@ -508,7 +671,19 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           }
         }
         const pts3D = dense2D.map((p) =>
-          unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
+          unrolledToTunnel3D(
+            p.x,
+            p.y,
+            fromRd,
+            toRd,
+            leftWallHeight,
+            crownWidth,
+            rightWallHeight,
+            tunnelWidth,
+            excavationMode,
+            totalPerimeter,
+            shapeOpts
+          )
         );
 
         // Draw outline of lithology boundary
@@ -563,7 +738,8 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         rightWallHeight,
         tunnelWidth,
         excavationMode,
-        totalPerimeter
+        totalPerimeter,
+        shapeOpts
       );
       const cond = ws.condition || 'Dry';
       const wColor =
@@ -601,7 +777,19 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
       // Convert 2D points to 3D curve
       const pts3D = points.map((p) =>
-        unrolledToTunnel3D(p.x, p.y, fromRd, toRd, leftWallHeight, crownWidth, rightWallHeight, tunnelWidth, excavationMode, totalPerimeter)
+        unrolledToTunnel3D(
+          p.x,
+          p.y,
+          fromRd,
+          toRd,
+          leftWallHeight,
+          crownWidth,
+          rightWallHeight,
+          tunnelWidth,
+          excavationMode,
+          totalPerimeter,
+          shapeOpts
+        )
       );
 
       // Create a smooth 3D CatmullRom curve with crisp, fine geological trace thickness
@@ -840,6 +1028,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     isShaft,
     totalPerimeterM,
     jointInspectionList,
+    shapeOpts,
   ]);
 
   // Handle Mouse Events for Orbit / Pan / Raycast selection
@@ -947,7 +1136,11 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   // Camera Presets
   const setCameraPreset = (preset: 'iso' | 'ahead' | 'back' | 'top' | 'left' | 'right' | 'crown') => {
     if (!cameraRef.current) return;
-    const center = new THREE.Vector3(0, leftWallHeight * 0.6, totalLengthM / 2);
+    const center = new THREE.Vector3(
+      0,
+      isShaft ? totalLengthM * 0.5 : leftWallHeight * 0.6,
+      isShaft ? 0 : totalLengthM / 2
+    );
     cameraOrbitRef.current.target.copy(center);
 
     switch (preset) {

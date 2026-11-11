@@ -1535,7 +1535,7 @@ export function buildSampleGroutRing(
 export function loadSavedProbeHoles(): ProbeHoleRecord[] {
   try {
     const raw = localStorage.getItem(PROBE_HOLE_STORAGE_KEY);
-    if (!raw) return buildSampleProbeHoles();
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
       const sample = buildSampleProbeHoles()[0];
@@ -1575,9 +1575,9 @@ export function loadSavedProbeHoles(): ProbeHoleRecord[] {
               : sample.intervals,
         }));
     }
-    return buildSampleProbeHoles();
+    return [];
   } catch {
-    return buildSampleProbeHoles();
+    return [];
   }
 }
 
@@ -1592,12 +1592,12 @@ export function saveProbeHolesToStorage(holes: ProbeHoleRecord[]): void {
 export function loadSavedGroutRings(): GroutRingRecord[] {
   try {
     const raw = localStorage.getItem(GROUT_RING_STORAGE_KEY);
-    if (!raw) return [buildSampleGroutRing()];
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    return [buildSampleGroutRing()];
+    return [];
   } catch {
-    return [buildSampleGroutRing()];
+    return [];
   }
 }
 

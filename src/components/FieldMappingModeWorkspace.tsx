@@ -835,6 +835,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       return {
         ...found,
         mappingDomain,
+        excavationApproach: 'Full Face',
+        benchHeightMeters: undefined,
+        topHeadingHeightMeters: undefined,
         pullLengthMeters: surfPullDepth,
         tunnelDriveDirection:
           surfaceParams.faceDipDirectionDeg !== ('' as unknown as number) && Number.isFinite(parsedAz)
@@ -1146,14 +1149,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             width: activeLocation.widthM,
             height: activeLocation.heightM,
             wallHeight: activeLocation.wallHeightM || activeLocation.heightM * 0.58,
-            leftWallArcLength: activeLocation.wallHeightM || 4.2,
-            rightWallArcLength: activeLocation.wallHeightM || 4.2,
-            crownArcLength: activeLocation.widthM * 1.25,
-            crownGeometry: 'horseshoe',
+            leftWallArcLength: activeLocation.leftWallLengthM || activeLocation.wallHeightM || 4.2,
+            rightWallArcLength: activeLocation.rightWallLengthM || activeLocation.wallHeightM || 4.2,
+            crownArcLength: activeLocation.crownLengthM || activeLocation.widthM * 1.25,
+            crownGeometry: (activeLocation.shape as any) || 'horseshoe',
             crownRadius: activeLocation.widthM * 0.5,
-            crossSectionPoints: [],
+            crossSectionPoints: activeLocation.customCrossSectionPoints || [],
+            hasLeftWall: activeLocation.hasLeftWall ?? activeLocation.customGeometry?.hasLeftWall ?? true,
+            hasCrown: activeLocation.hasCrown ?? activeLocation.customGeometry?.hasCrown ?? true,
+            hasRightWall: activeLocation.hasRightWall ?? activeLocation.customGeometry?.hasRightWall ?? true,
+            hasInvert: activeLocation.hasInvert ?? activeLocation.customGeometry?.hasInvert ?? false,
             units: 'm',
-            source: 'manual',
+            source: activeLocation.shape === 'freeform_custom' ? 'custom_profile' : 'manual',
           },
           settings: {
             projectName: projName,
@@ -17899,6 +17906,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   ).toFixed(2)
                 );
 
+                const nextHasLeft = evalProf?.hasLeftWall ?? nextGeometry.hasLeftWall ?? true;
+                const nextHasRight = evalProf?.hasRightWall ?? nextGeometry.hasRightWall ?? true;
+                const nextHasCrown = evalProf?.hasCrown ?? nextGeometry.hasCrown ?? true;
+                const nextHasInvert = evalProf?.hasInvert ?? nextGeometry.hasInvert ?? false;
+
                 if (customBuilderTarget === 'new_location') {
                   setNewLocShape('freeform_custom');
                   setNewLocWidth(String(spanW));
@@ -17930,6 +17942,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             rightWallLengthM: evalProf
                               ? Number(evalProf.rightWallArcLength.toFixed(2))
                               : undefined,
+                            hasLeftWall: nextHasLeft,
+                            hasCrown: nextHasCrown,
+                            hasRightWall: nextHasRight,
+                            hasInvert: nextHasInvert,
                             customCrossSectionPoints: pts,
                             customGeometry: nextGeometry,
                           }
@@ -17956,6 +17972,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             rightWallLengthM: evalProf
                               ? Number(evalProf.rightWallArcLength.toFixed(2))
                               : undefined,
+                            hasLeftWall: nextHasLeft,
+                            hasCrown: nextHasCrown,
+                            hasRightWall: nextHasRight,
+                            hasInvert: nextHasInvert,
                             customCrossSectionPoints: pts,
                             customGeometry: nextGeometry,
                           }
@@ -17963,9 +17983,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                     ),
                   }));
                 }
-                const nextHasLeft = evalProf?.hasLeftWall ?? nextGeometry.hasLeftWall ?? true;
-                const nextHasRight = evalProf?.hasRightWall ?? nextGeometry.hasRightWall ?? true;
-                const nextHasCrown = evalProf?.hasCrown ?? nextGeometry.hasCrown ?? true;
                 if (
                   (activePanel === 'left_wall' && !nextHasLeft) ||
                   (activePanel === 'right_wall' && !nextHasRight) ||

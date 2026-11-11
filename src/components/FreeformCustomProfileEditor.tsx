@@ -45,6 +45,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { QuickSketchShapeSolver } from './QuickSketchShapeSolver';
+import { SimpleCadShapeBuilder } from './SimpleCadShapeBuilder';
 
 export type ProfileEditorMainTab =
   | 'sketch_solver'
@@ -137,11 +138,9 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
   onDeleteSavedGeometry,
   onBack,
 }) => {
-  // Normalize initial tab so custom shapes open directly onto the Quick Sketch Solver
+  // Normalize initial tab so custom shapes open onto Manual Design Builder or Simple CAD Builder
   const [mainTab, setMainTab] = useState<'sketch_solver' | 'common_variants' | 'freeform_canvas' | 'dxf_import'>(
     () => {
-      if (initialTab === 'dxf_import') return 'dxf_import';
-      if (initialTab === 'common_variants') return 'common_variants';
       if (initialTab === 'freeform_canvas') return 'freeform_canvas';
       return 'sketch_solver';
     }
@@ -1419,51 +1418,29 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
           </div>
         </div>
 
-        {/* 4 Clear Shape Creation Tabs */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl">
+        {/* Strictly Two Custom Shape & Size Modes: 1. Manual Design Builder | 2. Simple CAD Builder */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 border border-slate-200 rounded-xl">
           <button
             type="button"
             onClick={() => setMainTab('sketch_solver')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               mainTab === 'sketch_solver'
                 ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <span>🎨 1. Quick Sketch &amp; Dimensions</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainTab('common_variants')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-              mainTab === 'common_variants'
-                ? 'bg-sky-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            2. Common Variants
+            <span>1. Manual Design Builder</span>
           </button>
           <button
             type="button"
             onClick={() => setMainTab('freeform_canvas')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               mainTab === 'freeform_canvas'
-                ? 'bg-sky-600 text-white shadow-xs'
+                ? 'bg-sky-600 text-white font-black shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            3. CAD Line / Arc / XY
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainTab('dxf_import')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-              mainTab === 'dxf_import'
-                ? 'bg-sky-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            4. Import DWG / DXF
+            <span>2. Simple CAD Builder</span>
           </button>
         </div>
       </header>
@@ -1928,9 +1905,22 @@ export const FreeformCustomProfileEditor: React.FC<FreeformCustomProfileEditorPr
       )}
 
       {/* ====================================================================
-          TAB 2: CUSTOM SHAPE (EMPTY CANVAS + LINE MODE / ARC MODE / XY POINT)
+          TAB 2: SIMPLE CAD BUILDER (CLEAN 1M GRID CAD, NO LINE = OPEN)
          ==================================================================== */}
       {mainTab === 'freeform_canvas' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <SimpleCadShapeBuilder
+            initialProfile={geometry.customProfile || profile}
+            onApplyProfile={(profileDef, resolvedGeom) => {
+              setProfile(profileDef);
+              onApplyGeometry(resolvedGeom);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Legacy freeform canvas block disabled in favor of SimpleCadShapeBuilder */}
+      {false && (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
           {/* LEFT / CENTER: INTERACTIVE 1M ENGINEERING CANVAS */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col p-1.5 gap-1 overflow-hidden">

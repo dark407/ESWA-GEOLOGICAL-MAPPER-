@@ -1161,6 +1161,10 @@ export interface FieldTunnelLocationItem {
   customCrossSectionPoints?: { x: number; y: number }[];
   customProfileName?: string;
   customGeometry?: any;
+  hasLeftWall?: boolean;
+  hasCrown?: boolean;
+  hasRightWall?: boolean;
+  hasInvert?: boolean;
   rememberedRockTypes?: FieldRememberedRockItem[];
   defaultDisciplineMode?: FieldGeologyDisciplineMode;
   mappingDomain?: MappingDomainType;

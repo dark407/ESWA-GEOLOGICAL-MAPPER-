@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan to fix 3D tunnel shape/size fidelity, trace-anchored hinge rotation for both Dip Direction and Dip Amount on Face and Walls, and 90-degree vertical dip 180-degree azimuth inversion in the 3D Joint Inspector.",
-  "updatedAt": "2026-11-04T22:50:53.560580747Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan for streamlining the Custom Shape & Size editor into two focused modes (Manual Design Builder + Simple CAD Builder where missing lines stay Open) and eliminating unexcavated hatching, extra geometry, and underground tunnel terminology from Surface Mapping canvases and the 3D Joint Inspector.",
+  "updatedAt":  "2026-11-11T07:21:00.718567861Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

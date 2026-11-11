@@ -16,7 +16,7 @@ import {
   ContinuousPullFemDemResult,
   Continuous3DJointInspectionRecord,
 } from '../engine/continuous3DStripEngine';
-import { unrolledToTunnel3D } from './ContinuousTunnel3DCanvas';
+import { unrolledToTunnel3D, Tunnel3DShapeOptions } from './ContinuousTunnel3DCanvas';
 
 export interface ContinuousFemDem3DViewportProps {
   dataset: ContinuousTunnelStripDataset;
@@ -85,9 +85,33 @@ export const ContinuousFemDem3DViewport: React.FC<ContinuousFemDem3DViewportProp
   const crownWidth = dataset.crownWidthM || dataset.crownArcLengthM || 8.0;
   const rightWallHeight = dataset.rightWallHeightM || dataset.rightWallArcLengthM || 4.0;
   const tunnelWidth = dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.5;
+  const archHeightM = dataset.tunnelArchHeightM || leftWallHeight + tunnelWidth * 0.4;
   const totalPerimeterM =
     (dataset.upperZoneWidthM || 0) + (dataset.lowerZoneWidthM || 0) ||
     leftWallHeight + crownWidth + rightWallHeight;
+
+  const shapeOpts: Tunnel3DShapeOptions = useMemo(
+    () => ({
+      tunnelShape: dataset.tunnelShape,
+      archHeightM,
+      customCrossSectionPoints: dataset.customCrossSectionPoints,
+      hasLeftWall: dataset.hasLeftWall ?? true,
+      hasCrown: dataset.hasCrown ?? true,
+      hasRightWall: dataset.hasRightWall ?? true,
+      hasInvert: dataset.hasInvert ?? false,
+      shaftSubMode: dataset.shaftSubMode,
+    }),
+    [
+      dataset.tunnelShape,
+      archHeightM,
+      dataset.customCrossSectionPoints,
+      dataset.hasLeftWall,
+      dataset.hasCrown,
+      dataset.hasRightWall,
+      dataset.hasInvert,
+      dataset.shaftSubMode,
+    ]
+  );
 
   // Compute global max displacement & plastic radius for consistent color scale between Before and After
   const scaleBounds = useMemo(() => {
@@ -228,7 +252,8 @@ export const ContinuousFemDem3DViewport: React.FC<ContinuousFemDem3DViewportProp
           rightWallHeight,
           tunnelWidth,
           excavationMode,
-          totalPerimeterM
+          totalPerimeterM,
+          shapeOpts
         );
 
         // If Half-Circle Shaft, clamp X >= 0 or angle 0..PI
@@ -354,8 +379,24 @@ export const ContinuousFemDem3DViewport: React.FC<ContinuousFemDem3DViewportProp
           }
         }
 
+        const hasCustomPts = Boolean(
+          shapeOpts.customCrossSectionPoints && shapeOpts.customCrossSectionPoints.length >= 2
+        );
+
         for (let j = 0; j < vSegsPerPull; j++) {
           for (let i = 0; i < uSegs; i++) {
+            if (!isShaft && !hasCustomPts) {
+              const midY = ((i + 0.5) / uSegs) * totalPerimeterM;
+              if (midY <= leftWallHeight && shapeOpts.hasLeftWall === false) continue;
+              if (
+                midY > leftWallHeight &&
+                midY <= leftWallHeight + crownWidth &&
+                shapeOpts.hasCrown === false
+              )
+                continue;
+              if (midY > leftWallHeight + crownWidth && shapeOpts.hasRightWall === false)
+                continue;
+            }
             const a = j * (uSegs + 1) + i;
             const b = (j + 1) * (uSegs + 1) + i;
             const c = (j + 1) * (uSegs + 1) + (i + 1);
@@ -673,6 +714,7 @@ export const ContinuousFemDem3DViewport: React.FC<ContinuousFemDem3DViewportProp
       showDemWedges3D,
       jointSchedule,
       totalLengthM,
+      shapeOpts,
     ]
   );
 

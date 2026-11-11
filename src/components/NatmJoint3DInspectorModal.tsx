@@ -3955,7 +3955,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                       type="button"
                       onClick={() => handleSaveInspection('ALIGN_TRACE')}
                       className="py-2 px-2.5 rounded-xl font-mono text-[11px] font-black cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md bg-cyan-500 hover:bg-cyan-400 text-slate-950 border border-cyan-300"
-                      title="Update both text and trace alignment (curved crown arch intersection or apparent-dip trace) on the canvas based on edited 3D joint inspection"
+                      title={
+                        isSurfaceMapping
+                          ? 'Update both text and trace alignment on the surface mapping canvas based on edited 3D joint inspection'
+                          : 'Update both text and trace alignment (curved crown arch intersection or apparent-dip trace) on the canvas based on edited 3D joint inspection'
+                      }
                     >
                       <Compass className="w-3.5 h-3.5 shrink-0" />
                       <span>2. Change Trace Alignment on Canvas</span>
@@ -5856,7 +5860,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                         ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                         : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                     }`}
-                    title="Toggle Real-Time 3D Geological Compass synced with Tunnel Heading"
+                    title={
+                      isSurfaceMapping
+                        ? 'Toggle Real-Time 3D Geological Compass synced with Exposure Dip Azimuth'
+                        : 'Toggle Real-Time 3D Geological Compass synced with Tunnel Heading'
+                    }
                   >
                     <Compass className={`w-3.5 h-3.5 ${showCompass ? 'animate-spin-slow' : ''}`} />
                     <span>{showCompass ? 'Compass: ON' : 'Compass: OFF'}</span>
@@ -5909,7 +5917,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           ? 'text-slate-600 hover:text-slate-900'
                           : 'text-slate-300 hover:text-white'
                       }`}
-                      title="Show full extended cutting plane across the tunnel"
+                      title={
+                        isSurfaceMapping
+                          ? 'Show full extended cutting plane across the surface exposure'
+                          : 'Show full extended cutting plane across the tunnel'
+                      }
                     >
                       Full Plane (Current)
                     </button>
@@ -5923,7 +5935,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
                           ? 'text-slate-600 hover:text-slate-900'
                           : 'text-slate-300 hover:text-white'
                       }`}
-                      title="Show plane clipped to the tunnel bounding box"
+                      title={
+                        isSurfaceMapping
+                          ? 'Show plane clipped to the mapped surface exposure bounding box'
+                          : 'Show plane clipped to the tunnel bounding box'
+                      }
                     >
                       Clipped
                     </button>

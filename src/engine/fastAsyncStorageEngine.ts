@@ -69,8 +69,8 @@ export async function requestPersistentStorageQuota(): Promise<boolean> {
   }
 }
 
-const FRESH_INSTALL_ZERO_FLAG = 'eswa_fresh_install_zeroed_v1';
-const FRESH_INSTALL_IDB_ZERO_FLAG = 'eswa_idb_fresh_zeroed_v1';
+const FRESH_INSTALL_ZERO_FLAG = 'eswa_fresh_install_zeroed_v3_clean_launch';
+const FRESH_INSTALL_IDB_ZERO_FLAG = 'eswa_idb_fresh_zeroed_v3_clean_launch';
 
 /**
  * Performs a one-time factory zeroing reset so the software opens as a brand-new,

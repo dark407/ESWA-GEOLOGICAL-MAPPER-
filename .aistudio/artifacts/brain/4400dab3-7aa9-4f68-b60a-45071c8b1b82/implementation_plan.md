@@ -1,49 +1,100 @@
-# Implementation Plan: 3D Joint Inspector Tunnel Shape Fidelity, Trace-Hinge Dip Rotation & 90° Compass Alignment
+# Streamlined Custom Shape Builder (Manual + Simple CAD) & Pure Surface Mapping Geometry
 
-## 1. Overview
-This plan resolves three field-reported issues in the **3D Joint Inspector**:
-1. **Exact 3D Tunnel Shape & Size Fidelity**: The 3D tunnel shell, face cap, portal contour, unrolled 2D cross-section, and 3D plane clipping envelope will render the exact configured tunnel shape (`d_shaped`, `horseshoe`, `modified_horseshoe`, `circular`, `rectangular`, `freeform_custom`, and open/partial custom profiles) and exact physical dimensions (`widthM`, `heightM`, `wallHeightM`, `leftWallHeightM`, `rightWallHeightM`, `crownRadiusM`, `pullLengthM`).
-2. **Smooth Trace-Anchored Hinge Rotation for Both Dip Direction and Dip Amount on Face & Walls**: Adjusting **Dip Direction** or **Dip Amount** on the Face or Sidewalls will smoothly pivot and tilt the 3D discontinuity plane while keeping it anchored to the traced joint line without popping up a blocking warning modal or detaching from the trace.
-3. **Eliminate 180° Compass & Azimuth Flip at 90° Vertical Dip**: At `90°` vertical dip (or near-vertical dip), the plane normal, dip vector, 3D compass arrow, stereonet, and numerical readouts (`Dip Direction`, `Strike (RHR)`, and `Apparent Dip`) will preserve the user's drawn/selected dip direction without flipping 180° opposite.
+This update simplifies the Custom Shape & Size workspace into two focused builders—the existing **Manual Design Builder** and a clean **Simple CAD Builder** where undrawn sides remain Open—while removing all unexcavated hatching overlays, unsolicited extra 3D surfaces, and underground tunnel terminology from Surface Mapping canvases and the 3D Joint Inspector.
 
----
+## User Review & Critical Decisions
 
-## 2. Key Technical Changes
+> [!IMPORTANT]
+> The following design decisions incorporate your answers from the clarification prompt and address both the Custom Shape & Size builder and Surface Mapping / 3D Joint Inspector behavior.
 
-### A. Exact 3D Tunnel Cross-Section Shape & Physical Dimensions
-- **Unified Cross-Section Profile Generator (`src/engine/joint3DInspectorEngine.ts`)**:
-  - Add a dedicated helper `buildTunnelCrossSectionProfileMetric(geom: TunnelSpatialGeometry)` that generates high-resolution metric `(y, z)` cross-section vertices in `[0, widthM] × [0, heightM]` for every supported tunnel shape:
-    - **Custom / Parametric Profile (`customProfile` / `crossSectionPoints`)**: Maps exact evaluated custom profile vertices into metric coordinates, preserving open/unclosed portions (`hasInvert`, `hasLeftWall`, `hasRightWall`, `hasCrown`) and asymmetric left/right wall heights (`leftWallHeightM`, `rightWallHeightM`).
-    - **Circular (`circular`)**: Full circular cross-section of diameter `widthM` (and height `heightM`).
-    - **Rectangular (`rectangular`)**: Exact rectangular box `[0, widthM] × [0, heightM]` with flat roof and vertical walls.
-    - **Horseshoe / Modified Horseshoe (`horseshoe`, `modified_horseshoe`)**: Inward-curving lower sidewalls transitioning smoothly into the arched crown vault using `wallHeightM`, `leftWallHeightM`, `rightWallHeightM`, and `crownRadiusM`.
-    - **D-Shaped (`d_shaped`)**: Vertical sidewalls up to `leftWallHeightM` / `rightWallHeightM` with a smooth elliptical/circular crown arch up to `heightM`.
-- **Workspace-to-Inspector Geometry Sync (`src/components/FieldMappingModeWorkspace.tsx`)**:
-  - Pass the full `activeLocation.shape` (including `'circular'`, `'rectangular'`, `'horseshoe'`, `'modified_horseshoe'`, `'d_shaped'`, `'freeform_custom'`), `crownRadiusM`, `leftWallHeightM`, `rightWallHeightM`, and exact metric cross-section outline points from `computeFaceTunnelOutlineDetails(activeLocation, activeRound)` into `NatmJoint3DInspectorModal`.
-- **3D Scene & Plane Clipping (`src/components/NatmJoint3DInspectorModal.tsx` & `src/engine/joint3DInspectorEngine.ts`)**:
-  - Use `buildTunnelCrossSectionProfileMetric(tunnelGeometry)` to construct the Three.js 3D tunnel shell, excavation face cap, portal contour, crown roof elevation clamp `getCrownArchRoofY`, 2D projection views, and `clipPlaneToTunnelBox`.
-
-### B. Smooth Trace-Anchored Hinge Rotation for Both Dip Direction & Dip Amount (Face & Walls)
-- **Continuous Trace-Anchored Kinematics (`src/engine/joint3DInspectorEngine.ts` & `src/components/NatmJoint3DInspectorModal.tsx`)**:
-  - Remove the blocking `hingeIndicationModal` interruption when changing **Dip Amount** or **Dip Direction** on Face and Sidewall joints.
-  - Anchor the 3D plane strictly at the traced joint's 3D midpoint (`traceMidPoint`) with the traced joint line highlighted as the hinge axis on the Face or Sidewall.
-  - When the user adjusts **Dip Direction** (`0°–359°`), rotate the 3D plane smoothly around the traced joint hinge axis (updating the out-of-face/wall hinge rotation angle and dipping side continuously).
-  - When the user adjusts **Dip Amount** (`0°–90°`), tilt the 3D plane smoothly from horizontal (`0°`) to vertical (`90°`) through the traced joint anchor while preserving the active Dip Direction and keeping the plane pinned to the traced joint center and hinge axis.
-  - Synchronize the 3D viewport gizmo drag, stereonet drag, Dip Direction slider, Dip Amount slider, and Trace Hinge slider so all controls update the 3D plane in real time without fighting or resetting each other.
-
-### C. Fix 90° Vertical Dip 180° Opposite Compass & Azimuth Bug
-- **Preserve Drawn Dip Direction at 90° Vertical Dip (`src/engine/joint3DInspectorEngine.ts`)**:
-  - In `constructJointPlane`:
-    - Ensure that at `dip = 90°` ($\cos(90^\circ) = 0, \sin(90^\circ) = 1$), the horizontal normal vector `(nx, ny) = (cos(relDip), sin(relDip))` and strike vector `(sx, sy) = (sin(relDip), -cos(relDip))` point strictly in `dipDirectionDeg` without floating-point sign inversion when `nz = 0`.
-  - In `constructPlaneFromTraceHinge`:
-    - Remove the unconditional `if (rawGeoStrike >= 180) { ux = -ux; uy = -uy; }` flip that forced all vertical/hinged traces into the `0°–180°` strike hemisphere and inverted `derivedDipDirectionDeg` by `180°` whenever a trace was drawn in the `180°–360°` orientation.
-    - When `nc` approaches `0` (`dip = 90°`), prevent `signZ = nc >= 0 ? 1 : -1` from flipping `(gradX, gradY)` by 180° due to floating-point `-0` or negative trace vertical component; instead, align the horizontal normal with the user's active `dipDirection` hemisphere.
-- **3D Compass Rose & Vector Arrow Sync (`src/components/NatmJoint3DInspectorModal.tsx`)**:
-  - Add a live **Dip Direction indicator arrow** on the 3D Compass Rose overlay that points in the exact `dipDirection` azimuth (relative to North and Tunnel Drive Axis), matching the 3D plane's amber dip arrow, stereonet handle, and numeric `Dip / Dip Direction / Strike (RHR)` readouts at all dip angles including `90°`.
+- **Confirmed Decision 1 — Two Custom Shape Modes Only**: The Custom Shape & Size workspace is streamlined to display strictly two top-level modes:
+  1. **Manual Design Builder**: The existing step-by-step manual design mode.
+  2. **Simple CAD Builder**: A clean, distraction-free 1m CAD grid canvas without extra sidebars, sliders, or template clutter.
+- **Confirmed Decision 2 — Direct Grid Drawing with Live Length, Angle & Snap**: In the Simple CAD Builder, users draw lines and arcs directly by clicking points on the 1m grid with real-time length ($m$), angle ($^\circ$), and grid/endpoint snap readouts at the cursor.
+- **Confirmed Decision 3 — Automatic Portion Detection & Open Undrawn Sides**: Drawn segments in the Simple CAD Builder are automatically classified into **Left Wall**, **Crown**, **Right Wall**, or **Invert** from their spatial coordinates, and any side where no line/arc is drawn automatically remains **Open**.
+- **Confirmed Decision 4 — Pure Input-Only Surface Mapping & Domain Terminology in 3D Inspector**: Surface Mapping (`BENCH`, `TRENCH`, `SLOPE`, `ROCK_SURFACE`) strictly propagates `mappingDomain` to all active locations and rounds so bench/heading "unexcavated" hatching never triggers, only user-input portions are rendered in 2D/3D, and all underground tunnel labels in the 3D Joint Inspector are replaced with surface-specific terminology.
 
 ---
 
-## 3. Verification Criteria
-- **3D Tunnel Shape & Size**: Switching tunnel shape between D-Shaped, Horseshoe, Modified Horseshoe, Circular, Rectangular, and Custom Profile immediately renders the exact matching 3D tunnel cross-section and dimensions in the 3D Joint Inspector.
-- **Face & Wall Dip Direction & Dip Amount Rotation**: Sliding either Dip Direction or Dip Amount on any Face or Wall joint smoothly tilts and rotates the 3D plane anchored to the traced joint without detaching or popping up a blocking modal.
-- **90° Vertical Dip Consistency**: Setting Dip Amount to `90°` at any Dip Direction (e.g., `045°`, `135°`, `225°`, `315°`) displays the exact same azimuth across the 3D plane normal/dip arrows, 3D Compass Rose, stereonet, and numerical readouts with zero `180°` inversion.
+## 1. Overview & Core Concept
+
+- **What It Does**:
+  1. **Custom Shape & Size Workspace**: Replaces the multi-tab clutter with a clean 2-tab switcher (**1. Manual Design Builder** and **2. Simple CAD Builder**). In Simple CAD Builder, engineers draw straight lines or 3-point/sagitta arcs directly on a 1m CAD coordinate grid; drawn segments auto-assign to tunnel portions and any omitted side stays Open.
+  2. **Surface Mapping Canvas & 3D Joint Inspector**: Ensures Surface Mapping canvases never show hatched "Unexcavated" or "Top Heading" lock zones, renders only the exact surfaces and dimensions entered by the user in both 2D and 3D, and converts all remaining underground tunnel terminology in the 3D Joint Inspector (such as *"Tunnel Cavity"*, *"Tunnel Heading"*, *"Tunnel Drive"*, *"Crown Arch"*, and *"Portal"*) to domain-native surface terms.
+- **Target Audience / Persona**: Engineering geologists and tunnel/slope designers configuring custom excavation profiles or inspecting mapped surface discontinuities in 3D.
+- **Key Value**: Fast, zero-clutter CAD profile creation where open excavation boundaries require zero extra configuration, paired with clean, domain-accurate Surface Mapping canvases and 3D inspection.
+
+---
+
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  1. **Opening Custom Shape & Size**:
+     - The header presents a 2-option segmented toggle: **1. Manual Design Builder** and **2. Simple CAD Builder**.
+  2. **Drawing in Simple CAD Builder**:
+     - A full-viewport 1m engineering CAD grid with a minimal top bar containing only essential CAD tools: **Line**, **Arc**, **Select / Move Vertex**, **Delete Segment**, **Snap Toggle (0.1m / 0.5m / Endpoint)**, **Undo**, **Clear**, and **Apply Shape**.
+     - Clicking on the grid places vertices with a live floating cursor readout showing exact segment length ($m$), angle ($^\circ$), and snapped $(X, Y)$ coordinates.
+     - As segments are placed, each segment displays a clean on-canvas label (`LEFT WALL · 4.20m`, `CROWN ARC · 8.65m`, `RIGHT WALL · 4.20m`). Any side without a drawn line or arc is automatically marked **OPEN** in the live status strip and applied directly to the Face Canvas and 3D Inspector without fake closing lines.
+  3. **Surface Mapping Canvas & 3D Joint Inspector**:
+     - The 2D Face and Portion canvases show only the exact rectangular or multi-panel dimensions entered by the user—never split or hatched with "Unexcavated" or "Top Heading" overlays.
+     - In the 3D Joint Inspector, the 3D viewport renders only the user's configured surface portion(s) without adding extra unrequested aprons or unexcavated rock blocks, and every control label, table header, and tooltip uses surface terminology (*"Into Slope / Rock Mass"* vs. *"Daylighting / Out of Face"*, *"Face Azimuth"*, *"Surface Portion"*, *"Section Span"*).
+- **Visual Identity & Theme**:
+  - **Aesthetic Direction**: High-precision engineering CAD instrumentation—flat obsidian/slate structural panels (`#0B0E17` / `#0F172A`), crisp 1px hairline grid lines, and high-contrast tabular monospace readouts (`IBM Plex Mono` / `JetBrains Mono` with `tabular-nums`).
+  - **Color Palette & Mood**: 60% neutral CAD canvas, 30% slate toolbar chrome, 10% semantic portion accents (Emerald `#10B981` for Left Wall, Cyan `#38BDF8` for Crown, Purple `#A855F7` for Right Wall, Amber `#F59E0B` for Invert/Base).
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Two-Mode Custom Shape Architecture**
+  - *Chosen Approach*: Consolidate the Custom Shape & Size editor into strictly **1. Manual Design Builder** and **2. Simple CAD Builder**, removing extra tabs, sidebars, sliders, and text boxes from the Simple CAD view.
+  - *Why*: Eliminates cognitive overhead and gives engineers a pure CAD drawing window alongside the structured manual builder.
+- **Decision 2: Implicit Open Boundaries When No Line Is Drawn**
+  - *Chosen Approach*: Evaluate the drawn CAD segments spatially relative to the profile bounding box and centerline; assign present segments to `leftWall`, `crown`, `rightWall`, or `invert`, and mark any unassigned boundary role as `hasLeftWall: false`, `hasCrown: false`, `hasRightWall: false`, or `hasInvert: false` (`isClosed: false`).
+  - *Why*: Matches standard CAD convention—if a boundary line is not drawn, that side of the excavation is open.
+- **Decision 3: Strict Domain Propagation & Terminology Adaptation in Surface Mapping**
+  - *Chosen Approach*: Attach `mappingDomain` directly onto `activeLocation` and `activeRound` objects and use a domain-aware terminology helper across `NatmJoint3DInspectorModal`.
+  - *Why*: Prevents underground bench-hatching logic from ever activating in Surface Mapping and ensures all 3D Joint Inspector panels speak native surface geology language.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+- **Architecture & Component Diagram**:
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                    Custom Shape & Size Editor Workspace                   │
+├─────────────────────────────────────┬─────────────────────────────────────┤
+│      1. Manual Design Builder       │        2. Simple CAD Builder        │
+│  (Existing Step-by-Step Builder)    │  • Full-Viewport 1m CAD Grid        │
+│                                     │  • Tools: Line | Arc | Move | Erase │
+│                                     │  • Live Cursor (L, Angle, Snap X,Y) │
+│                                     │  • Auto Portion Role + Missing=Open │
+└──────────────────┬──────────────────┴──────────────────┬──────────────────┘
+                   └──────────────────┬──────────────────┘
+                                      ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│            Authoritative Custom Geometry & Domain State Store             │
+│  • Preserves Open Sides (hasLeftWall / hasCrown / hasRightWall / Invert)  │
+│  • Stamps mappingDomain onto activeLocation & activeRound                 │
+└──────────────────┬─────────────────────────────────────┬──────────────────┘
+                   ▼                                     ▼
+┌─────────────────────────────────────┐ ┌───────────────────────────────────┐
+│   2D Field & Surface Canvas Engine  │ │     3D Joint Inspector Modal      │
+│  • Zero "Unexcavated" Hatching in   │ │  • Renders Only Input Portions    │
+│    Surface Mapping                  │ │  • Pure Surface Terminology       │
+│  • Exact Input Dimensions Only      │ │  • Portion-Adaptive Trace Hinge   │
+└─────────────────────────────────────┘ └───────────────────────────────────┘
+```
+
+- **Interactive Component & State Mapping**:
+  - **Simple CAD Canvas Interaction**:
+    - `LINE` tool: Click start point $P_1 \to$ move cursor with live length $L = \sqrt{\Delta x^2 + \Delta y^2}$ and angle $\theta = \text{atan2}(\Delta y, \Delta x) \to$ click end point $P_2$ to commit segment and chain from $P_2$ (`Esc` or double-click ends chain).
+    - `ARC` tool: Click start point $P_1 \to$ click end point $P_2 \to$ move cursor to set arc apex/sagitta height with live arc length readout $\to$ click to commit circular arc segment.
+    - `MOVE` / `ERASE` tools: Drag any vertex to adjust coordinates with live snap, or click any segment to remove it (immediately reopening that portion if no other segment occupies that boundary).
+    - Auto-role classifier: Computes each segment's centroid and orientation relative to the overall profile bounds $(X_{\min}, X_{\max}, Y_{\min}, Y_{\max})$ to classify into `leftWall`, `crown`, `rightWall`, or `invert`, setting missing roles to Open (`false`).
+  - **Surface Mapping Clean Canvas & 3D Inspector**:
+    - Stamp `mappingDomain` onto `activeLocation` and `activeRound` so `getExcavationBenchConfig` and `getPanelActiveExcavationBounds` always return `hasBenchDivision: false` and `hatchZone: 'none'` in Surface Mapping.
+    - Remove the extra unsolicited `toeApronDepth` floor mesh in Surface Mapping 3D view when not mapped, rendering strictly the user-configured portion plane(s).
+    - Replace all remaining underground tunnel strings in `NatmJoint3DInspectorModal` with domain-aware labels when `isSurfaceMapping` is active.

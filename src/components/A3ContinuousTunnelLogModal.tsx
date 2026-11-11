@@ -14,6 +14,7 @@ import {
   ArrowRight,
   RefreshCw,
   Download,
+  Upload,
 } from 'lucide-react';
 import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
 import { SavedProjectRecord } from '../types/tunnel';
@@ -28,6 +29,7 @@ import {
   computeContinuous3DJointInspectionSchedule,
   computeContinuousStripFemDemProfile,
   computeContinuousAdvancedGeotechProfile,
+  exportContinuousStripToDXF,
   resolveStripTraceColor,
   UnifiedContinuousProjectItem,
   UnifiedContinuousLocationItem,
@@ -77,6 +79,8 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
       storedDatasets.find((d) => d.id === initialDatasetId) ||
       storedDatasets[0]
   );
+
+  const importJsonInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (propDataset) {
@@ -454,6 +458,89 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
               <RefreshCw className="w-3.5 h-3.5" />
               Sync Drawn Strip Log
             </button>
+
+            <button
+              onClick={() => {
+                const dxfContent = exportContinuousStripToDXF(dataset);
+                const blob = new Blob([dxfContent], { type: 'application/dxf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(dataset.projectName || 'Project').replace(/\s+/g, '_')}_${(dataset.tunnelLocationName || 'Tunnel').replace(/\s+/g, '_')}_RD_${dataset.viewFromRd}_${dataset.viewToRd}m.dxf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold transition-all cursor-pointer"
+              title="Export Continuous Strip Log as AutoCAD DXF"
+            >
+              <Download className="w-3.5 h-3.5 text-cyan-400" />
+              Export DXF
+            </button>
+
+            <button
+              onClick={() => {
+                const jsonContent = JSON.stringify(dataset, null, 2);
+                const blob = new Blob([jsonContent], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(dataset.projectName || 'Project').replace(/\s+/g, '_')}_${(dataset.tunnelLocationName || 'Tunnel').replace(/\s+/g, '_')}_3D_Log.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold transition-all cursor-pointer"
+              title="Export Continuous 3D Log Dataset as JSON"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              Export JSON
+            </button>
+
+            <button
+              onClick={() => importJsonInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold transition-all cursor-pointer"
+              title="Import Continuous 3D Log Dataset from JSON"
+            >
+              <Upload className="w-3.5 h-3.5 text-amber-400" />
+              Import JSON
+            </button>
+            <input
+              ref={importJsonInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  try {
+                    const parsed = JSON.parse(String(ev.target?.result || ''));
+                    const candidate: ContinuousTunnelStripDataset | null =
+                      parsed && Array.isArray(parsed.pulls) && Array.isArray(parsed.traces)
+                        ? parsed
+                        : parsed?.dataset && Array.isArray(parsed.dataset.pulls)
+                        ? parsed.dataset
+                        : null;
+                    if (candidate) {
+                      const imported: ContinuousTunnelStripDataset = {
+                        ...candidate,
+                        id: candidate.id || `imported-ds-${Date.now()}`,
+                        updatedAt: new Date().toISOString(),
+                      };
+                      handleSaveCadEdits(imported);
+                    }
+                  } catch {
+                    // ignore invalid file
+                  }
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+              }}
+            />
 
             <button
               onClick={() => exportContinuousTunnelLogAsA3Pdf(dataset)}

@@ -32,6 +32,12 @@ import {
   FieldJointTrace,
 } from './fieldMappingEngine';
 import { matchLithologyReference } from './femDemAnalysisEngine';
+import {
+  loadTbmProjects,
+  loadTbmLocations,
+  loadTbmExcavationRecords,
+} from './tbmStorageEngine';
+import { TbmExcavationRecord } from '../types/tbm';
 
 export type { Point2D };
 
@@ -304,6 +310,12 @@ export interface ContinuousTunnelStripDataset {
   rightWallHeightM?: number;
   tunnelDiameterWidthM?: number;
   tunnelArchHeightM?: number;
+  tunnelShape?: string;
+  customCrossSectionPoints?: Point2D[];
+  hasLeftWall?: boolean;
+  hasCrown?: boolean;
+  hasRightWall?: boolean;
+  hasInvert?: boolean;
   overburdenDepthM?: number;
   viewFromRd: number;
   viewToRd: number;
@@ -326,7 +338,7 @@ export interface ContinuousTunnelStripDataset {
   updatedAt: string;
 }
 
-const STORAGE_KEY = 'eswa_continuous_3d_strip_datasets_v20_fresh';
+const STORAGE_KEY = 'eswa_continuous_3d_strip_datasets_v21_clean';
 
 export function getDefaultSheetConfig(
   dataset?: Partial<ContinuousTunnelStripDataset>
@@ -2081,16 +2093,13 @@ export function buildSmoothRibbonTransform(
 }
 
 export function seedSampleContinuousStripDatasets(): ContinuousTunnelStripDataset[] {
-  const sampleDatasets = [
-    createPowerTunnelReferenceDataset(),
-    createAdaniRithwikReferenceDataset(),
-  ];
+  const freshDatasets = [createFreshDefaultStripDataset()];
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sampleDatasets));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(freshDatasets));
   } catch {
     // ignore storage quota errors
   }
-  return sampleDatasets;
+  return freshDatasets;
 }
 
 export function loadAllContinuousStripDatasets(): ContinuousTunnelStripDataset[] {
@@ -2941,6 +2950,12 @@ export function syncSavedProjectsIntoStripDatasets(
         rightWallHeightM: rightWallArc,
         tunnelDiameterWidthM: firstGeom?.width || 8.4,
         tunnelArchHeightM: firstGeom?.height || 7.2,
+        tunnelShape: firstGeom?.crownGeometry || 'horseshoe',
+        customCrossSectionPoints: firstGeom?.crossSectionPoints,
+        hasLeftWall: firstGeom?.hasLeftWall ?? true,
+        hasCrown: firstGeom?.hasCrown ?? true,
+        hasRightWall: firstGeom?.hasRightWall ?? true,
+        hasInvert: firstGeom?.hasInvert ?? false,
         viewFromRd: 0,
         viewToRd: 30,
         leftCornerAzimuthLabel: `${String(oppDeg).padStart(3, '0')}°N`,
@@ -2968,6 +2983,14 @@ export function syncSavedProjectsIntoStripDatasets(
       dataset.rightWallHeightM = rightWallArc;
       dataset.tunnelDiameterWidthM = firstGeom?.width || dataset.tunnelDiameterWidthM;
       dataset.tunnelArchHeightM = firstGeom?.height || dataset.tunnelArchHeightM;
+      dataset.tunnelShape = firstGeom?.crownGeometry || dataset.tunnelShape || 'horseshoe';
+      if (firstGeom?.crossSectionPoints && firstGeom.crossSectionPoints.length >= 2) {
+        dataset.customCrossSectionPoints = firstGeom.crossSectionPoints;
+      }
+      dataset.hasLeftWall = firstGeom?.hasLeftWall ?? dataset.hasLeftWall ?? true;
+      dataset.hasCrown = firstGeom?.hasCrown ?? dataset.hasCrown ?? true;
+      dataset.hasRightWall = firstGeom?.hasRightWall ?? dataset.hasRightWall ?? true;
+      dataset.hasInvert = firstGeom?.hasInvert ?? dataset.hasInvert ?? false;
     }
 
     // Purge all previous auto-synced items before re-populating strictly from Wall & Crown surfaces (leftWall, crown, rightWall).
@@ -3696,9 +3719,10 @@ export interface UnifiedContinuousRoundItem {
   steelRibSpacingM: number;
   shaftHalfSide?: 'left_half' | 'right_half';
   shaftCenterMedianStatus?: 'closed' | 'open';
-  sourceType: 'FIELD_STORE' | 'SAVED_PROJECT';
+  sourceType: 'FIELD_STORE' | 'SAVED_PROJECT' | 'TBM_STORE';
   fieldRound?: FieldExcavationRound;
   savedRecord?: SavedProjectRecord;
+  tbmRecord?: TbmExcavationRecord;
 }
 
 export interface UnifiedContinuousLocationItem {
@@ -3707,6 +3731,16 @@ export interface UnifiedContinuousLocationItem {
   excavationMode: 'TUNNEL' | 'SHAFT';
   diameterWidthM: number;
   heightM: number;
+  totalHeightM?: number;
+  leftWallArcLengthM?: number;
+  crownArcLengthM?: number;
+  rightWallArcLengthM?: number;
+  tunnelShape?: string;
+  customCrossSectionPoints?: Point2D[];
+  hasLeftWall?: boolean;
+  hasCrown?: boolean;
+  hasRightWall?: boolean;
+  hasInvert?: boolean;
   driveAzimuthDeg: number;
   overburdenDepthM: number;
   excavationApproach?: 'full_face' | 'top_heading_and_benching' | 'top_heading' | 'benching' | 'half_face';
@@ -3728,18 +3762,43 @@ export interface UnifiedContinuousProjectItem {
 
 /**
  * Discovers and merges all logged Tunnel and Vertical Shaft projects, locations, and rounds
- * from both Underground Face Mapping (`loadFieldMappingStore`) and `savedProjects`.
+ * from Underground Face Mapping (`loadFieldMappingStore`), `savedProjects`, and TBM Ring Records.
  */
 export function getUnifiedContinuousProjectsAndLocations(
   excavationMode: 'TUNNEL' | 'SHAFT',
   savedProjects: SavedProjectRecord[] = []
 ): UnifiedContinuousProjectItem[] {
-  const subMode = excavationMode === 'SHAFT' ? 'vertical_shaft' : 'tunnel';
-  const fieldStore = loadFieldMappingStore('TUNNEL', subMode);
+  const tunnelStore = loadFieldMappingStore('TUNNEL', 'tunnel');
+  const shaftStore = loadFieldMappingStore('TUNNEL', 'vertical_shaft');
+
+  const mergedProjectsMap = new Map<string, FieldProjectItem>();
+  for (const p of [...(tunnelStore.projects || []), ...(shaftStore.projects || [])]) {
+    const existing = mergedProjectsMap.get(p.id);
+    if (!existing) {
+      mergedProjectsMap.set(p.id, { ...p, locations: [...(p.locations || [])] });
+    } else {
+      const locIds = new Set(existing.locations.map((l) => l.id));
+      for (const l of p.locations || []) {
+        if (!locIds.has(l.id)) {
+          existing.locations.push(l);
+          locIds.add(l.id);
+        }
+      }
+    }
+  }
+
+  const mergedRoundsMap = new Map<string, FieldExcavationRound>();
+  for (const r of [...(tunnelStore.rounds || []), ...(shaftStore.rounds || [])]) {
+    if (!mergedRoundsMap.has(r.id)) {
+      mergedRoundsMap.set(r.id, r);
+    }
+  }
+  const allFieldRounds = Array.from(mergedRoundsMap.values());
+
   const projectMap = new Map<string, UnifiedContinuousProjectItem>();
 
-  // 1. Load from Field Mapping Store (Underground Face Mapping)
-  for (const fp of fieldStore.projects || []) {
+  // 1. Load from Field Mapping Store (Underground Face Mapping & Vertical Shaft)
+  for (const fp of Array.from(mergedProjectsMap.values())) {
     const matchingLocs = (fp.locations || []).filter((loc) =>
       excavationMode === 'SHAFT'
         ? loc.undergroundSubMode === 'vertical_shaft' || fp.undergroundSubMode === 'vertical_shaft'
@@ -3763,7 +3822,7 @@ export function getUnifiedContinuousProjectsAndLocations(
     }
 
     for (const loc of matchingLocs) {
-      const locRounds = (fieldStore.rounds || []).filter(
+      const locRounds = allFieldRounds.filter(
         (r) => r.locationId === loc.id || (r.projectId === fp.id && (fp.locations || []).length === 1)
       );
       const rounds: UnifiedContinuousRoundItem[] = locRounds
@@ -3852,7 +3911,7 @@ export function getUnifiedContinuousProjectsAndLocations(
             rqdPct: Math.round(rqdPct),
             intactUcsMpa: Number(ucsMpa.toFixed(1)),
             overburdenDepthM: Number(overburdenDepthM.toFixed(1)),
-            traceCount: (r.jointTraces || []).filter((tr) => tr.panel !== 'face').length,
+            traceCount: (r.jointTraces || []).length,
             supportSummary: `Bolts L=${boltLengthM}m @ ${boltSpacingM}m | Shotcrete ${shotcreteThicknessMm}mm${steelRibSpacingM ? ` | Ribs @ ${steelRibSpacingM}m` : ''}`,
             boltLengthM,
             boltSpacingM,
@@ -3885,6 +3944,16 @@ export function getUnifiedContinuousProjectsAndLocations(
         excavationMode,
         diameterWidthM: loc.widthM || 8.0,
         heightM: loc.wallHeightM || loc.heightM || 6.0,
+        totalHeightM: loc.heightM || (loc.wallHeightM ? loc.wallHeightM + (loc.widthM || 8.0) * 0.35 : 7.5),
+        leftWallArcLengthM: loc.leftWallLengthM,
+        crownArcLengthM: loc.crownLengthM,
+        rightWallArcLengthM: loc.rightWallLengthM,
+        tunnelShape: loc.shape || 'horseshoe',
+        customCrossSectionPoints: loc.customCrossSectionPoints,
+        hasLeftWall: loc.hasLeftWall ?? loc.customGeometry?.hasLeftWall ?? true,
+        hasCrown: loc.hasCrown ?? loc.customGeometry?.hasCrown ?? true,
+        hasRightWall: loc.hasRightWall ?? loc.customGeometry?.hasRightWall ?? true,
+        hasInvert: loc.hasInvert ?? loc.customGeometry?.hasInvert ?? false,
         driveAzimuthDeg: loc.defaultDriveAzimuth || loc.directionDeg || 0,
         overburdenDepthM: firstRound?.femDemAnalysis?.overburdenDepthM || 110,
         excavationApproach: normalizedApproach,
@@ -3931,6 +4000,16 @@ export function getUnifiedContinuousProjectsAndLocations(
         excavationMode,
         diameterWidthM: rec.geometry?.width || 8.0,
         heightM: rec.geometry?.wallHeight || 5.0,
+        totalHeightM: rec.geometry?.height || 7.2,
+        leftWallArcLengthM: rec.geometry?.leftWallArcLength,
+        crownArcLengthM: rec.geometry?.crownArcLength,
+        rightWallArcLengthM: rec.geometry?.rightWallArcLength,
+        tunnelShape: rec.geometry?.crownGeometry || 'horseshoe',
+        customCrossSectionPoints: rec.geometry?.crossSectionPoints,
+        hasLeftWall: rec.geometry?.hasLeftWall ?? true,
+        hasCrown: rec.geometry?.hasCrown ?? true,
+        hasRightWall: rec.geometry?.hasRightWall ?? true,
+        hasInvert: rec.geometry?.hasInvert ?? false,
         driveAzimuthDeg: rec.settings?.driveDirection ?? 45,
         overburdenDepthM: 110,
         rounds: [],
@@ -3980,7 +4059,7 @@ export function getUnifiedContinuousProjectsAndLocations(
         rqdPct: Math.round(rqdVal),
         intactUcsMpa: Number(ucsVal.toFixed(1)),
         overburdenDepthM: 110,
-        traceCount: (rec.joints || []).filter((j) => j.surface !== 'face').length,
+        traceCount: (rec.joints || []).length,
         supportSummary: derived.supportDescription || 'Systematic Rock Bolts + Shotcrete',
         boltLengthM: 4.0,
         boltSpacingM: 1.5,
@@ -3990,6 +4069,109 @@ export function getUnifiedContinuousProjectsAndLocations(
         savedRecord: rec,
       });
       locEntry.rounds.sort((a, b) => a.fromRd - b.fromRd);
+    }
+  }
+
+  // 3. Also merge TBM Mechanized Tunneling Projects, Locations & Ring Records when in TUNNEL mode
+  if (excavationMode === 'TUNNEL') {
+    const tbmProjects = loadTbmProjects();
+    const tbmLocations = loadTbmLocations();
+    const tbmRecords = loadTbmExcavationRecords();
+
+    for (const tp of tbmProjects) {
+      const pName = (tp.projectName || 'TBM Tunnel Project').trim();
+      const projKey = pName.toLowerCase();
+      let projEntry = projectMap.get(projKey);
+      if (!projEntry) {
+        projEntry = {
+          id: tp.id,
+          projectName: pName,
+          clientName: tp.client || 'Project Client',
+          contractorName: tp.contractor || 'TBM Contractor',
+          excavationMode: 'TUNNEL',
+          locations: [],
+        };
+        projectMap.set(projKey, projEntry);
+      }
+
+      const projLocs = tbmLocations.filter((l) => l.projectId === tp.id);
+      for (const tl of projLocs) {
+        const diam = Number(tl.cutterheadDiameterM || tp.tunnelDiameterM || 6.4);
+        const locRecs = tbmRecords.filter((r) => r.locationId === tl.id);
+        const tbmRounds: UnifiedContinuousRoundItem[] = locRecs
+          .map((tr, idx) => {
+            const cRec = tr.chainageRecord;
+            const sRd = Number(cRec?.startChainage ?? idx * 1.5);
+            const eRd = Number(cRec?.endChainage ?? sRd + 1.5);
+            const fromRd = Math.min(sRd, eRd);
+            const toRd = Math.max(sRd, eRd, fromRd + 0.5);
+            const pullLen = Math.max(0.5, toRd - fromRd);
+            const qVal = Number(tr.classification?.calculatedQ ?? 6.0);
+            const rmrVal = Math.round(tr.classification?.calculatedRmr ?? 62);
+            const gsiVal = Math.round(tr.classification?.gsiScore ?? Math.max(20, rmrVal - 5));
+            const rqdVal = Math.round(tr.classification?.rqdPercent ?? 75);
+            const ucsVal = Number(tr.geology?.intactStrengthEstimatedMpa ?? 85);
+            const supportDesc =
+              tr.supportLining?.liningType === 'PRECAST_SEGMENT'
+                ? `Precast Segment Ring #${cRec?.ringNumber || idx + 1} (${tr.supportLining.ringTypeUniversal})`
+                : `TBM Open Support L=${tr.supportLining?.rockboltLengthM || 3.5}m + ${tr.supportLining?.shotcreteThicknessMm || 100}mm Shotcrete`;
+
+            return {
+              id: tr.id,
+              roundNumber: cRec?.ringNumber || idx + 1,
+              fromRd: Number(fromRd.toFixed(2)),
+              toRd: Number(toRd.toFixed(2)),
+              pullLengthM: Number(pullLen.toFixed(2)),
+              date: (cRec?.timestamp || tr.createdAt || new Date().toISOString()).slice(0, 10),
+              excavationMode: 'TUNNEL' as const,
+              excavationMethod: `TBM (${tl.tbmType})`,
+              rockType: tr.geology?.mainLithology || 'Basalt / Gneiss',
+              rockClass: tr.classification?.rmrClassLabel || 'Class II (Good)',
+              qValue: Number(qVal.toFixed(2)),
+              rmrValue: rmrVal,
+              gsiValue: gsiVal,
+              rqdPct: rqdVal,
+              intactUcsMpa: Number(ucsVal.toFixed(1)),
+              overburdenDepthM: tp.expectedOverburdenM?.max || 95,
+              traceCount: (tr.geology?.discontinuities || []).length,
+              supportSummary: supportDesc,
+              boltLengthM: tr.supportLining?.rockboltLengthM || 3.5,
+              boltSpacingM: 1.5,
+              shotcreteThicknessMm: tr.supportLining?.shotcreteThicknessMm || 250,
+              steelRibSpacingM: tr.supportLining?.steelRibsSpacingM || 0,
+              sourceType: 'TBM_STORE' as const,
+              tbmRecord: tr,
+            };
+          })
+          .sort((a, b) => a.fromRd - b.fromRd);
+
+        const existingLoc = projEntry.locations.find(
+          (l) => l.name.toLowerCase() === (tl.locationName || '').trim().toLowerCase()
+        );
+        if (!existingLoc) {
+          const perimThird = Number(((Math.PI * diam) / 3).toFixed(2));
+          projEntry.locations.push({
+            id: tl.id,
+            name: `${tl.locationName.trim()} (TBM Ø${diam.toFixed(1)}m)`,
+            excavationMode: 'TUNNEL',
+            diameterWidthM: diam,
+            heightM: Number((diam * 0.5).toFixed(2)),
+            totalHeightM: diam,
+            leftWallArcLengthM: perimThird,
+            crownArcLengthM: perimThird,
+            rightWallArcLengthM: perimThird,
+            tunnelShape: (tp.tunnelProfile || 'CIRCULAR').toLowerCase(),
+            hasLeftWall: true,
+            hasCrown: true,
+            hasRightWall: true,
+            hasInvert: true,
+            driveAzimuthDeg: 0,
+            overburdenDepthM: tp.expectedOverburdenM?.max || 95,
+            excavationApproach: 'full_face',
+            rounds: tbmRounds,
+          });
+        }
+      }
     }
   }
 
@@ -4070,17 +4252,24 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
   const isShaft = excavationMode === 'SHAFT';
   const spanDiameterM = locationItem.diameterWidthM || 8.0;
   const wallHeightM = locationItem.heightM || 6.0;
+  const totalArchHeightM =
+    locationItem.totalHeightM ||
+    (isShaft ? spanDiameterM : Math.max(wallHeightM + 1.5, wallHeightM + spanDiameterM * 0.35));
   const driveAz = locationItem.driveAzimuthDeg || 0;
 
-  // Compute perimeter unfolding geometry
+  // Compute perimeter unfolding geometry using exact fed arc lengths when provided
   const shaftQuadArcM = Number(((Math.PI * spanDiameterM) / 4).toFixed(2));
   const shaftTotalPerimM = Number((shaftQuadArcM * 4).toFixed(2));
 
-  const leftWallArcM = isShaft ? shaftQuadArcM : Number(wallHeightM.toFixed(2));
+  const leftWallArcM = isShaft
+    ? shaftQuadArcM
+    : Number((locationItem.leftWallArcLengthM || wallHeightM).toFixed(2));
   const crownArcM = isShaft
     ? shaftQuadArcM
-    : Number((spanDiameterM * 1.15).toFixed(2));
-  const rightWallArcM = isShaft ? shaftQuadArcM : Number(wallHeightM.toFixed(2));
+    : Number((locationItem.crownArcLengthM || spanDiameterM * 1.15).toFixed(2));
+  const rightWallArcM = isShaft
+    ? shaftQuadArcM
+    : Number((locationItem.rightWallArcLengthM || wallHeightM).toFixed(2));
   const shaftSnArcM = isShaft ? shaftQuadArcM : 0;
 
   const upperZoneWidthM = isShaft
@@ -4256,9 +4445,7 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
         };
       };
 
-      const nonFaceTraces = (fRound.jointTraces || []).filter((tr) => tr.panel !== 'face');
-      const panelTraces =
-        nonFaceTraces.length > 0 ? nonFaceTraces : fRound.jointTraces || [];
+      const panelTraces = fRound.jointTraces || [];
 
       for (const tr of panelTraces) {
         if (!tr.points || tr.points.length < 2) continue;
@@ -4530,6 +4717,63 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
           customLabel: j.set || j.id,
         });
       }
+    } else if (rItem.tbmRecord) {
+      // Unfold from TbmExcavationRecord discontinuities
+      const tbmRec = rItem.tbmRecord;
+      const discs = tbmRec.geology?.discontinuities || [];
+      discs.forEach((disc, dIdx) => {
+        const dipDir = Math.round(disc.dipDirectionDeg || 120);
+        const dipAng = Math.round(disc.dipDeg || 60);
+        const yCenter = ((dIdx + 1) / (discs.length + 1)) * totalPerimM;
+        const ySpan = Math.min(totalPerimM * 0.35, Math.max(1.5, disc.persistenceMeters || 3.2));
+        const p1: Point2D = {
+          x: Number((clipFromRd + roundLen * 0.15).toFixed(3)),
+          y: Number(Math.max(0.1, yCenter - ySpan * 0.5).toFixed(3)),
+        };
+        const p2: Point2D = {
+          x: Number((clipToRd - roundLen * 0.15).toFixed(3)),
+          y: Number(Math.min(totalPerimM - 0.1, yCenter + ySpan * 0.5).toFixed(3)),
+        };
+        const setKey = `J${disc.setNumber || dIdx + 1}`;
+        traces.push({
+          id: `tr-tbm-${tbmRec.id}-${disc.id || dIdx}`,
+          structureType:
+            disc.type === 'FAULT'
+              ? 'Main Fault'
+              : disc.type === 'SHEAR_ZONE'
+              ? 'Shear'
+              : disc.type === 'FOLIATION' || disc.type === 'BEDDING'
+              ? 'JS1 - Foliation'
+              : 'JS2 - Main Joint',
+          setId: setKey,
+          orientationLabel: `${String(dipDir).padStart(3, '0')}/${String(dipAng).padStart(2, '0')}`,
+          dipDirectionDeg: dipDir,
+          dipDeg: dipAng,
+          dipTickSide: dipDir >= 180 ? 'left' : 'right',
+          fillingThickness: disc.apertureMm >= 5 ? 'Thick' : 'Thin',
+          points: [p1, p2],
+          rawPoints: [{ ...p1 }, { ...p2 }],
+          sourceSurface:
+            yCenter <= leftWallArcM
+              ? 'leftWall'
+              : yCenter <= leftWallArcM + crownArcM
+              ? 'crown'
+              : 'rightWall',
+          colorHex:
+            disc.type === 'FAULT' || disc.type === 'SHEAR_ZONE'
+              ? '#dc2626'
+              : dIdx % 2 === 0
+              ? '#2563eb'
+              : '#ea580c',
+          roughness: disc.roughness || 'ROUGH',
+          jrc: disc.roughness === 'VERY_ROUGH' ? 16 : disc.roughness === 'ROUGH' ? 12 : 8,
+          jcsMpa: Number((rItem.intactUcsMpa * 0.75).toFixed(1)),
+          infilling: disc.infilling || 'Clean',
+          apertureMm: `${disc.apertureMm || 1}mm`,
+          waterCondition: disc.waterCondition || 'DRY',
+          customLabel: `${setKey} (${disc.type})`,
+        });
+      });
     }
   }
 
@@ -4607,7 +4851,13 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
     crownWidthM: spanDiameterM,
     rightWallHeightM: wallHeightM,
     tunnelDiameterWidthM: spanDiameterM,
-    tunnelArchHeightM: isShaft ? spanDiameterM / 2 : Math.max(1.8, spanDiameterM * 0.35),
+    tunnelArchHeightM: totalArchHeightM,
+    tunnelShape: locationItem.tunnelShape || (isShaft ? 'circular' : 'horseshoe'),
+    customCrossSectionPoints: locationItem.customCrossSectionPoints,
+    hasLeftWall: locationItem.hasLeftWall ?? true,
+    hasCrown: locationItem.hasCrown ?? true,
+    hasRightWall: locationItem.hasRightWall ?? true,
+    hasInvert: locationItem.hasInvert ?? false,
     overburdenDepthM: locationItem.overburdenDepthM || 110,
     viewFromRd: Number(viewFromRd.toFixed(2)),
     viewToRd: Number(viewToRd.toFixed(2)),
