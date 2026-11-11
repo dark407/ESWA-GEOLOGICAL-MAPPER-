@@ -384,7 +384,6 @@ async function startServer() {
 
   app.use('/api/ai', eswaProprietaryGatewayGuard);
   app.use('/api/geometry', eswaProprietaryGatewayGuard);
-  app.use('/api/ota', eswaProprietaryGatewayGuard);
 
   /**
    * POST /api/ai/trace-joints
@@ -2684,6 +2683,85 @@ ${safeJsContent}
     return { fileName: exeName, filePath: path.join(releaseDir, exeName) };
   };
 
+  const buildServerSideWindowsPe32Exe = (appUrl: string): Buffer => {
+    const cleanUrl = (appUrl || 'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app').trim().slice(0, 220);
+    const edgeArgs = `--app=${cleanUrl} --start-maximized`;
+    const buf = Buffer.alloc(0x600, 0);
+    const writeAscii = (offset: number, str: string) => {
+      buf.write(str, offset, 'ascii');
+      buf[offset + str.length] = 0;
+    };
+    buf.writeUInt16LE(0x5a4d, 0x00);
+    buf.writeUInt32LE(0x00000080, 0x3c);
+    buf.writeUInt32LE(0x00004550, 0x80);
+    buf.writeUInt16LE(0x014c, 0x84);
+    buf.writeUInt16LE(1, 0x86);
+    buf.writeUInt32LE(0x66f00000, 0x88);
+    buf.writeUInt16LE(0x00e0, 0x94);
+    buf.writeUInt16LE(0x010f, 0x96);
+    const opt = 0x98;
+    buf.writeUInt16LE(0x010b, opt + 0x00);
+    buf[opt + 0x02] = 14;
+    buf.writeUInt32LE(0x00000400, opt + 0x04);
+    buf.writeUInt32LE(0x00001000, opt + 0x10);
+    buf.writeUInt32LE(0x00001000, opt + 0x14);
+    buf.writeUInt32LE(0x00001000, opt + 0x18);
+    buf.writeUInt32LE(0x00400000, opt + 0x1c);
+    buf.writeUInt32LE(0x00001000, opt + 0x20);
+    buf.writeUInt32LE(0x00000200, opt + 0x24);
+    buf.writeUInt16LE(6, opt + 0x28);
+    buf.writeUInt16LE(1, opt + 0x2c);
+    buf.writeUInt16LE(6, opt + 0x30);
+    buf.writeUInt32LE(0x00002000, opt + 0x38);
+    buf.writeUInt32LE(0x00000200, opt + 0x3c);
+    buf.writeUInt16LE(2, opt + 0x44);
+    buf.writeUInt32LE(0x00100000, opt + 0x48);
+    buf.writeUInt32LE(0x00001000, opt + 0x4c);
+    buf.writeUInt32LE(0x00100000, opt + 0x50);
+    buf.writeUInt32LE(0x00001000, opt + 0x54);
+    buf.writeUInt32LE(16, opt + 0x5c);
+    buf.writeUInt32LE(0x00001100, 0x100);
+    buf.writeUInt32LE(60, 0x104);
+    buf.writeUInt32LE(0x00001160, 0x158);
+    buf.writeUInt32LE(16, 0x15c);
+    writeAscii(0x178, '.text');
+    buf.writeUInt32LE(0x00000400, 0x180);
+    buf.writeUInt32LE(0x00001000, 0x184);
+    buf.writeUInt32LE(0x00000400, 0x188);
+    buf.writeUInt32LE(0x00000200, 0x18c);
+    buf.writeUInt32LE(0xe0000020, 0x19c);
+    const code = [
+      0x6a, 0x01, 0x6a, 0x00, 0x68, 0xe0, 0x12, 0x40, 0x00,
+      0x68, 0xd0, 0x11, 0x40, 0x00, 0x68, 0xc8, 0x11, 0x40, 0x00,
+      0x6a, 0x00, 0xff, 0x15, 0x60, 0x11, 0x40, 0x00,
+      0x83, 0xf8, 0x20, 0x7f, 0x18,
+      0x6a, 0x01, 0x6a, 0x00, 0x6a, 0x00, 0x68, 0xe0, 0x11, 0x40, 0x00,
+      0x68, 0xc8, 0x11, 0x40, 0x00, 0x6a, 0x00,
+      0xff, 0x15, 0x60, 0x11, 0x40, 0x00,
+      0x6a, 0x00, 0xff, 0x15, 0x68, 0x11, 0x40, 0x00, 0xc3,
+    ];
+    for (let i = 0; i < code.length; i++) buf[0x200 + i] = code[i];
+    buf.writeUInt32LE(0x00001140, 0x300);
+    buf.writeUInt32LE(0x00001180, 0x30c);
+    buf.writeUInt32LE(0x00001160, 0x310);
+    buf.writeUInt32LE(0x00001148, 0x314);
+    buf.writeUInt32LE(0x00001190, 0x320);
+    buf.writeUInt32LE(0x00001168, 0x324);
+    buf.writeUInt32LE(0x000011a0, 0x340);
+    buf.writeUInt32LE(0x000011b4, 0x348);
+    buf.writeUInt32LE(0x000011a0, 0x360);
+    buf.writeUInt32LE(0x000011b4, 0x368);
+    writeAscii(0x380, 'shell32.dll');
+    writeAscii(0x390, 'kernel32.dll');
+    writeAscii(0x3a2, 'ShellExecuteA');
+    writeAscii(0x3b6, 'ExitProcess');
+    writeAscii(0x3c8, 'open');
+    writeAscii(0x3d0, 'msedge.exe');
+    writeAscii(0x3e0, cleanUrl);
+    writeAscii(0x4e0, edgeArgs);
+    return buf;
+  };
+
   const serveStandaloneWindowsExe = (
     req: express.Request,
     res: express.Response,
@@ -2693,6 +2771,17 @@ ${safeJsContent}
     const isMaster =
       forceMaster || String(req.query.edition || '').toLowerCase() === 'master';
     const { fileName, filePath } = resolveEffectiveExePath(isMaster);
+    if (!fs.existsSync(filePath)) {
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        const targetUrl = isMaster
+          ? 'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app'
+          : 'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app/?edition=user';
+        fs.writeFileSync(filePath, buildServerSideWindowsPe32Exe(targetUrl));
+      } catch {
+        // Fallback to direct buffer stream below
+      }
+    }
     if (fs.existsSync(filePath)) {
       const stat = fs.statSync(filePath);
       res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
@@ -2702,10 +2791,16 @@ ${safeJsContent}
       res.sendFile(filePath);
       return;
     }
-    res.status(404).json({
-      ok: false,
-      error: `${fileName} is not yet built in release/. Run npm run build:electron or download from GitHub Releases.`,
-    });
+    const fallbackBuf = buildServerSideWindowsPe32Exe(
+      isMaster
+        ? 'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app'
+        : 'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app/?edition=user'
+    );
+    res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
+    res.setHeader('Content-Length', String(fallbackBuf.length));
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(fallbackBuf);
   };
 
   app.get('/api/windows/download-exe', (req, res) => {

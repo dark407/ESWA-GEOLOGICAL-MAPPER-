@@ -1666,27 +1666,27 @@ export const RealtimeMobileSplitCompassModal: React.FC<RealtimeMobileSplitCompas
 
   return (
     <div
-      className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-md flex flex-col select-none overflow-hidden"
+      className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-md flex flex-col select-none overflow-hidden safe-area-inset-box"
       data-window="realtime-mobile-split-compass-modal"
     >
-      {/* TOP INSTRUMENT BAR */}
-      <div className="h-14 shrink-0 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 shrink-0">
-            <Smartphone className="w-5 h-5" />
+      {/* TOP INSTRUMENT BAR (Single-row horizontally scrollable on Android Portrait & Landscape) */}
+      <div className="min-h-12 sm:h-14 py-1 sm:py-0 shrink-0 bg-slate-900 border-b border-slate-800 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-3 overflow-x-auto no-scrollbar whitespace-nowrap">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
+          <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 shrink-0">
+            <Smartphone className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wider text-white truncate">
-                FieldMove Clino 3D Compass-Clinometer &amp; 3D Tunnel
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white truncate">
+                FieldMove Clino 3D Compass &amp; 3D Tunnel
               </h2>
-              <span className="text-xs font-mono text-amber-300 font-bold shrink-0">
+              <span className="text-[11px] sm:text-xs font-mono text-amber-300 font-bold shrink-0">
                 · {featureLabel} ({(activePanel || 'face').replace('_', ' ').toUpperCase()})
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 flex items-center gap-2 truncate">
+            <div className="text-[10px] sm:text-[11px] text-slate-400 flex items-center gap-1.5 sm:gap-2 truncate">
               <span>
-                Phone Heading:{' '}
+                Heading:{' '}
                 <strong className="text-red-400 font-mono">
                   {String(compassHeadingDeg).padStart(3, '0')}° {headingCardinalLabel}
                 </strong>
@@ -1698,8 +1698,8 @@ export const RealtimeMobileSplitCompassModal: React.FC<RealtimeMobileSplitCompas
                   {String(dipDirectionDeg).padStart(3, '0')}° / {String(dipAmountDeg).padStart(2, '0')}°
                 </strong>
               </span>
-              <span>·</span>
-              <span>
+              <span className="hidden md:inline">·</span>
+              <span className="hidden md:inline">
                 Sensor:{' '}
                 <strong className="text-cyan-300">
                   {sensorSourceType === 'ABSOLUTE_MAGNETOMETER'
@@ -1714,46 +1714,46 @@ export const RealtimeMobileSplitCompassModal: React.FC<RealtimeMobileSplitCompas
         </div>
 
         {/* Right Top Controls: Lock/Unlock + Confirm OK Options (Only Data vs Change Trace + Data) */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setIsLocked((prev) => !prev)}
-            className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer border transition-all ${
+            className={`min-h-[34px] sm:min-h-[40px] px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer border transition-all shrink-0 ${
               isLocked
                 ? 'bg-red-500 text-white border-red-300 shadow-lg'
                 : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/50'
             }`}
           >
-            {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-            <span className="hidden sm:inline">
-              {isLocked ? 'HOLD / LOCKED (Tap to Unlock)' : 'LIVE CLINO (Tap to Hold)'}
+            {isLocked ? <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Unlock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+            <span>
+              {isLocked ? 'HOLD (Unlock)' : 'LIVE (Hold)'}
             </span>
           </button>
 
           <button
             type="button"
             onClick={() => handleConfirmWithMode('DATA_ONLY')}
-            className="min-h-[40px] px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-lg"
+            className="min-h-[34px] sm:min-h-[40px] px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer shadow-lg shrink-0"
             title="Apply Dip Direction & Dip Amount data only (keep original drawn 2D joint trace unchanged)"
           >
-            <Check className="w-4 h-4 stroke-[3]" />
-            <span>OK: Only Data</span>
+            <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
+            <span>OK: Data Only</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleConfirmWithMode('TRACE_AND_DATA')}
-            className="min-h-[40px] px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-lg"
+            className="min-h-[34px] sm:min-h-[40px] px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer shadow-lg shrink-0"
             title="Align/rotate the 2D joint trace to match real compass orientation AND update Dip Direction & Dip Amount data"
           >
-            <Check className="w-4 h-4 stroke-[3]" />
-            <span>OK: Change Trace + Data</span>
+            <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
+            <span>OK: Trace + Data</span>
           </button>
 
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] min-w-[40px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center cursor-pointer"
+            className="min-h-[34px] min-w-[34px] sm:min-h-[40px] sm:min-w-[40px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center cursor-pointer shrink-0"
             title="Close without saving"
           >
             <X className="w-4 h-4" />
@@ -1762,14 +1762,13 @@ export const RealtimeMobileSplitCompassModal: React.FC<RealtimeMobileSplitCompas
       </div>
 
       {/* ============================================================================
-          TWO-SCREEN SPLIT WORKSPACE:
-          LEFT SIDE (50%): 3D TUNNEL (EXACT SHAPE, SIZE, WALLS, CROWN & PULL LENGTH,
-                           FACE BEHIND WALL & CROWN + HALF-IN / HALF-OUT TRACED PLANE)
-          RIGHT SIDE (50%): FIELDMOVE CLINO 3D COMPASS-CLINOMETER & SPIRIT LEVEL
+          TWO-SCREEN SPLIT WORKSPACE (Adapts to Portrait 2-row or Landscape 2-column):
+          LEFT/TOP SIDE: 3D TUNNEL (EXACT SHAPE, SIZE, WALLS, CROWN & PULL LENGTH)
+          RIGHT/BOTTOM SIDE: FIELDMOVE CLINO 3D COMPASS-CLINOMETER & SPIRIT LEVEL
          ============================================================================ */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 overflow-y-auto md:overflow-hidden">
         {/* LEFT SCREEN: 3D TUNNEL SHAPE + PULL LENGTH + HALF-IN / HALF-OUT TRACED JOINT PLANE */}
-        <div className="relative w-full h-full min-h-[280px] flex flex-col bg-slate-950 overflow-hidden">
+        <div className="relative w-full h-[42dvh] md:h-full min-h-[220px] flex flex-col bg-slate-950 overflow-hidden">
           <div ref={mount3DRef} className="w-full h-full flex-1 cursor-grab active:cursor-grabbing" />
 
           {/* Top Overlay on Left 3D Viewport */}

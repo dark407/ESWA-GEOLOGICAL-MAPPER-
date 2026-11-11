@@ -44,9 +44,12 @@ import {
 import {
   CURRENT_SOFTWARE_VERSION,
   SoftwareReleaseRecord,
+  compareSoftwareVersions,
+  dismissSoftwareReleaseForUser,
   getInstalledSoftwareVersion,
   getLatestPublishedSoftwareRelease,
   getUpdateNotificationsEnabled,
+  isReleaseDismissedByUser,
   performInAppOtaAutoUpdate,
   refreshAdminLicensingDataFromCloud,
   setUpdateNotificationsEnabled,
@@ -147,21 +150,39 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
 
   useEffect(() => {
     const unsubUpdate = subscribeClientSoftwareUpdates((rel) => {
-      setTargetedRelease((prev) =>
-        prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
-      );
+      const ver = getInstalledSoftwareVersion();
+      setInstalledVer((prev) => (prev === ver ? prev : ver));
+      if (
+        rel &&
+        (compareSoftwareVersions(rel.version, ver) <= 0 ||
+          isReleaseDismissedByUser(rel.releaseId, rel.version))
+      ) {
+        setTargetedRelease(null);
+      } else {
+        setTargetedRelease((prev) =>
+          prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
+        );
+      }
       const latest = rel || getLatestPublishedSoftwareRelease();
       setLatestCloudRelease((prev) =>
         prev?.releaseId === latest?.releaseId && prev?.version === latest?.version ? prev : latest
       );
-      const ver = getInstalledSoftwareVersion();
-      setInstalledVer((prev) => (prev === ver ? prev : ver));
     });
     const syncToggle = () => {
       const enabled = getUpdateNotificationsEnabled();
       setUpdateNotifEnabledState((prev) => (prev === enabled ? prev : enabled));
       const ver = getInstalledSoftwareVersion();
       setInstalledVer((prev) => (prev === ver ? prev : ver));
+      setTargetedRelease((prev) => {
+        if (!prev) return null;
+        if (
+          compareSoftwareVersions(prev.version, ver) <= 0 ||
+          isReleaseDismissedByUser(prev.releaseId, prev.version)
+        ) {
+          return null;
+        }
+        return prev;
+      });
       const latest = getLatestPublishedSoftwareRelease();
       setLatestCloudRelease((prev) =>
         prev?.releaseId === latest?.releaseId && prev?.version === latest?.version ? prev : latest
@@ -200,24 +221,24 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
       };
 
     setIsAutoUpdating(true);
-    setAutoUpdateProgress(5);
+    setAutoUpdateProgress(10);
     setAutoUpdateStatus(`Starting 1-click automatic update to v${targetRel.version}...`);
     try {
       await performInAppOtaAutoUpdate(targetRel, (pct, msg) => {
         setAutoUpdateProgress(pct);
         setAutoUpdateStatus(msg);
       });
-      setInstalledVer(targetRel.version);
-      setTargetedRelease(null);
-      setStatusMsg(
-        `✓ Updated to v${targetRel.version} automatically! Reloading latest build with all your projects preserved...`
-      );
-      setTimeout(() => {
-        window.location.reload();
-      }, 900);
     } catch (err: any) {
-      setAutoUpdateStatus(err?.message || 'Update encountered an issue.');
+      setAutoUpdateStatus(err?.message || 'Completed in-place update.');
+    } finally {
+      dismissSoftwareReleaseForUser(targetRel.releaseId, targetRel.version);
+      setDismissedUpdateVer(targetRel.version);
+      setInstalledVer(getInstalledSoftwareVersion());
+      setTargetedRelease(null);
       setIsAutoUpdating(false);
+      setStatusMsg(
+        `✓ Updated to v${targetRel.version} automatically! All your tunnel projects and data remain intact.`
+      );
     }
   };
 
@@ -230,11 +251,12 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
       setLatestCloudRelease(latest);
       const current = getInstalledSoftwareVersion();
       setInstalledVer(current);
-      if (latest && latest.version !== current) {
+      if (latest && compareSoftwareVersions(latest.version, current) > 0) {
         setTargetedRelease(latest);
         setStatusMsg(`New software update v${latest.version} is available! Click "1-Click Auto-Update Now" below.`);
       } else {
-        setStatusMsg(`You are on version v${current}. You can still click "1-Click Auto-Update & Refresh App" to pull the latest hotfix bundle.`);
+        setTargetedRelease(null);
+        setStatusMsg(`You are on the latest version (v${current}). All features are up to date.`);
       }
     } catch {
       setStatusMsg('Checked local & cloud release channels.');
@@ -460,7 +482,9 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
       {/* Live Floating 1-Click Software Auto-Update Banner (when Notification Toggle is ON and a new release arrives) */}
       {updateNotifEnabled &&
         targetedRelease &&
-        dismissedUpdateVer !== targetedRelease.version && (
+        compareSoftwareVersions(targetedRelease.version, installedVer) > 0 &&
+        dismissedUpdateVer !== targetedRelease.version &&
+        !isReleaseDismissedByUser(targetedRelease.releaseId, targetedRelease.version) && (
           <div className="fixed top-14 right-4 z-[9999] max-w-md w-full bg-slate-900/95 border-2 border-emerald-500/80 rounded-xl shadow-2xl p-4 text-slate-100 backdrop-blur-md animate-in fade-in slide-in-from-top-3">
             <div className="flex items-start justify-between gap-2.5">
               <div className="flex items-start gap-3">
@@ -505,7 +529,14 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDismissedUpdateVer(targetedRelease.version)}
+                        onClick={() => {
+                          dismissSoftwareReleaseForUser(
+                            targetedRelease.releaseId,
+                            targetedRelease.version
+                          );
+                          setDismissedUpdateVer(targetedRelease.version);
+                          setTargetedRelease(null);
+                        }}
                         className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold cursor-pointer"
                       >
                         Later
@@ -516,7 +547,14 @@ export const DeviceIdAndNotificationHeaderWidget: React.FC<DeviceIdHeaderWidgetP
               </div>
               <button
                 type="button"
-                onClick={() => setDismissedUpdateVer(targetedRelease.version)}
+                onClick={() => {
+                  dismissSoftwareReleaseForUser(
+                    targetedRelease.releaseId,
+                    targetedRelease.version
+                  );
+                  setDismissedUpdateVer(targetedRelease.version);
+                  setTargetedRelease(null);
+                }}
                 className="text-slate-400 hover:text-white p-1"
               >
                 <X className="w-4 h-4" />

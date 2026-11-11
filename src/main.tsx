@@ -137,6 +137,10 @@ if (typeof window !== 'undefined') {
         'eswa_deleted_user_tombstones_v1',
         'eswa_geologist_user_profiles_v1',
         'eswa_active_geologist_profile_id_v1',
+        'eswa_mirror_requests_v1',
+        'eswa_mirror_licenses_v1',
+        'eswa_mirror_releases_v1',
+        'eswa_mirror_master_pcs_v1',
       ];
       const preservedEntries: Array<[string, string]> = [];
       for (const k of preservedKeys) {

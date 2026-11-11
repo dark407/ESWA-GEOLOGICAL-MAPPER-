@@ -30,13 +30,14 @@ import {
 } from './windowsDesktopEngine';
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 const LEGACY_CLOUD_APP_ORIGINS = [
   'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app',
+  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app',
   'https://ais-pre-uye3oacgqvplzqnp7fuyaw-386382408800.asia-southeast1.run.app',
 ];
 
-export const CURRENT_SOFTWARE_VERSION = '1.0.0';
+export const CURRENT_SOFTWARE_VERSION = '2.8.104';
 export const MASTER_ADMIN_DEFAULT_EMAIL = 'akashdhanusheswar@gmail.com';
 const ADMIN_AUTH_SIG = 'ESWA_MASTER_ADMIN_SIG_v1';
 const PORTAL_SCOPE = 'ESWA_GLOBAL';
@@ -45,6 +46,7 @@ const LOCAL_PC_HW_ID_KEY = 'eswa_pc_hardware_fingerprint_v1';
 const LOCAL_MASTER_PC_BYPASS_KEY = 'eswa_master_pc_bypass_v1';
 const LOCAL_ACTIVE_SESSION_KEY = 'eswa_1pc_activated_session_v1';
 const LOCAL_INSTALLED_VERSION_KEY = 'eswa_installed_software_version_v1';
+const LOCAL_DISMISSED_RELEASES_KEY = 'eswa_dismissed_releases_map_v1';
 const LOCAL_ADMIN_CREDENTIALS_KEY = 'eswa_master_admin_credentials_v1';
 
 const LOCAL_MIRROR_REQUESTS_KEY = 'eswa_mirror_requests_v1';
@@ -575,100 +577,99 @@ async function firestoreRestQueryCollection<T>(
   collectionName: string,
   idGetter: (item: T) => string
 ): Promise<T[]> {
+  const isRelayCollection =
+    collectionName === 'access_requests' ||
+    collectionName === 'software_licenses' ||
+    collectionName === 'software_releases' ||
+    collectionName === 'master_pcs';
+
   const [relayItems, ...endpointLists] = await Promise.all([
-    serverRelayFetchCollection<T>(
-      collectionName as
-        | 'access_requests'
-        | 'software_licenses'
-        | 'software_releases'
-        | 'master_pcs'
-    ),
-    ...(firestoreCloudPermissionDenied
-      ? []
-      : FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
-          const parsed: T[] = [];
-          try {
-            // 1. Direct collection list (discovers ALL records even if portalScope was omitted or differs)
-            const listUrl = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/${collectionName}?pageSize=300&key=${ep.apiKey}`;
-            const listResp = await fetch(listUrl, { method: 'GET', cache: 'no-store' });
-            if (listResp.status === 403 || listResp.status === 401) {
-              markFirestoreCloudPermissionDenied();
-              return parsed;
-            }
-            if (listResp.ok) {
-              const listJson = (await listResp.json()) as {
-                documents?: Array<{
-                  name?: string;
-                  fields?: Record<string, FirestoreRestFieldValue>;
-                }>;
-              };
-              if (Array.isArray(listJson.documents)) {
-                for (const docObj of listJson.documents) {
-                  const item = fromFirestoreRestFields<T>(docObj?.fields);
-                  if (item) {
-                    const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
-                    const recAny = item as unknown as Record<string, unknown>;
-                    if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
-                      recAny.requestId = docIdTail;
-                    } else if (
-                      collectionName === 'software_licenses' &&
-                      !recAny.userId &&
-                      docIdTail
-                    ) {
-                      recAny.userId = docIdTail;
-                    }
-                    if (idGetter(item)) {
-                      parsed.push(item);
-                    }
-                  }
+    isRelayCollection
+      ? serverRelayFetchCollection<T>(
+          collectionName as
+            | 'access_requests'
+            | 'software_licenses'
+            | 'software_releases'
+            | 'master_pcs'
+        )
+      : Promise.resolve([] as T[]),
+    ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+      const parsed: T[] = [];
+      try {
+        // Primary: Use POST :runQuery without restrictive portalScope filter so ALL documents in the collection
+        // are retrieved with HTTP 200 (unlike GET /documents/{col} which is IAM Admin listDocuments and returns 403).
+        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: collectionName }],
+              limit: 500,
+            },
+          }),
+        });
+        if (resp.ok) {
+          const rows = (await resp.json()) as Array<{
+            document?: {
+              name?: string;
+              fields?: Record<string, FirestoreRestFieldValue>;
+            };
+          }>;
+          if (Array.isArray(rows)) {
+            for (const row of rows) {
+              const docObj = row?.document;
+              if (!docObj?.fields) continue;
+              const item = fromFirestoreRestFields<T>(docObj.fields);
+              if (item) {
+                const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
+                const recAny = item as unknown as Record<string, unknown>;
+                if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
+                  recAny.requestId = docIdTail;
+                } else if (
+                  collectionName === 'software_licenses' &&
+                  !recAny.userId &&
+                  docIdTail
+                ) {
+                  recAny.userId = docIdTail;
+                } else if (
+                  collectionName === 'software_releases' &&
+                  !recAny.releaseId &&
+                  docIdTail
+                ) {
+                  recAny.releaseId = docIdTail;
+                } else if (
+                  collectionName === 'master_pcs' &&
+                  !recAny.pcHardwareId &&
+                  docIdTail
+                ) {
+                  recAny.pcHardwareId = docIdTail;
+                } else if (
+                  collectionName === 'device_directory' &&
+                  !recAny.deviceId &&
+                  docIdTail
+                ) {
+                  recAny.deviceId = docIdTail;
+                } else if (
+                  collectionName === 'user_workspaces' &&
+                  !recAny.uid &&
+                  docIdTail
+                ) {
+                  recAny.uid = docIdTail;
+                }
+                if (idGetter(item)) {
+                  parsed.push(item);
                 }
               }
             }
-          } catch {
-            // Fallback to structuredQuery below
           }
-
-          if (parsed.length > 0 || firestoreCloudPermissionDenied) return parsed;
-
-          try {
-            const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
-            const resp = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              cache: 'no-store',
-              body: JSON.stringify({
-                structuredQuery: {
-                  from: [{ collectionId: collectionName }],
-                  where: {
-                    fieldFilter: {
-                      field: { fieldPath: 'portalScope' },
-                      op: 'EQUAL',
-                      value: { stringValue: PORTAL_SCOPE },
-                    },
-                  },
-                },
-              }),
-            });
-            if (resp.status === 403 || resp.status === 401) {
-              markFirestoreCloudPermissionDenied();
-              return [] as T[];
-            }
-            if (!resp.ok) return [] as T[];
-            const rows = (await resp.json()) as Array<{
-              document?: { fields?: Record<string, FirestoreRestFieldValue> };
-            }>;
-            if (!Array.isArray(rows)) return [] as T[];
-            for (const row of rows) {
-              const item = fromFirestoreRestFields<T>(row?.document?.fields);
-              if (item && idGetter(item)) {
-                parsed.push(item);
-              }
-            }
-            return parsed;
-          } catch {
-            return [] as T[];
-          }
-        })),
+        }
+      } catch {
+        // Ignore network errors on individual endpoint
+      }
+      return parsed;
+    }),
   ]);
 
   // Merge records from Server Relay + Primary Firestore (analog-bricolage-rf38q) + Secondary Firestore
@@ -884,9 +885,89 @@ export function generateOnePcLicenseKey(userId: string, pcHardwareId?: string): 
   return `ESWA-1PC-${cleanUser}-${pcPart}-${rand}`;
 }
 
+/**
+ * Compares two software version strings (e.g., '2.8.104' vs '2.8.103').
+ * Returns > 0 if verA > verB, < 0 if verA < verB, and 0 if equal.
+ */
+export function compareSoftwareVersions(verA: string, verB: string): number {
+  const cleanA = (verA || '').trim().replace(/^[vV]+/, '');
+  const cleanB = (verB || '').trim().replace(/^[vV]+/, '');
+  if (cleanA === cleanB) return 0;
+  if (!cleanA) return -1;
+  if (!cleanB) return 1;
+
+  const isGhA = cleanA.toLowerCase().startsWith('gh-');
+  const isGhB = cleanB.toLowerCase().startsWith('gh-');
+  if (isGhA && !isGhB) return -1;
+  if (!isGhA && isGhB) return 1;
+  if (isGhA && isGhB) return cleanA.localeCompare(cleanB);
+
+  const partsA = cleanA.split(/[._-]/).map((p) => {
+    const n = Number.parseInt(p, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+  const partsB = cleanB.split(/[._-]/).map((p) => {
+    const n = Number.parseInt(p, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+  const maxLen = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < maxLen; i++) {
+    const a = partsA[i] ?? 0;
+    const b = partsB[i] ?? 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+function readDismissedReleasesMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_DISMISSED_RELEASES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function isReleaseDismissedByUser(releaseId?: string, version?: string): boolean {
+  try {
+    const map = readDismissedReleasesMap();
+    if (releaseId && map[`id:${releaseId.trim()}`]) return true;
+    if (version && map[`ver:${version.trim().replace(/^[vV]+/, '')}`]) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissSoftwareReleaseForUser(releaseId?: string, version?: string): void {
+  try {
+    const map = readDismissedReleasesMap();
+    const nowIso = new Date().toISOString();
+    if (releaseId && releaseId.trim()) {
+      map[`id:${releaseId.trim()}`] = nowIso;
+    }
+    if (version && version.trim()) {
+      map[`ver:${version.trim().replace(/^[vV]+/, '')}`] = nowIso;
+    }
+    localStorage.setItem(LOCAL_DISMISSED_RELEASES_KEY, JSON.stringify(map));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eswa-update-toggle-changed'));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function getInstalledSoftwareVersion(): string {
   try {
-    return localStorage.getItem(LOCAL_INSTALLED_VERSION_KEY) || CURRENT_SOFTWARE_VERSION;
+    const stored = (localStorage.getItem(LOCAL_INSTALLED_VERSION_KEY) || '').trim().replace(/^[vV]+/, '');
+    if (!stored) return CURRENT_SOFTWARE_VERSION;
+    return compareSoftwareVersions(stored, CURRENT_SOFTWARE_VERSION) >= 0
+      ? stored
+      : CURRENT_SOFTWARE_VERSION;
   } catch {
     return CURRENT_SOFTWARE_VERSION;
   }
@@ -894,7 +975,11 @@ export function getInstalledSoftwareVersion(): string {
 
 export function setInstalledSoftwareVersion(version: string): void {
   try {
-    localStorage.setItem(LOCAL_INSTALLED_VERSION_KEY, version.trim().slice(0, 40));
+    const candidate = version.trim().replace(/^[vV]+/, '').slice(0, 40);
+    if (!candidate) return;
+    const current = getInstalledSoftwareVersion();
+    const highest = compareSoftwareVersions(candidate, current) >= 0 ? candidate : current;
+    localStorage.setItem(LOCAL_INSTALLED_VERSION_KEY, highest);
   } catch {
     // Ignore
   }
@@ -1873,6 +1958,57 @@ export async function registerInstantUserAndLogin(input: {
  * unified list of Android App users + PC Software users together.
  */
 export async function syncPendingLocalRequestsToCloud(): Promise<void> {
+  // Ensure any locally activated client session (e.g. registered while offline) is represented in local mirrors
+  try {
+    const activeSess = getLocalActivatedSession();
+    const adminEmails = new Set([
+      'akashdhanusheswar@gmail.com',
+      'dhoniakash407@gmail.com',
+      'dhoniakash707@gmail.com',
+    ]);
+    if (
+      activeSess &&
+      activeSess.userId &&
+      activeSess.userId !== 'standalone_user' &&
+      activeSess.userId !== 'master_owner' &&
+      activeSess.userId !== 'MASTER_OWNER' &&
+      !adminEmails.has((activeSess.email || '').trim().toLowerCase()) &&
+      !adminEmails.has(activeSess.userId.trim().toLowerCase()) &&
+      !isIdDeletedTombstone(activeSess.userId, activeSess.activatedAtIso)
+    ) {
+      const existingMirLics = readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY);
+      if (!existingMirLics.some((l) => l.userId === activeSess.userId)) {
+        const isAndroid =
+          (activeSess.pcHardwareId || '').startsWith('AND') ||
+          (activeSess.pcHardwareId || '').startsWith('MOB');
+        const platformTag = isAndroid ? 'ANDROID_APP' : 'PC_SOFTWARE';
+        const platformLabel = isAndroid ? 'Android Mobile App' : 'PC Workstation Software';
+        const cleanRole = (activeSess.roleTitle || 'Tunnel Engineer').slice(0, 80);
+        const nowIso = new Date().toISOString();
+        const recoveredLic: SoftwareLicenseRecord = {
+          userId: activeSess.userId,
+          portalScope: PORTAL_SCOPE,
+          password: cleanRole,
+          licenseKey: activeSess.licenseKey || `ESWA-${platformTag}-ACTIVE`,
+          fullName: activeSess.fullName || 'Tunnel Engineer',
+          email: activeSess.email || '',
+          phone: activeSess.phone || 'Not provided',
+          organization: activeSess.organization || cleanRole,
+          boundPcHardwareId: activeSess.pcHardwareId,
+          boundPcName: `${platformLabel} · ${cleanRole}`.slice(0, 120),
+          status: 'ACTIVE',
+          installedVersion: getInstalledSoftwareVersion() || CURRENT_SOFTWARE_VERSION,
+          lastSeenAtIso: nowIso,
+          createdAtIso: activeSess.activatedAtIso || nowIso,
+          adminAuthSig: ADMIN_AUTH_SIG,
+        };
+        upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, recoveredLic, (x) => x.userId);
+      }
+    }
+  } catch {
+    // Ignore session recovery error
+  }
+
   const localRequests = readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY).filter(
     (r) => r.status !== 'REJECTED' && !isRequestTombstoned(r)
   );
@@ -2929,9 +3065,31 @@ export async function publishSoftwareUpdateRelease(input: {
     adminAuthSig: ADMIN_AUTH_SIG,
   };
 
+  // Archive all older PUBLISHED releases so only the newest version is ever active
+  const existingReleases = readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY);
+  const olderPublished = existingReleases.filter(
+    (r) =>
+      r.status === 'PUBLISHED' &&
+      r.releaseId !== releaseId &&
+      r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+      r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+  );
+  for (const oldRel of olderPublished) {
+    upsertMirrorItem(
+      LOCAL_MIRROR_RELEASES_KEY,
+      { ...oldRel, status: 'ARCHIVED' },
+      (x) => x.releaseId
+    );
+  }
+
   upsertMirrorItem(LOCAL_MIRROR_RELEASES_KEY, record, (x) => x.releaseId);
 
   await Promise.all([
+    ...olderPublished.map((oldRel) =>
+      firestoreRestUpdateDoc('software_releases', oldRel.releaseId, {
+        status: 'ARCHIVED',
+      }).catch(() => {})
+    ),
     firestoreRestSetDoc(
       'software_releases',
       releaseId,
@@ -2961,11 +3119,53 @@ export async function deleteSoftwareReleaseAdmin(releaseId: string): Promise<voi
 }
 
 /**
+ * Master Admin Action: Immediately stops / recalls all active live software broadcasts
+ * by archiving every PUBLISHED release in local mirror and Cloud Firestore.
+ */
+export async function recallAllLiveSoftwareBroadcastsAdmin(): Promise<number> {
+  const existingReleases = readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY);
+  const activePublished = existingReleases.filter(
+    (r) =>
+      r.status === 'PUBLISHED' &&
+      r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+      r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+  );
+  for (const rel of activePublished) {
+    upsertMirrorItem(
+      LOCAL_MIRROR_RELEASES_KEY,
+      { ...rel, status: 'ARCHIVED' },
+      (x) => x.releaseId
+    );
+  }
+  await Promise.all(
+    activePublished.map((rel) =>
+      Promise.all([
+        firestoreRestUpdateDoc('software_releases', rel.releaseId, {
+          status: 'ARCHIVED',
+        }).catch(() => {}),
+        withFirestoreTimeout(
+          () =>
+            updateDoc(doc(db, 'software_releases', rel.releaseId), {
+              status: 'ARCHIVED',
+            }),
+          2500
+        ).catch(() => {}),
+      ])
+    )
+  );
+  return activePublished.length;
+}
+
+/**
  * Client Action: Reports that this PC has downloaded and updated to the new software version.
  */
-export async function acknowledgeClientUpdateInstalled(newVersion: string): Promise<void> {
-  const cleanVer = newVersion.trim().slice(0, 40);
+export async function acknowledgeClientUpdateInstalled(
+  newVersion: string,
+  releaseId?: string
+): Promise<void> {
+  const cleanVer = newVersion.trim().replace(/^[vV]+/, '').slice(0, 40);
   setInstalledSoftwareVersion(cleanVer);
+  dismissSoftwareReleaseForUser(releaseId, cleanVer);
   const session = getLocalActivatedSession();
   if (!session) return;
   const cleanUserId = sanitizeIdentifier(session.userId);
@@ -2982,19 +3182,22 @@ export async function acknowledgeClientUpdateInstalled(newVersion: string): Prom
     );
   }
 
-  await Promise.all([
-    firestoreRestUpdateDoc('software_licenses', cleanUserId, {
-      installedVersion: cleanVer,
-      lastSeenAtIso: nowIso,
-    }),
-    withFirestoreTimeout(
-      () =>
-        updateDoc(doc(db, 'software_licenses', cleanUserId), {
-          installedVersion: cleanVer,
-          lastSeenAtIso: nowIso,
-        }),
-      2000
-    ).catch(() => {}),
+  await Promise.race([
+    Promise.all([
+      firestoreRestUpdateDoc('software_licenses', cleanUserId, {
+        installedVersion: cleanVer,
+        lastSeenAtIso: nowIso,
+      }).catch(() => {}),
+      withFirestoreTimeout(
+        () =>
+          updateDoc(doc(db, 'software_licenses', cleanUserId), {
+            installedVersion: cleanVer,
+            lastSeenAtIso: nowIso,
+          }),
+        2000
+      ).catch(() => {}),
+    ]),
+    new Promise<void>((resolve) => setTimeout(resolve, 2200)),
   ]);
 }
 
@@ -3005,6 +3208,7 @@ export async function acknowledgeClientUpdateInstalled(newVersion: string): Prom
  */
 async function saveOtaBundleToIndexedDbVault(bundle: {
   version: string;
+  edition?: string;
   cssContent?: string;
   jsContent?: string;
   appliedAtIso: string;
@@ -3133,11 +3337,16 @@ export async function performInAppOtaAutoUpdate(
 
   for (const url of candidateUrls) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const isExternalGithub = url.includes('github.com/') || url.includes('githubusercontent.com/');
       const resp = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
-        headers: getEswaApiSecurityHeaders(),
+        headers: isExternalGithub ? undefined : getEswaApiSecurityHeaders(),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (resp.ok) {
         const data = (await resp.json()) as {
           cssContent?: string;
@@ -3155,7 +3364,10 @@ export async function performInAppOtaAutoUpdate(
   }
 
   try {
-    await refreshAdminLicensingDataFromCloud();
+    await Promise.race([
+      refreshAdminLicensingDataFromCloud(),
+      new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+    ]);
   } catch {
     // Ignore offline
   }
@@ -3173,6 +3385,7 @@ export async function performInAppOtaAutoUpdate(
       if (otaJsContent) {
         await saveOtaBundleToIndexedDbVault({
           version: release.version,
+          edition: targetEdition,
           cssContent: otaCssContent,
           jsContent: otaJsContent,
           appliedAtIso: new Date().toISOString(),
@@ -3228,15 +3441,15 @@ export async function performInAppOtaAutoUpdate(
   await step(
     92,
     `Activating v${release.version} & syncing updated status to Master Software/App...`,
-    350
+    300
   );
 
-  await acknowledgeClientUpdateInstalled(release.version);
+  await acknowledgeClientUpdateInstalled(release.version, release.releaseId);
 
   await step(
     100,
     `Updated to v${release.version} automatically! All previous projects & data are intact.`,
-    300
+    250
   );
 }
 
@@ -3275,23 +3488,38 @@ export function subscribeUserAccountStatus(
         return;
       }
       if (!lic && !firestoreCloudPermissionDenied) {
-        // Check if Firestore REST explicitly returns 404 (deleted by Master Admin)
         const ep = FIRESTORE_REST_ENDPOINTS[0];
         const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/software_licenses/${encodeURIComponent(
           cleanUserId
         )}?key=${ep.apiKey}`;
         const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-        if (resp.status === 403 || resp.status === 401) {
-          markFirestoreCloudPermissionDenied();
-          return;
-        }
         if (resp.status === 404) {
-          removeMirrorItem<SoftwareLicenseRecord>(
-            LOCAL_MIRROR_LICENSES_KEY,
-            cleanUserId,
-            (x) => sanitizeIdentifier(x.userId)
+          // Check if explicitly deleted by Master Admin in cloud tombstone registry
+          const tombstoneDoc = await firestoreRestGetDoc<SoftwareReleaseRecord>(
+            'software_releases',
+            CLOUD_TOMBSTONE_REGISTRY_DOC_ID
           );
-          onStatusChange('REVOKED', null);
+          if (tombstoneDoc?.releaseNotes) {
+            try {
+              const parsedTomb = JSON.parse(tombstoneDoc.releaseNotes) as Record<string, string>;
+              if (parsedTomb && typeof parsedTomb === 'object') {
+                mergeDeletedTombstonesMap(parsedTomb);
+              }
+            } catch {
+              // Ignore
+            }
+          }
+          if (isIdDeletedTombstone(cleanUserId) || hasSeenRemoteExistence) {
+            removeMirrorItem<SoftwareLicenseRecord>(
+              LOCAL_MIRROR_LICENSES_KEY,
+              cleanUserId,
+              (x) => sanitizeIdentifier(x.userId)
+            );
+            onStatusChange('REVOKED', null);
+          } else {
+            // User registered while offline or before Cloud sync was active: auto-heal & upload to Cloud Firestore now!
+            void syncPendingLocalRequestsToCloud();
+          }
         }
         return;
       }
@@ -3437,24 +3665,40 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
 }> {
   await syncPendingLocalRequestsToCloud();
 
-  const [cloudReqs, cloudLics, cloudRels, cloudMpcs] = await Promise.all([
-    firestoreRestQueryCollection<AccessRequestRecord>(
-      'access_requests',
-      (x) => x.requestId
-    ),
-    firestoreRestQueryCollection<SoftwareLicenseRecord>(
-      'software_licenses',
-      (x) => x.userId
-    ),
-    firestoreRestQueryCollection<SoftwareReleaseRecord>(
-      'software_releases',
-      (x) => x.releaseId
-    ),
-    firestoreRestQueryCollection<MasterPcRecord>(
-      'master_pcs',
-      (x) => x.pcHardwareId
-    ),
-  ]);
+  const [cloudReqs, cloudLics, cloudRels, cloudMpcs, cloudDevices, cloudWorkspaces] =
+    await Promise.all([
+      firestoreRestQueryCollection<AccessRequestRecord>(
+        'access_requests',
+        (x) => x.requestId
+      ),
+      firestoreRestQueryCollection<SoftwareLicenseRecord>(
+        'software_licenses',
+        (x) => x.userId
+      ),
+      firestoreRestQueryCollection<SoftwareReleaseRecord>(
+        'software_releases',
+        (x) => x.releaseId
+      ),
+      firestoreRestQueryCollection<MasterPcRecord>(
+        'master_pcs',
+        (x) => x.pcHardwareId
+      ),
+      firestoreRestQueryCollection<{
+        deviceId: string;
+        customAlias?: string;
+        uid?: string;
+        email?: string;
+        displayName?: string;
+        updatedAtIso?: string;
+      }>('device_directory', (x) => x.deviceId),
+      firestoreRestQueryCollection<{
+        uid: string;
+        email?: string;
+        displayName?: string;
+        deviceId?: string;
+        updatedAtIso?: string;
+      }>('user_workspaces', (x) => x.uid),
+    ]);
 
   // First, merge any cloud-persisted deletion tombstones from DELETED_USERS_TOMBSTONE_REGISTRY
   // so deleted users are never resurrected on any browser, APK, or PC
@@ -3578,6 +3822,101 @@ export async function refreshAdminLicensingDataFromCloud(): Promise<{
           adminAuthSig: ADMIN_AUTH_SIG,
         });
       }
+    }
+  }
+
+  // Also unify any non-admin users discovered in device_directory or user_workspaces
+  // (e.g. users who logged in via Google or used a PC/Android edition that wrote to device_directory/user_workspaces)
+  const adminOwnerEmails = new Set([
+    'akashdhanusheswar@gmail.com',
+    'dhoniakash407@gmail.com',
+    'dhoniakash707@gmail.com',
+  ]);
+
+  const discoveredProfiles: Array<{
+    email: string;
+    displayName: string;
+    deviceId: string;
+    updatedAtIso: string;
+  }> = [];
+
+  for (const dev of cloudDevices) {
+    const email = (dev.email || '').trim();
+    if (email && adminOwnerEmails.has(email.toLowerCase())) continue;
+    discoveredProfiles.push({
+      email,
+      displayName: (dev.displayName || email.split('@')[0] || 'ESWA Geologist').trim(),
+      deviceId: (dev.deviceId || 'ESWA-DEV').trim(),
+      updatedAtIso: dev.updatedAtIso || new Date().toISOString(),
+    });
+  }
+
+  for (const ws of cloudWorkspaces) {
+    const email = (ws.email || '').trim();
+    if (email && adminOwnerEmails.has(email.toLowerCase())) continue;
+    const alreadyInDiscovered = discoveredProfiles.some(
+      (d) =>
+        (email && d.email.toLowerCase() === email.toLowerCase()) ||
+        (ws.deviceId && d.deviceId.toLowerCase() === ws.deviceId.toLowerCase())
+    );
+    if (!alreadyInDiscovered && (email || ws.displayName)) {
+      discoveredProfiles.push({
+        email,
+        displayName: (ws.displayName || email.split('@')[0] || 'ESWA Geologist').trim(),
+        deviceId: (ws.deviceId || `WS-${(ws.uid || 'USER').slice(0, 6).toUpperCase()}`).trim(),
+        updatedAtIso: ws.updatedAtIso || new Date().toISOString(),
+      });
+    }
+  }
+
+  for (const prof of discoveredProfiles) {
+    const emailLower = prof.email.toLowerCase();
+    const devLower = prof.deviceId.toLowerCase();
+    if (
+      isIdDeletedTombstone(emailLower, prof.updatedAtIso) ||
+      isIdDeletedTombstone(devLower, prof.updatedAtIso)
+    ) {
+      continue;
+    }
+    const existingLic = currentLics.find(
+      (l) =>
+        (emailLower && (l.email || '').trim().toLowerCase() === emailLower) ||
+        (devLower && (l.boundPcHardwareId || '').trim().toLowerCase() === devLower)
+    );
+    if (!existingLic) {
+      const slug = sanitizeIdentifier(prof.displayName || emailLower.split('@')[0] || 'user')
+        .toLowerCase()
+        .slice(0, 20);
+      const devSuf = sanitizeIdentifier(prof.deviceId || 'dev01')
+        .toLowerCase()
+        .slice(-8);
+      const autoUserId = sanitizeIdentifier(`usr_${slug}_${devSuf}`);
+      if (isIdDeletedTombstone(autoUserId, prof.updatedAtIso)) continue;
+      const roleMatch = prof.displayName.match(/^(.+?)\s*\((.+)\)$/);
+      const cleanRole = roleMatch ? roleMatch[1].trim() : 'Geotechnical / Tunnel Engineer';
+      const synthLic: SoftwareLicenseRecord = {
+        userId: autoUserId,
+        portalScope: PORTAL_SCOPE,
+        password: cleanRole.slice(0, 80),
+        licenseKey: 'ESWA-CLOUD_SYNC-ACTIVE',
+        fullName: prof.displayName.slice(0, 120),
+        email: prof.email || 'Not provided',
+        phone: 'Cloud Account Sync',
+        organization: cleanRole.slice(0, 120),
+        boundPcHardwareId: prof.deviceId,
+        boundPcName: `Cloud Synced Device (${prof.deviceId}) · ${cleanRole}`.slice(0, 120),
+        status: 'ACTIVE',
+        installedVersion: CURRENT_SOFTWARE_VERSION,
+        lastSeenAtIso: prof.updatedAtIso,
+        createdAtIso: prof.updatedAtIso,
+        adminAuthSig: ADMIN_AUTH_SIG,
+      };
+      currentLics.push(synthLic);
+      void firestoreRestSetDoc(
+        'software_licenses',
+        autoUserId,
+        synthLic as unknown as Record<string, unknown>
+      );
     }
   }
 
@@ -4047,15 +4386,24 @@ export function getLatestPublishedSoftwareRelease(): SoftwareReleaseRecord | nul
     .filter(
       (r) =>
         r.status === 'PUBLISHED' &&
+        r.adminAuthSig === ADMIN_AUTH_SIG &&
+        !r.releaseId.startsWith('rel_ci_') &&
         r.releaseId !== 'GITHUB_REPO_CONFIG' &&
         r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
     )
-    .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''));
+    .sort((a, b) => {
+      const verDiff = compareSoftwareVersions(b.version, a.version);
+      if (verDiff !== 0) return verDiff;
+      return (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+    });
   return published[0] || null;
 }
 
 /**
  * Real-time listener on the Software Side for targeted Software Updates.
+ * Only notifies when a release was explicitly broadcasted by the Master Application
+ * (adminAuthSig === ADMIN_AUTH_SIG), is strictly newer than the currently installed version,
+ * and has not already been dismissed or installed by the user.
  */
 export function subscribeClientSoftwareUpdates(
   onTargetedRelease: (release: SoftwareReleaseRecord | null) => void
@@ -4074,15 +4422,21 @@ export function subscribeClientSoftwareUpdates(
       .filter(
         (r) =>
           r.status === 'PUBLISHED' &&
+          r.adminAuthSig === ADMIN_AUTH_SIG &&
+          !r.releaseId.startsWith('rel_ci_') &&
           r.releaseId !== 'GITHUB_REPO_CONFIG' &&
           r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
       )
-      .sort((a, b) => b.publishedAtIso.localeCompare(a.publishedAtIso));
+      .sort((a, b) => {
+        const verDiff = compareSoftwareVersions(b.version, a.version);
+        if (verDiff !== 0) return verDiff;
+        return (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+      });
 
-    const matching = published.find((rel) => {
-      if (rel.version === currentVer) return false;
+    // Find all releases targeted to this user/PC
+    const targetedToClient = published.filter((rel) => {
       if (rel.targetScope === 'ALL_PCS') return true;
-      const targets = rel.targetIdentifierCsv
+      const targets = (rel.targetIdentifierCsv || '')
         .split(',')
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
@@ -4093,7 +4447,18 @@ export function subscribeClientSoftwareUpdates(
       return matchPc || matchUser;
     });
 
-    onTargetedRelease(matching || null);
+    // Only consider the single highest version release targeted to this user.
+    // Never fall back to an older release (e.g. v2.8.103 when v2.8.104 is installed or dismissed).
+    const newestTargeted = targetedToClient[0] || null;
+    if (
+      newestTargeted &&
+      compareSoftwareVersions(newestTargeted.version, currentVer) > 0 &&
+      !isReleaseDismissedByUser(newestTargeted.releaseId, newestTargeted.version)
+    ) {
+      onTargetedRelease(newestTargeted);
+    } else {
+      onTargetedRelease(null);
+    }
   };
 
   evaluateReleases(readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY));

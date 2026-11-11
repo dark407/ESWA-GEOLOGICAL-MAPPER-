@@ -115,7 +115,7 @@ async function fetchSavedDriveFileIdsFromFirestore() {
   }
 }
 
-async function publishCloudAutoUpdateNotification(version, repoSlug, userExeFileId = '') {
+async function archiveAnyAutomatedCiReleasesInFirestore() {
   const firebaseConfigPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
   if (!fs.existsSync(firebaseConfigPath)) return;
 
@@ -126,66 +126,54 @@ async function publishCloudAutoUpdateNotification(version, repoSlug, userExeFile
     const apiKey = cfg.apiKey;
     if (!projectId || !apiKey) return;
 
-    const releaseId = `rel_ci_${version.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const nowIso = new Date().toISOString();
-    const cleanExeId = extractFileId(userExeFileId);
-    const downloadUrl = cleanExeId
-      ? `https://drive.google.com/uc?export=download&id=${cleanExeId}`
-      : repoSlug
-      ? `https://github.com/${repoSlug}/releases/download/latest/ESWA-GEOLOGICAL-MAPPER-User-Setup.exe`
-      : 'GITHUB_USER_EXE';
-
-    const firestoreDoc = {
-      fields: {
-        releaseId: { stringValue: releaseId },
-        portalScope: { stringValue: 'ESWA_GLOBAL' },
-        version: { stringValue: version },
-        title: { stringValue: `ESWA Geological Mapper v${version} Auto-Update` },
-        releaseNotes: {
-          stringValue:
-            'Automatic CI/CD build pushed. Click "Update App & Software Automatically" to update in-place with zero data loss.',
-        },
-        downloadUrl: { stringValue: downloadUrl },
-        targetScope: { stringValue: 'ALL_PCS' },
-        targetIdentifierCsv: { stringValue: 'ALL' },
-        isMandatory: { booleanValue: false },
-        status: { stringValue: 'PUBLISHED' },
-        publishedAtIso: { stringValue: nowIso },
-        adminAuthSig: { stringValue: 'ESWA-CI-AUTO-OTA' },
-      },
-    };
-
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/software_releases/${encodeURIComponent(
-      releaseId
-    )}?key=${apiKey}`;
-
-    const resp = await fetch(url, {
-      method: 'PATCH',
+    const baseUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents`;
+    const qRes = await fetch(`${baseUrl}:runQuery?key=${apiKey}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(firestoreDoc),
+      body: JSON.stringify({
+        structuredQuery: { from: [{ collectionId: 'software_releases' }] },
+      }),
     });
-
-    if (resp.ok) {
-      console.log(
-        `[GoogleDriveSync] ✓ Broadcasted live v${version} notification to all User Main Screens via Firestore!`
-      );
+    if (qRes.ok) {
+      const rows = await qRes.json();
+      for (const r of rows || []) {
+        if (!r.document) continue;
+        const docId = r.document.name.split('/').pop();
+        const st = r.document.fields?.status?.stringValue;
+        const sig = r.document.fields?.adminAuthSig?.stringValue;
+        // Archive any automated CI release so ONLY Master Application broadcasts are active for live users
+        if (
+          docId &&
+          st === 'PUBLISHED' &&
+          (docId.startsWith('rel_ci_') || sig === 'ESWA-CI-AUTO-OTA')
+        ) {
+          await fetch(
+            `${baseUrl}/software_releases/${encodeURIComponent(
+              docId
+            )}?updateMask.fieldPaths=status&key=${apiKey}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fields: { status: { stringValue: 'ARCHIVED' } },
+              }),
+            }
+          ).catch(() => {});
+        }
+      }
     }
-  } catch (err) {
-    console.warn('[GoogleDriveSync] Non-fatal error broadcasting release to Firestore:', err);
+  } catch {
+    // Non-fatal
   }
 }
 
 async function main() {
-  const runNumber = process.env.GITHUB_RUN_NUMBER || '1';
-  const version = process.env.ESWA_RELEASE_VERSION || `2.8.${runNumber}`;
-  const repoSlug = process.env.GITHUB_REPOSITORY || '';
-
   const cloudSavedIds = await fetchSavedDriveFileIdsFromFirestore();
   const userApkFileId = process.env.GDRIVE_USER_APK_FILE_ID || cloudSavedIds.userApkFileId || '';
   const userExeFileId = process.env.GDRIVE_USER_EXE_FILE_ID || cloudSavedIds.userExeFileId || '';
 
-  // 1. Always broadcast the new version to User Main Screen Notification Toggles
-  await publishCloudAutoUpdateNotification(version, repoSlug, userExeFileId);
+  // 1. Ensure automated CI builds never push popups to existing live users (Live users are controlled strictly via Master Application)
+  await archiveAnyAutomatedCiReleasesInFirestore();
 
   // 2. If Google Drive credentials & permanent User File IDs are configured, overwrite in-place
   const accessToken = await resolveGoogleAccessToken();

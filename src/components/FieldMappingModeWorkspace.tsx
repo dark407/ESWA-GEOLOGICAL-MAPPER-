@@ -8,8 +8,10 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleDot,
   Columns,
   Compass,
@@ -23,6 +25,7 @@ import {
   Layers,
   MapPin,
   Maximize2,
+  Minimize2,
   Move,
   Paintbrush,
   Pencil,
@@ -2052,11 +2055,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // Collapsible & Draggable Left and Right sidebars on Stage 4 / Stage 5 Canvas (Prioritizes Canvas on Android & Compact screens)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) return true;
+    if (typeof window !== 'undefined' && (window.innerWidth < 1024 || window.innerHeight < 640)) return true;
     return false;
   });
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 1280) return true;
+    if (typeof window !== 'undefined' && (window.innerWidth < 1280 || window.innerHeight < 640)) return true;
     return false;
   });
   const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(() => {
@@ -2067,6 +2070,61 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     if (typeof window !== 'undefined' && window.innerWidth < 1280) return Math.min(250, Math.max(190, Math.floor(window.innerWidth * 0.22)));
     return 276;
   });
+  // Android Portrait & Landscape responsive state + Full-Screen Canvas Focus Mode
+  const [isMobileFullScreenCanvas, setIsMobileFullScreenCanvas] = useState<boolean>(false);
+  const [mobileBottomSheetSnap, setMobileBottomSheetSnap] = useState<'half' | 'expanded'>('half');
+  const [viewportDims, setViewportDims] = useState<{ w: number; h: number }>(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    h: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }));
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      setViewportDims({ w, h });
+      // Prevent both sidebars from simultaneously crushing the canvas on Android Portrait or Landscape
+      if (w < 1024 || h < 640) {
+        setLeftSidebarCollapsed((prevLeft) => {
+          if (!prevLeft) {
+            setRightSidebarCollapsed(true);
+          }
+          return prevLeft;
+        });
+      }
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
+  const isPortraitMobileViewport = viewportDims.w < 768 && viewportDims.h >= viewportDims.w;
+  const isCompactMobileViewport = viewportDims.w < 1024 || viewportDims.h < 640;
+
+  const toggleMobileLeftDrawer = useCallback((forceOpen?: boolean) => {
+    setLeftSidebarCollapsed((prev) => {
+      const nextCollapsed = forceOpen !== undefined ? !forceOpen : !prev;
+      if (!nextCollapsed && (window.innerWidth < 1024 || window.innerHeight < 640)) {
+        setRightSidebarCollapsed(true);
+      }
+      return nextCollapsed;
+    });
+  }, []);
+
+  const toggleMobileRightDrawer = useCallback((forceOpen?: boolean) => {
+    setRightSidebarCollapsed((prev) => {
+      const nextCollapsed = forceOpen !== undefined ? !forceOpen : !prev;
+      if (!nextCollapsed && (window.innerWidth < 1024 || window.innerHeight < 640)) {
+        setLeftSidebarCollapsed(true);
+      }
+      return nextCollapsed;
+    });
+  }, []);
+
   const [draggingSidebarSide, setDraggingSidebarSide] = useState<'left' | 'right' | null>(null);
   const workspaceColumnsRef = useRef<HTMLDivElement | null>(null);
   const sidebarDragRef = useRef<{
@@ -2112,6 +2170,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           setLeftSidebarCollapsed(true);
         } else {
           setLeftSidebarCollapsed(false);
+          if (window.innerWidth < 1024 || window.innerHeight < 640) {
+            setRightSidebarCollapsed(true);
+          }
           setLeftSidebarWidth(Math.max(155, Math.min(maxAllowedWidth, Math.round(rawLeftW))));
         }
       } else {
@@ -2120,6 +2181,9 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           setRightSidebarCollapsed(true);
         } else {
           setRightSidebarCollapsed(false);
+          if (window.innerWidth < 1024 || window.innerHeight < 640) {
+            setLeftSidebarCollapsed(true);
+          }
           setRightSidebarWidth(Math.max(155, Math.min(maxAllowedWidth, Math.round(rawRightW))));
         }
       }
@@ -2131,13 +2195,23 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         if (drag.side === 'left') {
           setLeftSidebarCollapsed((prev) => {
             const next = !prev;
-            if (!next && leftSidebarWidth < 160) setLeftSidebarWidth(264);
+            if (!next) {
+              if (leftSidebarWidth < 160) setLeftSidebarWidth(264);
+              if (window.innerWidth < 1024 || window.innerHeight < 640) {
+                setRightSidebarCollapsed(true);
+              }
+            }
             return next;
           });
         } else {
           setRightSidebarCollapsed((prev) => {
             const next = !prev;
-            if (!next && rightSidebarWidth < 160) setRightSidebarWidth(276);
+            if (!next) {
+              if (rightSidebarWidth < 160) setRightSidebarWidth(276);
+              if (window.innerWidth < 1024 || window.innerHeight < 640) {
+                setLeftSidebarCollapsed(true);
+              }
+            }
             return next;
           });
         }
@@ -2790,6 +2864,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   const handleCanvasPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!activeRound) return;
+    // Auto-collapse open drawers on Android Portrait & Landscape when user begins drawing/touching the canvas
+    if (typeof window !== 'undefined' && (window.innerWidth < 1024 || window.innerHeight < 640)) {
+      if (!leftSidebarCollapsed) setLeftSidebarCollapsed(true);
+      if (!rightSidebarCollapsed) setRightSidebarCollapsed(true);
+    }
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {}
@@ -6188,7 +6267,11 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       />
 
       {/* ==================== TOP HORIZONTAL FIELD BAR ==================== */}
-      <header className="relative z-20 eswa-landscape-compact-header min-h-10 h-11 px-2 sm:px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x">
+      {!(isMobileFullScreenCanvas && (stage === 'field_canvas' || stage === 'joint_grouping')) && (
+      <header
+        data-window="field-top-header"
+        className="relative z-20 eswa-landscape-compact-header min-h-9 sm:min-h-10 h-10 sm:h-11 px-1.5 sm:px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x safe-area-inset-box"
+      >
         <div className="flex items-center gap-1.5 shrink-0">
           <EswaTunnelLogo size="xs" variant="emblem" />
           <button
@@ -6231,7 +6314,10 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         </div>
 
         {/* Horizontal Field & Photo Mapping Workflow Navigation */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div
+          data-window="field-stage-navigation-bar"
+          className="flex items-center gap-1 shrink-0 overflow-x-auto no-scrollbar whitespace-nowrap"
+        >
           {(() => {
             const isSurface = mappingDomain !== 'TUNNEL';
             const isSlopeOrBench = mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
@@ -6408,6 +6494,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           </div>
         </div>
       </header>
+      )}
 
       <div
         key={stage}
@@ -10298,43 +10385,92 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             draggingSidebarSide ? 'select-none' : ''
           }`}
         >
-          {/* LEFT COLUMN: Collapsible Rectangular Strip when collapsed | Left Tool Inspector (Catalog, Selection & Fault/Fold Types) when expanded */}
+          {/* LEFT COLUMN: Collapsible Rectangular Strip when collapsed | Left Tool Inspector (Bottom Sheet on Portrait Mobile, Slide-over/Sidebar on Landscape/Desktop) */}
           {leftSidebarCollapsed ? (
-            <button
-              type="button"
-              onPointerDown={(e) => startSidebarDrag('left', e)}
-              className="w-9 shrink-0 min-h-0 h-full bg-slate-900/95 hover:bg-slate-800 border-2 border-amber-500/60 rounded-xl flex flex-col items-center justify-between py-3 px-1 cursor-ew-resize touch-none shadow-lg group transition-colors"
-              title="Tap or drag right to expand Left Tool Inspector Sidebar"
-            >
-              <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
-                ▶
-              </span>
-              <span
-                className="text-[10px] font-black uppercase tracking-widest text-amber-300 group-hover:text-white select-none"
-                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            !isPortraitMobileViewport && !isMobileFullScreenCanvas ? (
+              <button
+                type="button"
+                onPointerDown={(e) => startSidebarDrag('left', e)}
+                className="w-8 sm:w-9 shrink-0 min-h-0 h-full bg-slate-900/95 hover:bg-slate-800 border-2 border-amber-500/60 rounded-xl flex flex-col items-center justify-between py-3 px-1 cursor-ew-resize touch-none shadow-lg group transition-colors"
+                title="Tap or drag right to expand Left Tool Inspector Sidebar"
               >
-                TOOL INSPECTOR • DRAG OR TAP TO EXPAND
-              </span>
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            </button>
+                <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
+                  ▶
+                </span>
+                <span
+                  className="text-[10px] font-black uppercase tracking-widest text-amber-300 group-hover:text-white select-none"
+                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                >
+                  TOOL INSPECTOR • DRAG OR TAP TO EXPAND
+                </span>
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              </button>
+            ) : null
           ) : (
           <div
-            style={{ width: `${leftSidebarWidth}px` }}
-            className="shrink-0 min-h-0 h-full bg-slate-900/95 border border-slate-800 rounded-xl p-1.5 flex flex-col justify-between overflow-hidden"
+            style={
+              isPortraitMobileViewport
+                ? {
+                    height: mobileBottomSheetSnap === 'expanded' ? '80dvh' : '48dvh',
+                    width: '100%',
+                  }
+                : {
+                    width: `${
+                      isCompactMobileViewport
+                        ? Math.min(leftSidebarWidth, Math.floor(viewportDims.w * 0.36))
+                        : leftSidebarWidth
+                    }px`,
+                  }
+            }
+            className={
+              isPortraitMobileViewport
+                ? 'fixed inset-x-0 bottom-0 z-[95] bg-slate-950/98 border-t-2 border-amber-500/80 rounded-t-2xl p-2.5 flex flex-col justify-between overflow-hidden shadow-[0_-16px_48px_rgba(0,0,0,0.85)] safe-area-inset-box'
+                : 'shrink-0 min-h-0 h-full bg-slate-900/95 border border-slate-800 rounded-xl p-1.5 flex flex-col justify-between overflow-hidden'
+            }
           >
-            {/* Collapse / Drag-Resize Left Sidebar Header Bar */}
-            <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-800 shrink-0 gap-1">
-              <span className="text-[9.5px] font-black uppercase tracking-wider text-amber-400 truncate">
-                {stage === 'joint_grouping' ? 'Joint Sets Palette' : 'Tool Inspector'}
+            {/* Collapse / Drag-Resize Left Sidebar / Mobile Bottom Sheet Header Bar */}
+            <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-800 shrink-0 gap-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 truncate flex items-center gap-1">
+                <span>🛠 {stage === 'joint_grouping' ? 'Joint Sets Palette' : 'Tool Inspector'}</span>
               </span>
               <div className="flex items-center gap-1 shrink-0">
+                {isPortraitMobileViewport && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleMobileRightDrawer(true)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-black text-[9.5px] border border-cyan-500/40 cursor-pointer"
+                    >
+                      🧭 Params →
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMobileBottomSheetSnap((s) => (s === 'expanded' ? 'half' : 'expanded'))
+                      }
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-200 font-black text-[9.5px] border border-slate-700 flex items-center gap-0.5 cursor-pointer"
+                    >
+                      {mobileBottomSheetSnap === 'expanded' ? (
+                        <>
+                          <ChevronDown className="w-3 h-3" />
+                          <span>Half</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="w-3 h-3" />
+                          <span>Full</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setLeftSidebarCollapsed(true)}
-                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-[9px] flex items-center gap-0.5 cursor-pointer border border-slate-700"
-                  title="Shrink / Collapse Left Tool Inspector (or drag right edge)"
+                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-black text-[9.5px] flex items-center gap-0.5 cursor-pointer border border-amber-500/50"
+                  title="Close / Shrink Left Tool Inspector"
                 >
-                  <span>◀ Shrink</span>
+                  <span>{isPortraitMobileViewport ? '✕ Close' : '◀ Shrink'}</span>
                 </button>
               </div>
             </div>
@@ -11452,19 +11588,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           </div>
           )}
 
-          {/* LEFT DRAG / PUSH RESIZE HANDLE (Drag left to shrink/collapse, drag right to expand) */}
+          {/* LEFT DRAG / PUSH RESIZE HANDLE (Hidden on Portrait Mobile or Full-Screen Canvas Mode) */}
+          {!isPortraitMobileViewport && !isMobileFullScreenCanvas && (
           <div
             onPointerDown={(e) => startSidebarDrag('left', e)}
             onDoubleClick={() => {
               if (leftSidebarCollapsed) {
-                setLeftSidebarCollapsed(false);
+                toggleMobileLeftDrawer(true);
                 setLeftSidebarWidth(264);
               } else {
                 setLeftSidebarCollapsed(true);
               }
             }}
             title="Drag or push left/right to shrink or expand Left Sidebar (Tap/Double-click to toggle)"
-            className="w-3.5 shrink-0 min-h-0 h-full flex flex-col items-center justify-center cursor-col-resize touch-none select-none group relative z-20"
+            className="w-3 shrink-0 min-h-0 h-full flex flex-col items-center justify-center cursor-col-resize touch-none select-none group relative z-20"
           >
             <div
               className={`w-[2px] h-full rounded-full transition-colors ${
@@ -11486,11 +11623,67 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <span className="w-1 h-1 rounded-full bg-current opacity-80" />
             </div>
           </div>
+          )}
 
           {/* CENTER COLUMN: Permanent Top Mapping Tools Bar + Extra-Large High-Accuracy 1:1 SVG Field Mapping Canvas + Bottom Panel Switcher */}
-          <div className="flex-1 min-w-0 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-1 flex flex-col overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 h-full bg-slate-900 border border-slate-800 rounded-xl p-1 flex flex-col overflow-hidden relative">
+            {/* FLOATING COMPACT FOCUS PILL WHEN FULL-SCREEN CANVAS FOCUS MODE IS ACTIVE */}
+            {isMobileFullScreenCanvas && (
+              <div className="absolute top-2 right-2 z-[75] flex items-center gap-1 bg-slate-950/95 border border-amber-500/70 rounded-xl px-2 py-1 shadow-2xl overflow-x-auto no-scrollbar max-w-[96vw]">
+                <button
+                  type="button"
+                  onClick={() => toggleMobileLeftDrawer()}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer shrink-0 border ${
+                    !leftSidebarCollapsed
+                      ? 'bg-amber-500 text-slate-950 border-amber-300'
+                      : 'bg-slate-900 text-amber-300 border-amber-500/40'
+                  }`}
+                >
+                  🛠 Tools
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleMobileRightDrawer()}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer shrink-0 border ${
+                    !rightSidebarCollapsed
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-300'
+                      : 'bg-slate-900 text-cyan-300 border-cyan-500/40'
+                  }`}
+                >
+                  🧭 Params
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={undoStack.length === 0}
+                  className="p-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                  title="Undo"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="p-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                  title="Redo"
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileFullScreenCanvas(false)}
+                  className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                  title="Exit Full-Screen Canvas Focus Mode"
+                >
+                  <Minimize2 className="w-3 h-3" />
+                  <span>Exit Focus</span>
+                </button>
+              </div>
+            )}
+
             {/* UNIFIED FACE CANVAS CONTROLS & TOOLBAR BAR — Merged into a single div component for Photogrammetry & Face Mapping */}
-            {!(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
+            {!isMobileFullScreenCanvas && !(stage === 'field_canvas' && is3DMappingMode && mappingDomain === 'TUNNEL') && (
               <div
                 className="bg-slate-950 border border-amber-500/40 rounded-xl p-1.5 mb-1 flex flex-col gap-1.5 shrink-0 shadow-lg select-none"
                 data-window="face-canvas-main-toolbar"
@@ -11876,6 +12069,30 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   )}
 
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {/* 1-Tap Full-Screen Canvas Focus Toggle & Mobile Drawer Quick Toggles */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileFullScreenCanvas((prev) => {
+                          const next = !prev;
+                          if (next) {
+                            setLeftSidebarCollapsed(true);
+                            setRightSidebarCollapsed(true);
+                          }
+                          return next;
+                        });
+                      }}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer shrink-0 ${
+                        isMobileFullScreenCanvas
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow'
+                          : 'bg-slate-900 text-emerald-300 border-emerald-500/50 hover:bg-slate-800'
+                      }`}
+                      title="Toggle Full-Screen Canvas Focus Mode (Hides headers and sidebars for maximum drawing area on mobile)"
+                    >
+                      <Maximize2 className="w-3 h-3" />
+                      <span>Full Canvas</span>
+                    </button>
+
                     {/* Touch Pinch / PC Scroll Zoom Status & 100% Reset Pill (Zoom with Mouse Wheel or 2-Finger Touch Pinch) */}
                     <div className="inline-flex items-center rounded-lg bg-slate-950 p-0.5 border border-slate-700 gap-0.5">
                       <button
@@ -14771,13 +14988,43 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       );
     })()}
 
-            {/* Bottom Bar: Stage 4 shows Face, Left Wall, Right Wall, Crown, then 3D in that exact sequence; Stage 5 shows Group Joints navigation */}
+            {/* Bottom Bar: Stage 4 shows Mobile Drawer Dock + Face, Left Wall, Right Wall, Crown, then 3D; Stage 5 shows Group Joints navigation */}
             <div
               className="pt-1 mt-0.5 flex items-center justify-between gap-1 shrink-0 overflow-x-auto no-scrollbar touch-pan-x"
               data-window="field-bottom-panel-bar"
               data-element-id="field-bottom-panel-switcher"
               data-role="navigation"
             >
+              {/* Mobile / Android Bottom Sheet Drawer Quick Triggers (Prevents Sidebars from Crushing Canvas) */}
+              {isCompactMobileViewport && (
+                <div className="flex items-center gap-1 shrink-0 pr-1 border-r border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => toggleMobileLeftDrawer()}
+                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-black uppercase whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
+                      !leftSidebarCollapsed
+                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow'
+                        : 'bg-slate-950 text-amber-300 border-amber-500/50 hover:bg-slate-800'
+                    }`}
+                    title="Open / Close Tool Inspector Drawer"
+                  >
+                    🛠 Tools
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleMobileRightDrawer()}
+                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-black uppercase whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
+                      !rightSidebarCollapsed
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow'
+                        : 'bg-slate-950 text-cyan-300 border-cyan-500/50 hover:bg-slate-800'
+                    }`}
+                    title="Open / Close Parameters & Compass Drawer"
+                  >
+                    🧭 Params
+                  </button>
+                </div>
+              )}
+
               {stage === 'field_canvas' ? (
                 <>
                   <div className="flex items-center gap-1 shrink-0" data-element-id="field-bottom-panel-tabs-group">
@@ -14926,19 +15173,20 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             </div>
           </div>
 
-          {/* RIGHT DRAG / PUSH RESIZE HANDLE (Drag left to expand, drag right to shrink/collapse) */}
+          {/* RIGHT DRAG / PUSH RESIZE HANDLE (Hidden on Portrait Mobile or Full-Screen Canvas Mode) */}
+          {!isPortraitMobileViewport && !isMobileFullScreenCanvas && (
           <div
             onPointerDown={(e) => startSidebarDrag('right', e)}
             onDoubleClick={() => {
               if (rightSidebarCollapsed) {
-                setRightSidebarCollapsed(false);
+                toggleMobileRightDrawer(true);
                 setRightSidebarWidth(276);
               } else {
                 setRightSidebarCollapsed(true);
               }
             }}
             title="Drag or push left/right to expand or shrink Right Sidebar (Tap/Double-click to toggle)"
-            className="w-3.5 shrink-0 min-h-0 h-full flex flex-col items-center justify-center cursor-col-resize touch-none select-none group relative z-20"
+            className="w-3 shrink-0 min-h-0 h-full flex flex-col items-center justify-center cursor-col-resize touch-none select-none group relative z-20"
           >
             <div
               className={`w-[2px] h-full rounded-full transition-colors ${
@@ -14960,48 +15208,98 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
               <span className="w-1 h-1 rounded-full bg-current opacity-80" />
             </div>
           </div>
+          )}
 
-          {/* RIGHT COLUMN: Collapsible Rectangular Strip when collapsed | Parameters, Styling, Colour Gradient & Live Compass Inspector when expanded */}
+          {/* RIGHT COLUMN: Collapsible Rectangular Strip when collapsed | Parameters & Compass (Bottom Sheet on Portrait Mobile, Slide-over/Sidebar on Landscape/Desktop) */}
           {rightSidebarCollapsed ? (
-            <button
-              type="button"
-              onPointerDown={(e) => startSidebarDrag('right', e)}
-              className="w-9 shrink-0 min-h-0 h-full bg-slate-900/95 hover:bg-slate-800 border-2 border-amber-500/60 rounded-xl flex flex-col items-center justify-between py-3 px-1 cursor-ew-resize touch-none shadow-lg group transition-colors"
-              title="Tap or drag left to expand Right Parameters & Compass Sidebar"
-            >
-              <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
-                ◀
-              </span>
-              <span
-                className="text-[10px] font-black uppercase tracking-widest text-amber-300 group-hover:text-white select-none"
-                style={{ writingMode: 'vertical-rl' }}
+            !isPortraitMobileViewport && !isMobileFullScreenCanvas ? (
+              <button
+                type="button"
+                onPointerDown={(e) => startSidebarDrag('right', e)}
+                className="w-8 sm:w-9 shrink-0 min-h-0 h-full bg-slate-900/95 hover:bg-slate-800 border-2 border-amber-500/60 rounded-xl flex flex-col items-center justify-between py-3 px-1 cursor-ew-resize touch-none shadow-lg group transition-colors"
+                title="Tap or drag left to expand Right Parameters & Compass Sidebar"
               >
-                PARAMETERS • DRAG OR TAP TO EXPAND
-              </span>
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            </button>
+                <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
+                  ◀
+                </span>
+                <span
+                  className="text-[10px] font-black uppercase tracking-widest text-amber-300 group-hover:text-white select-none"
+                  style={{ writingMode: 'vertical-rl' }}
+                >
+                  PARAMETERS • DRAG OR TAP TO EXPAND
+                </span>
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              </button>
+            ) : null
           ) : (
           <div
-            style={{ width: `${rightSidebarWidth}px` }}
+            style={
+              isPortraitMobileViewport
+                ? {
+                    height: mobileBottomSheetSnap === 'expanded' ? '80dvh' : '48dvh',
+                    width: '100%',
+                  }
+                : {
+                    width: `${
+                      isCompactMobileViewport
+                        ? Math.min(rightSidebarWidth, Math.floor(viewportDims.w * 0.36))
+                        : rightSidebarWidth
+                    }px`,
+                  }
+            }
             data-window="field-right-sidebar"
             data-element-id="field-right-sidebar-parameters-compass"
             data-tool="geological-parameters"
             data-role="complementary"
-            className="shrink-0 min-h-0 h-full bg-slate-900/95 border border-slate-800 rounded-xl p-1.5 flex flex-col justify-between overflow-y-auto touch-pan-y"
+            className={
+              isPortraitMobileViewport
+                ? 'fixed inset-x-0 bottom-0 z-[95] bg-slate-950/98 border-t-2 border-cyan-500/80 rounded-t-2xl p-2.5 flex flex-col justify-between overflow-y-auto touch-pan-y shadow-[0_-16px_48px_rgba(0,0,0,0.85)] safe-area-inset-box'
+                : 'shrink-0 min-h-0 h-full bg-slate-900/95 border border-slate-800 rounded-xl p-1.5 flex flex-col justify-between overflow-y-auto touch-pan-y'
+            }
           >
-            {/* Collapse / Drag-Resize Right Sidebar Header Bar */}
-            <div className="flex items-center justify-between pb-1 mb-1 border-b border-slate-800 shrink-0 gap-1">
-              <span className="text-[9.5px] font-black uppercase tracking-wider text-amber-400 truncate">
-                {stage === 'joint_grouping' ? 'Joints & Compass' : 'Parameters & Compass'}
+            {/* Collapse / Drag-Resize Right Sidebar / Mobile Bottom Sheet Header Bar */}
+            <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-800 shrink-0 gap-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 truncate flex items-center gap-1">
+                <span>🧭 {stage === 'joint_grouping' ? 'Joints & Compass' : 'Parameters & Compass'}</span>
               </span>
               <div className="flex items-center gap-1 shrink-0">
+                {isPortraitMobileViewport && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleMobileLeftDrawer(true)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-[9.5px] border border-amber-500/40 cursor-pointer"
+                    >
+                      ← 🛠 Tools
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMobileBottomSheetSnap((s) => (s === 'expanded' ? 'half' : 'expanded'))
+                      }
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-200 font-black text-[9.5px] border border-slate-700 flex items-center gap-0.5 cursor-pointer"
+                    >
+                      {mobileBottomSheetSnap === 'expanded' ? (
+                        <>
+                          <ChevronDown className="w-3 h-3" />
+                          <span>Half</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="w-3 h-3" />
+                          <span>Full</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setRightSidebarCollapsed(true)}
-                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-[9px] flex items-center gap-0.5 cursor-pointer border border-slate-700"
-                  title="Shrink / Collapse Right Sidebar (or drag left edge)"
+                  className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-black text-[9.5px] flex items-center gap-0.5 cursor-pointer border border-cyan-500/50"
+                  title="Close / Shrink Right Parameters & Compass Sidebar"
                 >
-                  <span>Shrink ▶</span>
+                  <span>{isPortraitMobileViewport ? '✕ Close' : 'Shrink ▶'}</span>
                 </button>
               </div>
             </div>

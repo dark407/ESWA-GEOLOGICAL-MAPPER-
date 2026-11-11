@@ -133,6 +133,14 @@ if (includeUserApk && userIifeJsContent) {
 
 const otaBootloaderScript = `
 (function() {
+  var booted = false;
+  function bootDefaultBundle() {
+    if (booted) return;
+    booted = true;
+    var s = document.createElement('script');
+    s.src = './app-bundle.js';
+    document.body.appendChild(s);
+  }
   function compareSemver(vA, vB) {
     var pA = String(vA || '0.0.0').replace(/[^0-9.]/g, '').split('.').map(function(n) { return parseInt(n, 10) || 0; });
     var pB = String(vB || '0.0.0').replace(/[^0-9.]/g, '').split('.').map(function(n) { return parseInt(n, 10) || 0; });
@@ -147,7 +155,11 @@ const otaBootloaderScript = `
   }
   try {
     try { localStorage.removeItem('eswa_master_verified_session_v1'); } catch (e) {}
-    if (!window.indexedDB) return;
+    if (!window.indexedDB) {
+      bootDefaultBundle();
+      return;
+    }
+    var fallbackTimer = setTimeout(bootDefaultBundle, 1200);
     var req = window.indexedDB.open('eswa_ota_code_vault_v1', 1);
     req.onupgradeneeded = function(e) {
       var db = e.target.result;
@@ -155,19 +167,39 @@ const otaBootloaderScript = `
         db.createObjectStore('bundles');
       }
     };
+    req.onerror = function() {
+      clearTimeout(fallbackTimer);
+      bootDefaultBundle();
+    };
     req.onsuccess = function(e) {
       try {
         var db = e.target.result;
-        if (!db.objectStoreNames.contains('bundles')) return;
+        if (!db.objectStoreNames.contains('bundles')) {
+          clearTimeout(fallbackTimer);
+          bootDefaultBundle();
+          return;
+        }
         var tx = db.transaction('bundles', 'readwrite');
         var store = tx.objectStore('bundles');
         var getReq = store.get('active_ota_bundle');
+        getReq.onerror = function() {
+          clearTimeout(fallbackTimer);
+          bootDefaultBundle();
+        };
         getReq.onsuccess = function() {
+          clearTimeout(fallbackTimer);
           var ota = getReq.result;
-          if (!ota || !ota.jsContent || !ota.version) return;
           var currentEdition = window.__ESWA_EDITION__ || 'user';
-          var otaEdition = ota.edition || 'user';
-          if (otaEdition === currentEdition && compareSemver(ota.version, window.__ESWA_BUNDLED_VERSION__) > 0) {
+          var otaEdition = (ota && ota.edition) || 'user';
+          if (
+            ota &&
+            ota.jsContent &&
+            ota.version &&
+            otaEdition === currentEdition &&
+            compareSemver(ota.version, window.__ESWA_BUNDLED_VERSION__) > 0
+          ) {
+            if (booted) return;
+            booted = true;
             window.__ESWA_OTA_VERSION__ = ota.version;
             if (ota.cssContent) {
               var styleEl = document.getElementById('eswa-main-css');
@@ -177,12 +209,20 @@ const otaBootloaderScript = `
             otaScript.textContent = ota.jsContent;
             document.body.appendChild(otaScript);
           } else {
-            try { store.delete('active_ota_bundle'); } catch (delErr) {}
+            if (ota) {
+              try { store.delete('active_ota_bundle'); } catch (delErr) {}
+            }
+            bootDefaultBundle();
           }
         };
-      } catch (err) {}
+      } catch (err) {
+        clearTimeout(fallbackTimer);
+        bootDefaultBundle();
+      }
     };
-  } catch (e) {}
+  } catch (e) {
+    bootDefaultBundle();
+  }
 })();
 `;
 
@@ -215,7 +255,6 @@ const selfContainedHtml = `<!doctype html>
   </head>
   <body class="bg-[#FFF9F4] text-slate-900 antialiased selection:bg-orange-500/25 selection:text-orange-950">
     <div id="root"></div>
-    <script src="./app-bundle.js"></script>
     <script>${otaBootloaderScript}</script>
   </body>
 </html>`;
@@ -816,7 +855,6 @@ const masterSelfContainedHtml = `<!doctype html>
   </head>
   <body class="bg-[#FFF9F4] text-slate-900 antialiased selection:bg-orange-500/25 selection:text-orange-950">
     <div id="root"></div>
-    <script src="./app-bundle.js"></script>
     <script>${otaBootloaderScript}</script>
   </body>
 </html>`;

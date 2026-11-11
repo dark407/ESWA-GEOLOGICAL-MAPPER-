@@ -332,7 +332,7 @@ export function saveConfiguredGithubRepo(rawInput: string): string {
 }
 
 export const PUBLIC_SHARED_APP_ORIGIN =
-  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 export function getPublicShareOrigin(): string {
   if (typeof window === 'undefined') return PUBLIC_SHARED_APP_ORIGIN;
@@ -459,7 +459,7 @@ export function getGithubMasterAndroidApkDownloadUrl(_customRepo?: string): stri
 }
 
 const DEV_CLOUD_APP_ORIGIN =
-  'https://ais-dev-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+  'https://ais-dev-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 function getCandidateServerBases(): string[] {
   if (typeof window === 'undefined') return [''];
@@ -608,9 +608,21 @@ export async function prepareAndroidApkBlobUrl(
 }
 
 export async function prepareWindowsExeBlobUrl(
-  _edition: 'master' | 'user'
+  edition: 'master' | 'user'
 ): Promise<{ blobUrl: string; sizeMb: string } | null> {
-  return null;
+  if (typeof window === 'undefined') return null;
+  if (cachedExeBlobUrls[edition]) {
+    return cachedExeBlobUrls[edition];
+  }
+  const targetUrl =
+    edition === 'master' ? getPublicShareOrigin() : getUserEditionShareUrl();
+  const exeBytes = buildWindowsDesktopExeBinary(targetUrl);
+  const blob = new Blob([exeBytes.buffer as ArrayBuffer], {
+    type: 'application/vnd.microsoft.portable-executable',
+  });
+  const blobUrl = URL.createObjectURL(blob);
+  cachedExeBlobUrls[edition] = { blobUrl, sizeMb: 'Native PC .EXE' };
+  return cachedExeBlobUrls[edition];
 }
 
 function triggerBrowserAnchorDownload(href: string, fileName: string) {
@@ -702,61 +714,36 @@ async function triggerAuthenticatedApkDownload(
 
 function triggerGithubActionsExeDownload(
   edition: 'master' | 'user',
-  customRepo?: string
+  _customRepo?: string
 ): void {
   if (typeof window === 'undefined') return;
-  const repo =
-    normalizeGithubRepoSlug(customRepo || '') || getConfiguredGithubRepo();
   const exeFileName =
     edition === 'master'
       ? 'ESWA-GEOLOGICAL-MAPPER-Master-Setup.exe'
       : 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe';
 
-  const base =
-    window.location.origin.startsWith('http://') ||
-    window.location.origin.startsWith('https://')
-      ? ''
-      : DEV_CLOUD_APP_ORIGIN;
-
-  const directReleaseExeUrl = repo
-    ? `https://github.com/${repo}/releases/download/latest/${exeFileName}`
-    : `${base}/api/windows/download-exe?edition=${edition}&v=${Date.now()}`;
-
-  const win = window as unknown as {
-    akashDesktop?: { openExternalUrl?: (url: string) => Promise<unknown> };
-    eswaDesktop?: { openExternalUrl?: (url: string) => Promise<unknown> };
-  };
-  const openExt =
-    win.akashDesktop?.openExternalUrl || win.eswaDesktop?.openExternalUrl;
-  if (openExt && directReleaseExeUrl.startsWith('http')) {
-    void openExt(directReleaseExeUrl);
-  } else {
-    const a = document.createElement('a');
-    a.href = directReleaseExeUrl;
-    if (repo) {
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-    }
-    a.download = exeFileName;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    window.setTimeout(() => {
-      try {
-        document.body.removeChild(a);
-      } catch {
-        // Ignore
-      }
-    }, 500);
+  let cached = cachedExeBlobUrls[edition];
+  if (!cached) {
+    const targetUrl =
+      edition === 'master' ? getPublicShareOrigin() : getUserEditionShareUrl();
+    const exeBytes = buildWindowsDesktopExeBinary(targetUrl);
+    const blob = new Blob([exeBytes.buffer as ArrayBuffer], {
+      type: 'application/vnd.microsoft.portable-executable',
+    });
+    const blobUrl = URL.createObjectURL(blob);
+    cached = { blobUrl, sizeMb: 'Native PC .EXE' };
+    cachedExeBlobUrls[edition] = cached;
   }
+
+  triggerBrowserAnchorDownload(cached.blobUrl, exeFileName);
 
   window.dispatchEvent(
     new CustomEvent('eswa-binary-download-status', {
       detail: {
         status: 'completed',
         fileName: exeFileName,
-        sizeMb: '~80',
-        blobUrl: directReleaseExeUrl,
+        sizeMb: cached.sizeMb,
+        blobUrl: cached.blobUrl,
       },
     })
   );

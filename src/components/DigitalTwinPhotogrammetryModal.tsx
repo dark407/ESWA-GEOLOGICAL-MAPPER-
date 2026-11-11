@@ -19,6 +19,9 @@ import {
   Check,
   X,
   Maximize2,
+  Minimize2,
+  ChevronUp,
+  ChevronDown,
   GitBranch,
   Activity,
   ArrowLeft,
@@ -198,6 +201,15 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
   const [hasBuilt3DTwin, setHasBuilt3DTwin] = useState<boolean>(false);
   const [hasUnbuiltPhotoChanges, setHasUnbuiltPhotoChanges] = useState<boolean>(false);
   const [showCoverageBlueprintModal, setShowCoverageBlueprintModal] = useState<boolean>(false);
+  const [isFullScreen3D, setIsFullScreen3D] = useState<boolean>(false);
+  const [isMobileControlDrawerCollapsed, setIsMobileControlDrawerCollapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [isFullScreen3D, isMobileControlDrawerCollapsed]);
 
   const [replaceTargetPhotoId, setReplaceTargetPhotoId] = useState<string | null>(null);
   const replaceRawInputRef = useRef<HTMLInputElement | null>(null);
@@ -1482,78 +1494,79 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
         }}
       />
 
-      {/* TOP WORKBENCH HEADER */}
-      <div className="min-h-14 py-1.5 px-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
+      {/* TOP WORKBENCH HEADER (Compact single-row scrollable on Android, hidden in Full-Screen 3D mode) */}
+      {!isFullScreen3D && (
+      <div className="min-h-11 sm:min-h-14 py-1 sm:py-1.5 px-2 sm:px-4 bg-slate-900 border-b border-slate-800 flex flex-nowrap lg:flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0 overflow-x-auto no-scrollbar whitespace-nowrap">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {embeddedStage && onBackToPhotoFit && (
             <button
               type="button"
               onClick={onBackToPhotoFit}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition"
+              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] sm:text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition shrink-0"
               title="Return to Step 4: Photo Fit"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-sky-400" />
               <span>4. Photo Fit</span>
             </button>
           )}
-          <div className="w-9 h-9 rounded-lg bg-sky-500/15 border border-sky-400/40 flex items-center justify-center text-sky-400">
-            <Camera className="w-5 h-5" />
+          <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-sky-500/15 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+            <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold tracking-wide text-white uppercase">
+          <div className="shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h2 className="text-xs sm:text-sm font-bold tracking-wide text-white uppercase">
                 {embeddedStage
-                  ? '5. 3D Digital Twin Tunneling'
-                  : '3D Digital Twin & Photogrammetry Workbench'}
+                  ? '5. 3D Digital Twin'
+                  : '3D Digital Twin Workbench'}
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-amber-500 text-slate-950 shadow">
+              <span className="px-1.5 sm:px-2 py-0.5 text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wider rounded bg-amber-500 text-slate-950 shadow">
                 BETA
               </span>
-              <span className="px-2 py-0.5 text-[10px] font-mono font-semibold uppercase rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              <span className="px-1.5 sm:px-2 py-0.5 text-[9.5px] sm:text-[10px] font-mono font-semibold uppercase rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
                 {isVerticalShaft
-                  ? 'Vertical Shaft 3D Bowl'
+                  ? 'Vertical Shaft 3D'
                   : `${(geometry.tunnelShape || 'd_shaped').replace('_', ' ').toUpperCase()}`}
               </span>
-              <span className="px-2 py-0.5 text-[10px] font-mono text-slate-300 bg-slate-800 rounded border border-slate-700">
+              <span className="hidden md:inline-block px-2 py-0.5 text-[10px] font-mono text-slate-300 bg-slate-800 rounded border border-slate-700">
                 {projectName ? `${projectName} • ` : ''}
                 {locationName ? `${locationName} • ` : ''}
                 {roundLabel} • {geometry.widthM}m W × {geometry.heightM}m H × Pull {geometry.pullLengthM}m
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="hidden xl:block text-[11px] text-slate-400">
               Cross-Portion AI Photogrammetry: trims extra wall/crown rim from Face photos and cross-fills missing Crown haunches from Left/Right Wall upper arch strips.
             </p>
           </div>
         </div>
 
         {/* 4 EXTRACTION METHOD TABS */}
-        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 shrink-0">
           <button
             type="button"
             onClick={() => {
               setExtractionMethod('FACET_3PT_POLYGON');
               setPickedPoints([]);
             }}
-            className={`px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded text-[11px] sm:text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
               extractionMethod === 'FACET_3PT_POLYGON'
                 ? 'bg-sky-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
             <Crosshair className="w-3.5 h-3.5" />
-            1. 3-Pt / Polygon Facet
+            <span>1. 3-Pt Facet</span>
           </button>
           <button
             type="button"
             onClick={() => setExtractionMethod('TRACE_RELIEF_PROJECTION')}
-            className={`px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded text-[11px] sm:text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
               extractionMethod === 'TRACE_RELIEF_PROJECTION'
                 ? 'bg-sky-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            2. 2D Trace → 3D Relief
+            <span>2. 2D → 3D Relief</span>
           </button>
           <button
             type="button"
@@ -1561,14 +1574,14 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               setExtractionMethod('CROSS_SURFACE_TIE_POINTS');
               setPickedPoints([]);
             }}
-            className={`px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded text-[11px] sm:text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
               extractionMethod === 'CROSS_SURFACE_TIE_POINTS'
                 ? 'bg-sky-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
             <GitBranch className="w-3.5 h-3.5" />
-            3. Cross-Surface Tie-Points
+            <span>3. Tie-Points</span>
           </button>
           <button
             type="button"
@@ -1576,23 +1589,23 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               setExtractionMethod('AUTO_FACET_DETECTION');
               handleRunAutoFacetDetector();
             }}
-            className={`px-2.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded text-[11px] sm:text-xs font-semibold flex items-center gap-1 transition shrink-0 ${
               extractionMethod === 'AUTO_FACET_DETECTION'
                 ? 'bg-emerald-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            4. Auto Facet Detector
+            <span>4. Auto Facets</span>
           </button>
         </div>
 
         {/* RIGHT ACTIONS */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setShowMultiRoundCorridor((v) => !v)}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition ${
+            className={`px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold border flex items-center gap-1 transition shrink-0 ${
               showMultiRoundCorridor
                 ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
                 : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
@@ -1600,7 +1613,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             title="Stitch multiple excavation rounds along chainage into a continuous 3D Digital Twin corridor"
           >
             <Layers className="w-3.5 h-3.5" />
-            {showMultiRoundCorridor ? 'Continuous 3D Corridor (On)' : 'Stitch Continuous 3D'}
+            <span>{showMultiRoundCorridor ? 'Corridor (On)' : 'Stitch 3D'}</span>
           </button>
 
           {embeddedStage && onProceedToFaceCanvas ? (
@@ -1608,48 +1621,49 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               <button
                 type="button"
                 onClick={() => onProceedToFaceCanvas(selectedPanel)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer transition"
+                className="px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] sm:text-xs font-bold border border-slate-700 flex items-center gap-1 cursor-pointer transition shrink-0"
                 title="Skip 3D Digital Twin (BETA) and go directly to Face Canvas"
               >
                 <SkipForward className="w-3.5 h-3.5 text-amber-400" />
-                <span>Skip → Face Canvas</span>
+                <span>Skip → Canvas</span>
               </button>
               <button
                 type="button"
                 onClick={() => onProceedToFaceCanvas(selectedPanel)}
-                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-lg cursor-pointer transition"
+                className="px-3 py-1 sm:py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1 shadow-lg cursor-pointer transition shrink-0"
                 title="Save traced 3D joints & dip surfaces by Portion and open Face Canvas"
               >
                 <span>
-                  Open 6. Face Canvas ({existingJointTraces.length} Joints / {existingDipSurfaces.length} Dip Surf)
+                  6. Face Canvas ({existingJointTraces.length}J / {existingDipSurfaces.length}D)
                 </span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </>
           ) : (
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 flex items-center gap-1 transition"
+              className="px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 flex items-center gap-1 transition shrink-0"
             >
               <X className="w-4 h-4" />
-              Close
+              <span>Close</span>
             </button>
           )}
         </div>
       </div>
+      )}
 
       {/* STATUS FEEDBACK BANNER */}
       {statusBanner && (
-        <div className="px-4 py-1.5 bg-emerald-950/90 border-b border-emerald-700/60 flex items-center justify-between text-xs text-emerald-200 shrink-0">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{statusBanner}</span>
+        <div className="px-3 py-1 bg-emerald-950/90 border-b border-emerald-700/60 flex items-center justify-between text-[11px] sm:text-xs text-emerald-200 shrink-0 gap-2">
+          <div className="flex items-center gap-1.5 truncate">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate">{statusBanner}</span>
           </div>
           <button
             type="button"
             onClick={() => setStatusBanner(null)}
-            className="text-emerald-400 hover:text-white text-[11px] font-semibold"
+            className="text-emerald-400 hover:text-white text-[11px] font-semibold shrink-0"
           >
             Dismiss
           </button>
@@ -1658,30 +1672,67 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
 
       {/* UNBUILT PHOTO CHANGES WARNING BANNER */}
       {hasBuilt3DTwin && hasUnbuiltPhotoChanges && !deepPipelineProgress?.active && (
-        <div className="px-4 py-1.5 bg-amber-950/95 border-b border-amber-600/60 flex items-center justify-between text-xs text-amber-200 shrink-0">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>
-              New or replaced photos have been staged. Rendering is held until you click &ldquo;Re-Build &amp; Render 3D Digital Twin&rdquo; so cross-portion overlap recovery runs cleanly across all photos.
+        <div className="px-3 py-1 bg-amber-950/95 border-b border-amber-600/60 flex items-center justify-between text-[11px] sm:text-xs text-amber-200 shrink-0 gap-2">
+          <div className="flex items-center gap-1.5 truncate">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">
+              Photos staged. Click &ldquo;Re-Build 3D Digital Twin&rdquo; to refresh cross-portion overlap recovery.
             </span>
           </div>
           <button
             type="button"
             onClick={() => handleRunDeepReconstruction()}
-            className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] cursor-pointer"
+            className="px-2.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[10.5px] cursor-pointer shrink-0"
           >
-            Re-Build 3D Digital Twin Now →
+            Re-Build Now →
           </button>
         </div>
       )}
 
-      {/* MAIN WORKBENCH BODY: LEFT CONTROLS + RIGHT WHITE-BACKGROUND 3D DIGITAL TWIN VIEWPORT */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT CONTROL & PER-PORTION PRIMARY + SUPPORTING PHOTO BAYS */}
-        <div className="w-[465px] bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto shrink-0">
+      {/* MAIN WORKBENCH BODY: Adaptive Portrait (Top 3D Viewport + Bottom Drawer) & Landscape/Desktop (Left Drawer + Right 3D Viewport) */}
+      <div className="flex-1 flex flex-col-reverse md:flex-row min-h-0 overflow-hidden relative">
+        {/* LEFT / BOTTOM CONTROL & PER-PORTION PRIMARY + SUPPORTING PHOTO BAYS */}
+        {!isFullScreen3D && (
+        <div
+          className={`bg-slate-900 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col shrink-0 transition-all ${
+            isMobileControlDrawerCollapsed
+              ? 'h-10 md:h-full md:w-11 overflow-hidden'
+              : 'w-full h-[46dvh] md:h-full md:w-[320px] lg:w-[395px] xl:w-[455px] overflow-y-auto'
+          }`}
+        >
+          {/* Mobile / Compact Drawer Collapse Header Bar */}
+          <div className="px-3 py-1.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 sticky top-0 z-20">
+            <span className="text-[10.5px] font-black uppercase tracking-wider text-sky-400 truncate flex items-center gap-1.5">
+              <Camera className="w-3.5 h-3.5 shrink-0" />
+              {!isMobileControlDrawerCollapsed && (
+                <span>Photo Bays &amp; 3D Controls ({localRawPhotos.length} Photos)</span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsMobileControlDrawerCollapsed((v) => !v)}
+              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-black border border-slate-700 flex items-center gap-1 cursor-pointer shrink-0"
+              title="Collapse or Expand Photo Bays & Controls Drawer"
+            >
+              {isMobileControlDrawerCollapsed ? (
+                <>
+                  <ChevronUp className="w-3 h-3" />
+                  <span className="md:hidden">Expand Controls</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3 h-3" />
+                  <span>Minimize</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {!isMobileControlDrawerCollapsed && (
+          <>
           {/* SECTION 1: PER-PORTION PRIMARY + SUPPORTING PHOTO BAYS & CROSS-PORTION OVERLAP ENGINE */}
-          <div className="p-3.5 border-b border-slate-800 space-y-3 bg-slate-900/95">
-            <div className="flex items-center justify-between">
+          <div className="p-3 sm:p-3.5 border-b border-slate-800 space-y-2.5 bg-slate-900/95">
+            <div className="flex items-center justify-between gap-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
                 <Camera className="w-3.5 h-3.5" />
                 Portion Primary + Supporting Photo Bays ({localRawPhotos.length})
@@ -2520,19 +2571,44 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
+        )}
 
         {/* RIGHT 3D DIGITAL TWIN WEBGL VIEWPORT (PURE WHITE #FFFFFF ENGINEERING CANVAS) */}
-        <div className="flex-1 relative bg-white flex flex-col overflow-hidden">
-          {/* Top-Left Camera Preset Overlay */}
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap bg-white/95 p-1.5 rounded-lg border border-slate-300 shadow-md">
+        <div className="flex-1 min-h-[220px] relative bg-white flex flex-col overflow-hidden">
+          {/* Top-Left Camera Preset & Full-Screen 3D Toggle Overlay (Compact Single-Row Scrollable on Android) */}
+          <div className="absolute top-2 left-2 right-2 lg:right-auto z-10 flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar whitespace-nowrap bg-white/95 p-1 sm:p-1.5 rounded-lg border border-slate-300 shadow-md max-w-full">
+            <button
+              type="button"
+              onClick={() => setIsFullScreen3D((v) => !v)}
+              className={`px-2 py-1 rounded text-[11px] sm:text-xs font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition ${
+                isFullScreen3D
+                  ? 'bg-emerald-600 border-emerald-700 text-white shadow'
+                  : 'bg-slate-900 hover:bg-slate-800 border-slate-900 text-amber-300'
+              }`}
+              title="Toggle Full-Screen 3D Viewport (Hides Controls & Header)"
+            >
+              {isFullScreen3D ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Exit Full 3D</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Full 3D</span>
+                </>
+              )}
+            </button>
             <button
               type="button"
               onClick={() => focusCameraOnPanel('overview')}
-              className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-800 border border-slate-300 flex items-center gap-1"
+              className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[11px] sm:text-xs font-bold text-slate-800 border border-slate-300 flex items-center gap-1 shrink-0"
             >
-              <Maximize2 className="w-3.5 h-3.5 text-sky-600" />
-              3D Overview
+              <Box className="w-3.5 h-3.5 text-sky-600" />
+              <span>Overview</span>
             </button>
             {availablePanels.map((p) => (
               <button
@@ -2542,7 +2618,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                   setSelectedPanel(p.id);
                   focusCameraOnPanel(p.id);
                 }}
-                className={`px-2.5 py-1 rounded text-xs font-bold border transition ${
+                className={`px-2 py-1 rounded text-[11px] sm:text-xs font-bold border transition shrink-0 ${
                   selectedPanel === p.id
                     ? 'bg-sky-600 border-sky-700 text-white shadow-sm'
                     : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
@@ -2556,30 +2632,30 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               <button
                 type="button"
                 onClick={() => setShowCoverageBlueprintModal((v) => !v)}
-                className="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 text-xs font-bold flex items-center gap-1"
+                className="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 text-[11px] sm:text-xs font-bold flex items-center gap-1 shrink-0"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                {showCoverageBlueprintModal ? 'Hide Overlap Blueprint' : 'Overlap Readiness'}
+                <span>{showCoverageBlueprintModal ? 'Hide Overlap' : 'Overlap Info'}</span>
               </button>
             )}
           </div>
 
-          {/* Top-Right Active Measurement HUD */}
-          <div className="absolute top-3 right-3 z-10 bg-white/95 px-3 py-2 rounded-lg border border-slate-300 shadow-md text-right">
-            <div className="text-[10px] font-mono uppercase text-slate-600 font-bold">
+          {/* Top-Right Active Measurement HUD (Positioned below presets on narrow mobile so they never overlap) */}
+          <div className="absolute top-12 lg:top-2 right-2 z-10 bg-white/95 px-2.5 py-1.5 rounded-lg border border-slate-300 shadow-md text-right max-w-[94vw] sm:max-w-md pointer-events-none">
+            <div className="hidden sm:block text-[10px] font-mono uppercase text-slate-600 font-bold">
               Drive Azimuth: {(geometry.driveAzimuthDeg || 0).toString().padStart(3, '0')}° • Exact Profile Silhouette • White 3D Canvas
             </div>
             {activeDisplayedFit ? (
-              <div className="text-xs font-mono font-extrabold text-sky-700 mt-0.5">
+              <div className="text-[11px] sm:text-xs font-mono font-extrabold text-sky-700">
                 Dip Dir {Math.round(activeDisplayedFit.dipDirectionDeg).toString().padStart(3, '0')}° / Dip{' '}
                 {Math.round(activeDisplayedFit.dipAmountDeg)}° ({activeDisplayedFit.dipHalfCircleSense.toUpperCase()}) • RHR Strike{' '}
                 {Math.round(activeDisplayedFit.strikeRhrDeg).toString().padStart(3, '0')}°
               </div>
             ) : (
-              <div className="text-xs font-mono font-semibold text-amber-700 mt-0.5">
+              <div className="text-[10.5px] sm:text-xs font-mono font-semibold text-amber-700 truncate">
                 {hasBuilt3DTwin
-                  ? 'Click 3+ points on the 3D rock surface to fit exact Dip Plane'
-                  : 'Stage Primary & Supporting photos, then click Build & Render 3D Digital Twin'}
+                  ? 'Tap 3+ points on 3D rock surface to fit exact Dip Plane'
+                  : 'Stage photos, then tap Build & Render 3D Digital Twin'}
               </div>
             )}
           </div>
@@ -2811,28 +2887,28 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             className="w-full h-full cursor-crosshair bg-white"
           />
 
-          {/* Bottom Legend Bar */}
-          <div className="h-9 px-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+          {/* Bottom Legend Bar (Single-row scrollable on Android) */}
+          <div className="h-8 sm:h-9 px-2.5 sm:px-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-3 text-[10px] sm:text-[11px] text-slate-400 shrink-0 overflow-x-auto no-scrollbar whitespace-nowrap">
+            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 inline-block" />
                 Direct Photo / RHR Strike
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" />
-                Cross-Filled Overlap / Normal
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-sky-400 inline-block" />
+                Cross-Filled Overlap
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />
-                Steepest Dip / Blind-Spot Alert
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-orange-500 inline-block" />
+                Steepest Dip / Blind-Spot
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" />
-                Primary &amp; Supporting Camera Frustums ({localRawPhotos.length})
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-purple-400 inline-block" />
+                Cameras ({localRawPhotos.length})
               </span>
             </div>
-            <div className="font-mono text-slate-300">
-              Left-Click Rock Mesh: Pick 3D Point • Drag: Orbit 3D Twin • Scroll: Zoom
+            <div className="font-mono text-slate-300 shrink-0">
+              Tap Rock Mesh: Pick 3D Point • Drag: Orbit • Pinch/Scroll: Zoom
             </div>
           </div>
         </div>

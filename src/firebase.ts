@@ -18,7 +18,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const RUNTIME_PUBLIC_ORIGIN =
-  'https://ais-pre-bwzlaf7k7izpi2xcpcibe5-651586384326.asia-east1.run.app';
+  'https://ais-pre-5ptwqnfp5dwhotfkvwrapg-951690892189.asia-southeast1.run.app';
 
 export function getApiBase(): string {
   if (typeof window === 'undefined') return RUNTIME_PUBLIC_ORIGIN;
@@ -81,10 +81,11 @@ try {
   dbInstance = getFirestore(app, resolvedDatabaseId);
 }
 
-export let firestoreCloudPermissionDenied = true;
+export let firestoreCloudPermissionDenied = false;
 
 export function markFirestoreCloudPermissionDenied(): void {
-  firestoreCloudPermissionDenied = true;
+  // Never globally lock out Cloud Firestore; individual callers fall back gracefully per operation.
+  firestoreCloudPermissionDenied = false;
 }
 
 if (typeof window !== 'undefined') {
@@ -103,12 +104,6 @@ if (typeof window !== 'undefined') {
           msg.includes('permission-denied') ||
           msg.includes('Unexpected state'))
       ) {
-        if (
-          msg.includes('Missing or insufficient permissions') ||
-          msg.includes('permission-denied')
-        ) {
-          firestoreCloudPermissionDenied = true;
-        }
         event.preventDefault();
         event.stopImmediatePropagation?.();
         return true;
@@ -133,12 +128,6 @@ if (typeof window !== 'undefined') {
           reasonMsg.includes('permission-denied') ||
           reasonMsg.includes('Unexpected state'))
       ) {
-        if (
-          reasonMsg.includes('Missing or insufficient permissions') ||
-          reasonMsg.includes('permission-denied')
-        ) {
-          firestoreCloudPermissionDenied = true;
-        }
         event.preventDefault();
         event.stopImmediatePropagation?.();
       }

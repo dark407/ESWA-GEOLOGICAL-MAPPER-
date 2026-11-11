@@ -3478,65 +3478,65 @@ const NatmJoint3DInspectorModalContent: React.FC<
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 bg-slate-900 safe-area-inset-box">
       <div
         className={`w-full max-w-full h-full h-[100dvh] flex flex-col rounded-none shadow-none overflow-hidden transition-colors border-0 ${
           isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-900 text-slate-100'
         }`}
       >
         {/* ===================================================================
-            HEADER: TITLE, STATUS & ACTION BUTTONS (FULL LIGHT/DARK THEME ADOPTION)
+            HEADER: TITLE, STATUS & ACTION BUTTONS (COMPACT SINGLE-ROW SCROLL ON ANDROID)
             =================================================================== */}
         <header
-          className={`flex-none px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 border-b transition-colors ${
+          className={`flex-none px-2.5 sm:px-4 py-1.5 sm:py-2.5 flex flex-nowrap lg:flex-wrap items-center justify-between gap-2 sm:gap-3 border-b transition-colors overflow-x-auto no-scrollbar whitespace-nowrap ${
             isLight
               ? 'bg-white/95 text-slate-900 border-slate-200 shadow-xs'
               : 'bg-slate-900/95 text-slate-100 border-slate-700/80 shadow-xs'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div
-              className={`w-9 h-9 rounded-xl border flex items-center justify-center font-black transition-colors ${
+              className={`w-7 h-7 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center font-black transition-colors shrink-0 ${
                 isLight
                   ? 'bg-amber-100 border-amber-400 text-amber-700'
                   : 'bg-amber-500/20 border-amber-500/40 text-amber-400'
               }`}
             >
-              <Compass className="w-5 h-5 animate-pulse" />
+              <Compass className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
             </div>
-            <div>
+            <div className="shrink-0">
               <div className="flex items-center gap-2">
                 <h2
-                  className={`font-mono font-black text-sm sm:text-base tracking-wide transition-colors ${
+                  className={`font-mono font-black text-xs sm:text-base tracking-wide transition-colors ${
                     isLight ? 'text-slate-900' : 'text-white'
                   }`}
                 >
                   {tunnelGeometry.isVerticalShaft
-                    ? 'VERTICAL SHAFT 3D JOINT INSPECTOR & 4-QUADRANT PERSISTENCE'
+                    ? 'VERTICAL SHAFT 3D JOINT INSPECTOR'
                     : isSurfaceMapping
-                    ? `${domainPanelMap.domainTitle.toUpperCase()} 3D JOINT INSPECTOR · PORTION: ${getPortionShort(activePortionPanel).toUpperCase()}`
-                    : 'NATM 3D JOINT INSPECTOR & MULTI-SURFACE PERSISTENCE'}
+                    ? `${domainPanelMap.domainTitle.toUpperCase()} 3D INSPECTOR · ${getPortionShort(activePortionPanel).toUpperCase()}`
+                    : 'NATM 3D JOINT INSPECTOR & PERSISTENCE'}
                 </h2>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setShowDigitalTwinModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-mono text-[11px] font-bold flex items-center gap-1.5 shadow cursor-pointer transition-colors"
+              className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-mono text-[10.5px] sm:text-[11px] font-bold flex items-center gap-1.5 shadow cursor-pointer transition-colors shrink-0"
               title="Open 3D Digital Twin & Photogrammetry Workbench to extract exact 3D facet Dip Direction & Dip Amount"
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>3D Digital Twin &amp; Photogrammetry</span>
+              <span>3D Digital Twin</span>
             </button>
             {/* Horizontal & Vertical Adaptive Mode Segmented Controls */}
-            <div className="flex items-center p-0.5 rounded-xl bg-slate-800/90 border border-slate-700/80 font-mono text-[11px] font-bold shadow-inner">
+            <div className="flex items-center p-0.5 rounded-xl bg-slate-800/90 border border-slate-700/80 font-mono text-[10.5px] sm:text-[11px] font-bold shadow-inner shrink-0">
               <button
                 type="button"
                 onClick={() => setViewLayoutMode('CANVAS')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
                   viewLayoutMode === 'CANVAS'
                     ? 'bg-amber-500 text-slate-950 font-black shadow'
                     : 'text-slate-400 hover:text-white'
@@ -3544,12 +3544,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 title="Show 3D Viewport Only (Full Canvas)"
               >
                 <Box className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">3D Canvas</span>
+                <span>3D Only</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewLayoutMode('SPLIT')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
                   viewLayoutMode === 'SPLIT'
                     ? 'bg-amber-500 text-slate-950 font-black shadow'
                     : 'text-slate-400 hover:text-white'
@@ -3557,12 +3557,12 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 title="Split View (Show both 3D Viewport and Parameters)"
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Split View</span>
+                <span>Split</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewLayoutMode('PARAMS')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
                   viewLayoutMode === 'PARAMS'
                     ? 'bg-amber-500 text-slate-950 font-black shadow'
                     : 'text-slate-400 hover:text-white'
@@ -3570,7 +3570,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
                 title="Show Parameters & Audit Only (Full Aside)"
               >
                 <Sliders className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Parameters</span>
+                <span>Params</span>
               </button>
             </div>
 
@@ -3579,7 +3579,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
               <button
                 type="button"
                 onClick={() => setVerticalCanvasPosition((prev) => (prev === 'top' ? 'bottom' : 'top'))}
-                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-slate-700 transition-colors cursor-pointer text-[10.5px] font-mono font-bold flex items-center gap-1 shadow-sm"
+                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-slate-700 transition-colors cursor-pointer text-[10.5px] font-mono font-bold flex items-center gap-1 shadow-sm shrink-0"
                 title="Swap vertical placement of 3D Canvas and Parameters"
               >
                 <RotateCcw className="w-3 h-3 text-cyan-400" />
@@ -3590,14 +3590,14 @@ const NatmJoint3DInspectorModalContent: React.FC<
             <button
               type="button"
               onClick={onClose}
-              className={`p-1.5 rounded-xl border cursor-pointer transition-colors ${
+              className={`p-1.5 rounded-xl border cursor-pointer transition-colors shrink-0 ${
                 isLight
                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border-slate-300'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border-slate-700'
               }`}
               title="Close 3D Joint Inspector"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
         </header>

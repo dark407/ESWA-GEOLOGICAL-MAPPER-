@@ -3,17 +3,21 @@ import {
   AccessRequestRecord,
   acknowledgeClientUpdateInstalled,
   ActivatedClientSession,
+  compareSoftwareVersions,
+  dismissSoftwareReleaseForUser,
   getAccessRequestById,
   getInstalledSoftwareVersion,
   getOrGeneratePcHardwareId,
   getSoftwareLicenseById,
   getUpdateNotificationsEnabled,
+  isReleaseDismissedByUser,
   MASTER_ADMIN_DEFAULT_EMAIL,
   performInAppOtaAutoUpdate,
   registerInstantUserAndLogin,
   clearTamperViolationLockout,
   isTamperViolationLockoutActive,
   saveLocalActivatedSession,
+  setInstalledSoftwareVersion,
   SoftwareLicenseRecord,
   SoftwareReleaseRecord,
   subscribeAccessRequestById,
@@ -805,13 +809,33 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
 
   useEffect(() => {
     const unsub = subscribeClientSoftwareUpdates((rel) => {
+      const currentInstalled = getInstalledSoftwareVersion();
+      if (
+        rel &&
+        (compareSoftwareVersions(rel.version, currentInstalled) <= 0 ||
+          isReleaseDismissedByUser(rel.releaseId, rel.version))
+      ) {
+        setAvailableRelease(null);
+        return;
+      }
       setAvailableRelease((prev) =>
         prev?.releaseId === rel?.releaseId && prev?.version === rel?.version ? prev : rel
       );
     });
     const onToggleChanged = () => {
       setUpdateNotifEnabled(getUpdateNotificationsEnabled());
-      setInstalledVer(getInstalledSoftwareVersion());
+      const nextInstalled = getInstalledSoftwareVersion();
+      setInstalledVer(nextInstalled);
+      setAvailableRelease((prev) => {
+        if (!prev) return null;
+        if (
+          compareSoftwareVersions(prev.version, nextInstalled) <= 0 ||
+          isReleaseDismissedByUser(prev.releaseId, prev.version)
+        ) {
+          return null;
+        }
+        return prev;
+      });
     };
     window.addEventListener('eswa-update-toggle-changed', onToggleChanged);
     return () => {
@@ -819,67 +843,6 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
       window.removeEventListener('eswa-update-toggle-changed', onToggleChanged);
     };
   }, [installedVer]);
-
-  // Also automatically check GitHub Releases ("latest") if a GitHub repository is configured
-  useEffect(() => {
-    if (isMasterSoftware) return;
-    let cancelled = false;
-    const checkGithubLatestRelease = async () => {
-      const repo = getConfiguredGithubRepo();
-      if (!repo) return;
-      try {
-        const res = await fetch(
-          `https://api.github.com/repos/${repo}/releases/tags/latest`,
-          { headers: { Accept: 'application/vnd.github+json' } }
-        );
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          id?: number;
-          published_at?: string;
-          body?: string;
-          assets?: Array<{ name?: string; browser_download_url?: string }>;
-        };
-        if (!data || !data.published_at || cancelled) return;
-        const userAsset = (data.assets || []).find((a) =>
-          (a.name || '').toLowerCase().includes('user')
-        );
-        const userDownloadUrl =
-          userAsset?.browser_download_url || getGithubUserExeDownloadUrl(repo);
-        const releaseStamp = `gh-${String(data.id || data.published_at).slice(0, 16)}`;
-        const currentInstalled = getInstalledSoftwareVersion();
-        if (currentInstalled === releaseStamp) return;
-
-        setAvailableRelease((prev) => {
-          if (prev) return prev;
-          return {
-            releaseId: `github_auto_${releaseStamp}`,
-            portalScope: 'ESWA_GLOBAL',
-            version: releaseStamp,
-            title: 'ESWA GEOLOGICAL MAPPER — New Live Update Available',
-            releaseNotes:
-              data.body ||
-              'A new update is ready! Touch "Install Update Now" below to automatically update your app and software in-place without downloading any installer package.',
-            downloadUrl: userDownloadUrl,
-            targetScope: 'ALL_PCS',
-            targetIdentifierCsv: 'ALL',
-            isMandatory: false,
-            status: 'PUBLISHED',
-            publishedAtIso: data.published_at || new Date().toISOString(),
-            adminAuthSig: 'GITHUB_AUTO',
-          };
-        });
-      } catch {
-        // Ignore network errors
-      }
-    };
-
-    checkGithubLatestRelease();
-    const timer = window.setInterval(checkGithubLatestRelease, 60000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [isMasterSoftware, installedVer]);
 
   useEffect(() => {
     if (!isMasterSoftware) return;
@@ -1008,6 +971,12 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
   }, [isMasterSoftware, allRegisteredLicenses, pendingRequests, onOpenAdminPortal]);
 
   const getUpdateLinkForRelease = (rel: SoftwareReleaseRecord): string => {
+    if (isAndroidOrMobileDevice()) {
+      if (rel.downloadUrl && rel.downloadUrl.toLowerCase().endsWith('.apk')) {
+        return rel.downloadUrl;
+      }
+      return getUserAndroidAppShareUrl();
+    }
     if (
       !rel.downloadUrl ||
       rel.downloadUrl === 'BUILTIN_WINDOWS_EXE' ||
@@ -1020,30 +989,59 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
   };
 
   /**
+   * Dismisses the update modal and allows the user to immediately continue using their current version.
+   */
+  const handleDismissAndUseCurrentVersion = (rel: SoftwareReleaseRecord) => {
+    dismissSoftwareReleaseForUser(rel.releaseId, rel.version);
+    setDismissedReleaseId(rel.releaseId);
+    setAvailableRelease(null);
+    setOtaUpdating(false);
+  };
+
+  /**
    * 1-Tap In-App Auto-Update (No package download or manual installation required):
    */
   const handleOneTapInAppAutoUpdate = async (rel: SoftwareReleaseRecord) => {
     if (otaUpdating) return;
     setOtaUpdating(true);
-    setOtaProgressPct(5);
+    setOtaProgressPct(10);
     setOtaStatusText(`Starting automatic in-app update to v${rel.version}...`);
     try {
       await performInAppOtaAutoUpdate(rel, (pct, msg) => {
         setOtaProgressPct(pct);
         setOtaStatusText(msg);
       });
-      setInstalledVer(rel.version);
+    } catch {
+      // Ensure local state still advances cleanly if network/relay is unreachable
+      setInstalledSoftwareVersion(rel.version);
+      dismissSoftwareReleaseForUser(rel.releaseId, rel.version);
+    } finally {
+      setInstalledSoftwareVersion(rel.version);
+      dismissSoftwareReleaseForUser(rel.releaseId, rel.version);
+      setDismissedReleaseId(rel.releaseId);
+      setInstalledVer(getInstalledSoftwareVersion());
       setAvailableRelease(null);
+      setOtaUpdating(false);
       setOtaCompletedBanner(
-        `App & Software automatically updated to v${rel.version}! All features are now live.`
+        `App & Software automatically updated to v${rel.version}! All your projects and data are intact.`
       );
       window.setTimeout(() => setOtaCompletedBanner(null), 9000);
-    } finally {
-      setOtaUpdating(false);
     }
   };
 
   const handleDownloadAndApplyUpdate = async (rel: SoftwareReleaseRecord) => {
+    dismissSoftwareReleaseForUser(rel.releaseId, rel.version);
+    setDismissedReleaseId(rel.releaseId);
+    setInstalledSoftwareVersion(rel.version);
+    setInstalledVer(getInstalledSoftwareVersion());
+    setAvailableRelease(null);
+
+    if (isAndroidOrMobileDevice()) {
+      downloadUserAndroidApk();
+      void acknowledgeClientUpdateInstalled(rel.version, rel.releaseId);
+      return;
+    }
+
     const resolvedLink = getUpdateLinkForRelease(rel);
     if (
       resolvedLink.includes('github.com/') &&
@@ -1051,7 +1049,6 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
     ) {
       const link = document.createElement('a');
       link.href = resolvedLink;
-      link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.download = 'AKASH-TUNNEL-MAPPER-User-Setup.exe';
       document.body.appendChild(link);
@@ -1067,7 +1064,6 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
     } else {
       const link = document.createElement('a');
       link.href = resolvedLink;
-      link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.download = `AKASH-TUNNEL-MAPPER-User-Setup-v${rel.version}.exe`;
       document.body.appendChild(link);
@@ -1075,9 +1071,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
       document.body.removeChild(link);
     }
 
-    await acknowledgeClientUpdateInstalled(rel.version);
-    setInstalledVer(rel.version);
-    setAvailableRelease(null);
+    void acknowledgeClientUpdateInstalled(rel.version, rel.releaseId);
   };
 
   const notifiedReleaseIdRef = useRef<string | null>(null);
@@ -1086,7 +1080,8 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
     if (
       isMasterSoftware ||
       !availableRelease ||
-      availableRelease.version === installedVer ||
+      compareSoftwareVersions(availableRelease.version, installedVer) <= 0 ||
+      isReleaseDismissedByUser(availableRelease.releaseId, availableRelease.version) ||
       notifiedReleaseIdRef.current === availableRelease.releaseId
     ) {
       return;
@@ -1122,10 +1117,10 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
   const showUpdatePrompt =
     !isMasterSoftware &&
     updateNotifEnabled &&
-    availableRelease &&
-    availableRelease.version !== installedVer &&
-    (availableRelease.isMandatory ||
-      dismissedReleaseId !== availableRelease.releaseId);
+    Boolean(availableRelease) &&
+    compareSoftwareVersions(availableRelease!.version, installedVer) > 0 &&
+    dismissedReleaseId !== availableRelease!.releaseId &&
+    !isReleaseDismissedByUser(availableRelease!.releaseId, availableRelease!.version);
 
   return (
     <>
@@ -1237,7 +1232,8 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
       {!isMasterSoftware &&
         updateNotifEnabled &&
         availableRelease &&
-        availableRelease.version !== installedVer && (
+        compareSoftwareVersions(availableRelease.version, installedVer) > 0 &&
+        !isReleaseDismissedByUser(availableRelease.releaseId, availableRelease.version) && (
           <div className="bg-emerald-950/95 text-emerald-100 border-b border-emerald-500/80 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-40">
             <div
               onClick={() => handleOneTapInAppAutoUpdate(availableRelease)}
@@ -1267,10 +1263,11 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
               </button>
               <button
                 type="button"
-                onClick={() => setDismissedReleaseId(null)}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono text-[11px] font-semibold cursor-pointer"
+                onClick={() => handleDismissAndUseCurrentVersion(availableRelease)}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] font-semibold cursor-pointer"
+                title="Dismiss and continue using current version"
               >
-                Details
+                Later
               </button>
             </div>
           </div>
@@ -1295,15 +1292,14 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
                 </div>
               </div>
 
-              {!availableRelease.isMandatory && !otaUpdating && (
-                <button
-                  type="button"
-                  onClick={() => setDismissedReleaseId(availableRelease.releaseId)}
-                  className="p-1 text-slate-400 hover:text-white rounded cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleDismissAndUseCurrentVersion(availableRelease)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg cursor-pointer"
+                title="Close and continue using current version"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 whitespace-pre-line leading-relaxed space-y-2">
@@ -1340,7 +1336,7 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
                   ✓ Zero Data Deletion Guaranteed: All your previous tunnel projects, 4-portion photos, joint traces, and 1-time login session remain 100% intact.
                 </div>
                 <div className="text-slate-300">
-                  ✓ Press &ldquo;Update Now (Keep All Data)&rdquo; below to automatically update your app/software in-place.
+                  ✓ Press &ldquo;Update Now (Keep All Data)&rdquo; below to automatically update your app/software in-place, or press &ldquo;Later / Use Current Version&rdquo; to continue working immediately.
                 </div>
                 <div className="text-slate-400 font-mono flex items-center justify-between pt-1">
                   <span>
@@ -1379,15 +1375,14 @@ export const SoftwareLiveUpdateNotifier: React.FC<SoftwareLiveUpdateNotifierProp
               </button>
 
               <div className="flex items-center gap-2">
-                {!availableRelease.isMandatory && !otaUpdating && (
-                  <button
-                    type="button"
-                    onClick={() => setDismissedReleaseId(availableRelease.releaseId)}
-                    className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium cursor-pointer"
-                  >
-                    Later
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => handleDismissAndUseCurrentVersion(availableRelease)}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer border border-slate-700"
+                  title="Close this update prompt and continue using your current version"
+                >
+                  Later (Use Current)
+                </button>
                 <button
                   type="button"
                   onClick={() => handleOneTapInAppAutoUpdate(availableRelease)}

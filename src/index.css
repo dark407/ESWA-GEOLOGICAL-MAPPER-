@@ -1418,3 +1418,78 @@ button:focus-visible,
   outline-offset: 2px;
 }
 
+/* ============================================================================
+   ANDROID APK & MOBILE PORTRAIT / LANDSCAPE ANTI-OVERLAP ADAPTATION RULES
+   ============================================================================ */
+.safe-area-inset-box {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.mobile-single-row-scroll {
+  display: flex;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  white-space: nowrap !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.mobile-single-row-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Prevent multi-line toolbar wrapping and vertical crowding on Android phones (Portrait & Landscape) */
+@media screen and (max-width: 767px), screen and (max-height: 640px) and (orientation: landscape) {
+  [data-window="field-top-header"] {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+  }
+
+  [data-window="field-stage-navigation-bar"] {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  [data-window="face-canvas-main-toolbar"] {
+    padding: 4px 6px !important;
+    gap: 4px !important;
+    max-height: 82px;
+    overflow-y: auto;
+  }
+
+  [data-window="face-canvas-main-toolbar"] > div {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 1px;
+  }
+
+  [data-window="face-canvas-main-toolbar"] > div::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-window="field-bottom-panel-switcher"] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 4px 6px !important;
+  }
+
+  [data-window="field-bottom-panel-switcher"]::-webkit-scrollbar {
+    display: none;
+  }
+}

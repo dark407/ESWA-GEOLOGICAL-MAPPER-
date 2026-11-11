@@ -3952,17 +3952,17 @@ export default function App({
 
   // Theme-aware spacing, radius, and elevation utility to eliminate boxy hardcoded containers
   const layoutStyles = {
-    viewportShell: `min-h-dvh h-dvh w-full flex flex-col items-center justify-start relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain transition-colors duration-200 ${
+    viewportShell: `min-h-dvh h-dvh w-full flex flex-col items-center justify-start relative overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain safe-area-inset-box transition-colors duration-200 ${
       responsive.isShortLandscape
-        ? 'p-1.5 sm:p-2'
+        ? 'p-1 sm:p-2'
         : responsive.isMobile
-        ? 'p-2'
+        ? 'p-1.5 sm:p-2'
         : responsive.isCompactHeight
         ? 'p-2.5 sm:p-3.5'
         : 'p-4 sm:p-6 lg:p-7'
     } ${isLight ? 'bg-[#EE8711] text-stone-900' : 'bg-[#EE8711] text-orange-50'}`,
 
-    workspaceShell: `h-dvh w-full flex flex-col overflow-hidden transition-colors duration-200 p-0 eswa-stage-transition ${
+    workspaceShell: `h-dvh w-full flex flex-col overflow-hidden safe-area-inset-box transition-colors duration-200 p-0 eswa-stage-transition ${
       isLight ? 'bg-[#EE8711] text-stone-900' : 'bg-[#EE8711] text-orange-50'
     }`,
 
@@ -3972,9 +3972,9 @@ export default function App({
 
     majorPanel: `relative z-10 w-full my-auto shrink-0 flex flex-col rounded-2xl border transition-all duration-200 eswa-stage-transition ${
       responsive.isShortLandscape
-        ? 'p-2.5 sm:p-3.5 gap-2'
+        ? 'p-2 sm:p-3 gap-1.5'
         : responsive.isMobile
-        ? 'p-3 gap-2.5'
+        ? 'p-2.5 gap-2'
         : responsive.isCompactHeight
         ? 'p-3.5 sm:p-4 gap-3'
         : 'p-5 sm:p-7 gap-5'
@@ -3985,28 +3985,32 @@ export default function App({
     }`,
 
     sectionSurface: `rounded-xl ${
-      responsive.isShortLandscape ? 'p-2.5 sm:p-3.5' : 'p-3.5 sm:p-4'
+      responsive.isShortLandscape ? 'p-2 sm:p-3' : 'p-3 sm:p-4'
     } transition-colors duration-200 ${
       isLight
         ? 'bg-[#FFF5EC]/90 shadow-[0_2px_10px_-2px_rgba(234,88,12,0.05)]'
         : 'bg-[#1F1611]/75 shadow-[0_4px_16px_-4px_rgba(0,0,0,0.45)]'
     }`,
 
-    previewStage: `flex flex-col items-center justify-center rounded-xl p-3 sm:p-4 h-full min-h-[150px] sm:min-h-[180px] transition-colors duration-200 ${
+    previewStage: `flex flex-col items-center justify-center rounded-xl p-2.5 sm:p-4 h-full min-h-[140px] sm:min-h-[180px] transition-colors duration-200 ${
       isLight
         ? 'bg-[#FFF5EC] shadow-[inset_0_1px_4px_rgba(234,88,12,0.06)]'
         : 'bg-[#110B08] shadow-[inset_0_1px_6px_rgba(0,0,0,0.55)]'
     }`,
 
-    headerRow: `flex flex-wrap items-center justify-between gap-2 ${
-      responsive.isShortLandscape ? 'pb-2' : 'pb-2.5 sm:pb-3.5'
-    } border-b shrink-0 ${
+    headerRow: `flex ${
+      responsive.isAndroidOrCompactMobile
+        ? 'flex-nowrap overflow-x-auto no-scrollbar whitespace-nowrap pb-1.5'
+        : 'flex-wrap pb-2.5 sm:pb-3.5'
+    } items-center justify-between gap-2 border-b shrink-0 ${
       isLight ? 'border-orange-200/75' : 'border-orange-900/50'
     }`,
 
-    footerRow: `flex flex-wrap items-center justify-between gap-2 ${
-      responsive.isShortLandscape ? 'pt-2' : 'pt-2.5 sm:pt-3.5'
-    } border-t shrink-0 ${
+    footerRow: `flex ${
+      responsive.isAndroidOrCompactMobile
+        ? 'flex-nowrap overflow-x-auto no-scrollbar whitespace-nowrap pt-1.5'
+        : 'flex-wrap pt-2.5 sm:pt-3.5'
+    } items-center justify-between gap-2 border-t shrink-0 ${
       isLight ? 'border-orange-200/75' : 'border-orange-900/50'
     }`,
 

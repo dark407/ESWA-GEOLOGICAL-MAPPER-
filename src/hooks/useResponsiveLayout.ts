@@ -10,6 +10,9 @@ export interface ResponsiveLayoutMetrics {
   aspectRatio: number;
   devicePixelRatio: number;
   isMobile: boolean;
+  isPortraitMobile: boolean;
+  isAndroidOrCompactMobile: boolean;
+  mobilePanelMode: 'bottom_sheet' | 'slide_drawer' | 'docked_sidebar';
   isTablet: boolean;
   isTouchDevice: boolean;
   isLandscape: boolean;
@@ -47,7 +50,14 @@ function computeResponsiveMetrics(width: number, height: number, dpr: number): C
 
   const isLandscape = safeW > safeH;
   const isShortLandscape = isLandscape && safeH < 640;
-  const isMobile = safeW < 768 || (isLandscape && safeH < 520);
+  const isMobile = safeW < 768 || (isLandscape && safeH < 540);
+  const isPortraitMobile = !isLandscape && safeW < 768;
+  const isAndroidOrCompactMobile = isMobile || isShortLandscape;
+  const mobilePanelMode: 'bottom_sheet' | 'slide_drawer' | 'docked_sidebar' = isPortraitMobile
+    ? 'bottom_sheet'
+    : isAndroidOrCompactMobile
+      ? 'slide_drawer'
+      : 'docked_sidebar';
   const isTablet = !isMobile && safeW >= 768 && safeW < 1024;
   const isTouchDevice =
     isMobile ||
@@ -59,18 +69,22 @@ function computeResponsiveMetrics(width: number, height: number, dpr: number): C
   const isCompactScreen = isCompactWidth || isCompactHeight;
   const isLargeScreen = safeW >= 1920 && safeH >= 960;
   const isUltraWide = aspectRatio >= 2.0;
-  const toolbarCompact = safeW < 1480 || safeH < 800 || isShortLandscape;
+  const toolbarCompact = safeW < 1480 || safeH < 800 || isShortLandscape || isMobile;
 
   // Automatically scale side panels, inspectors, floating panels, and bottom drawers for horizontal mobile screens
   const sidePanelWidthPx = Math.round(
     isShortLandscape
-      ? Math.max(190, Math.min(260, safeW * 0.24))
-      : Math.max(220, Math.min(360, safeW * (isCompactWidth ? 0.225 : 0.21)))
+      ? Math.max(195, Math.min(255, safeW * 0.25))
+      : isPortraitMobile
+        ? safeW
+        : Math.max(220, Math.min(360, safeW * (isCompactWidth ? 0.225 : 0.21)))
   );
   const inspectorWidthPx = Math.round(
     isShortLandscape
-      ? Math.max(185, Math.min(250, safeW * 0.23))
-      : Math.max(210, Math.min(330, safeW * (isCompactWidth ? 0.205 : 0.19)))
+      ? Math.max(190, Math.min(248, safeW * 0.24))
+      : isPortraitMobile
+        ? safeW
+        : Math.max(210, Math.min(330, safeW * (isCompactWidth ? 0.205 : 0.19)))
   );
   const floatingPanelWidthPx = Math.round(
     isShortLandscape
@@ -78,7 +92,7 @@ function computeResponsiveMetrics(width: number, height: number, dpr: number): C
       : Math.max(240, Math.min(368, safeW * 0.235))
   );
   const bottomDrawerHeightPx = Math.round(
-    Math.max(150, Math.min(350, safeH * (isShortLandscape ? 0.42 : isCompactHeight ? 0.3 : 0.34)))
+    Math.max(150, Math.min(360, safeH * (isShortLandscape ? 0.42 : isPortraitMobile ? 0.44 : isCompactHeight ? 0.3 : 0.34)))
   );
 
   const uiScaleFactor = isLargeScreen
@@ -95,6 +109,9 @@ function computeResponsiveMetrics(width: number, height: number, dpr: number): C
     aspectRatio,
     devicePixelRatio: Number(dpr.toFixed(2)),
     isMobile,
+    isPortraitMobile,
+    isAndroidOrCompactMobile,
+    mobilePanelMode,
     isTablet,
     isTouchDevice,
     isLandscape,
@@ -126,6 +143,8 @@ function syncDocumentCssVariables(m: CoreViewportMetrics): void {
   root.style.setProperty('--eswa-ui-scale', String(m.uiScaleFactor));
   root.setAttribute('data-orientation', m.isLandscape ? 'landscape' : 'portrait');
   root.setAttribute('data-short-landscape', m.isShortLandscape ? 'true' : 'false');
+  root.setAttribute('data-mobile', m.isAndroidOrCompactMobile ? 'true' : 'false');
+  root.setAttribute('data-portrait-mobile', m.isPortraitMobile ? 'true' : 'false');
 }
 
 function readViewportDimensions(): { width: number; height: number; dpr: number } {
