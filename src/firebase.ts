@@ -154,9 +154,15 @@ export async function testConnection(): Promise<void> {
   }
 }
 
-export const SCOPES = ['openid', 'email', 'profile'];
+export const SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/drive',
+];
 
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive');
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export function isEmbeddedWebViewOrRestrictedOrigin(): boolean {
@@ -215,7 +221,7 @@ export function saveGmailAppPassword(appPassword: string): void {
   }).catch(() => {});
 }
 
-// In-memory cache for Google OAuth access token
+// In-memory cache for Google OAuth access token (never stored in localStorage/sessionStorage)
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 let cachedGisUser: User | null = null;
@@ -224,14 +230,18 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  if (cachedAccessToken && cachedGisUser) {
-    if (onAuthSuccess) onAuthSuccess(cachedGisUser, cachedAccessToken);
-  }
   return onAuthStateChanged(auth, async (user: User | null) => {
-    const activeUser = user || cachedGisUser;
-    if (activeUser && cachedAccessToken) {
-      if (onAuthSuccess) onAuthSuccess(activeUser, cachedAccessToken);
-    } else if (!isSigningIn) {
+    if (user) {
+      cachedGisUser = user;
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      cachedAccessToken = null;
+      cachedGisUser = null;
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -249,12 +259,14 @@ export const googleSignIn = async (): Promise<{
 
     const result = await signInWithPopup(auth, googleProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    const token = credential?.accessToken || 'firebase_auth_session';
-    cachedAccessToken = token;
+    if (!credential?.accessToken) {
+      throw new Error('Failed to get access token from Firebase Auth');
+    }
+    cachedAccessToken = credential.accessToken;
     cachedGisUser = result.user;
-    return { user: result.user, accessToken: token };
+    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: unknown) {
-    console.warn('Google popup sign-in unavailable in current environment:', error);
+    console.warn('Google popup sign-in error:', error);
     return null;
   } finally {
     isSigningIn = false;
