@@ -49,6 +49,7 @@ import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { ReportHeaderLogoBox } from './UniversalLogoAndSignatureAdjuster';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
 import { DigitalTwinPhotogrammetryModal } from './DigitalTwinPhotogrammetryModal';
+import { EswaRockMappySuperStudioPanel } from './EswaRockMappySuperStudioPanel';
 import { TunnelMonitoringModal } from './TunnelMonitoringModal';
 import {
   RealtimeMobileSplitCompassModal,
@@ -1330,6 +1331,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   // Photogrammetry Dual-Canvas View & Realtime Sync States
   const [isPhotogrammetryDualCanvas, setIsPhotogrammetryDualCanvas] = useState<boolean>(false);
+  const [isRockMappyStudioOpen, setIsRockMappyStudioOpen] = useState<boolean>(false);
   const [syncPhotoZoomPan, setSyncPhotoZoomPan] = useState<boolean>(true);
   const [photoBrightness, setPhotoBrightness] = useState<number>(100);
   const [photoContrast, setPhotoContrast] = useState<number>(100);
@@ -12334,6 +12336,15 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                             <span>+ Photogrammetry &amp; 3D Twin</span>
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setIsRockMappyStudioOpen(true)}
+                          className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border-emerald-400/50 transition-all cursor-pointer shadow-xs"
+                          title="Open ESWA 5-Engine 3D Face Photogrammetry, LiDAR, Natural vs Blast Fracture AI & 63/63 Validation Studio"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>3D AI Face Studio (63/63)</span>
+                        </button>
                       </>
                     )}
 
@@ -18501,6 +18512,100 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           />
         );
       })()}
+
+      {isRockMappyStudioOpen && activeProject && activeLocation && activeRound && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/90 backdrop-blur-md flex flex-col p-3 sm:p-5 overflow-y-auto">
+          <div className="max-w-7xl w-full mx-auto space-y-3">
+            <div className="flex items-center justify-between bg-slate-900 border border-emerald-500/40 rounded-xl px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-white">
+                  ESWA Advanced 3D Tunnel Face Mapping &amp; Validation Studio (63/63 Spec)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRockMappyStudioOpen(false)}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+                <span>Close Studio</span>
+              </button>
+            </div>
+
+            <EswaRockMappySuperStudioPanel
+              projectName={formatDomainProjName(activeProject.projectName)}
+              locationName={formatDomainLocName(activeLocation.name)}
+              roundLabel={`CH ${activeRound.chainageFrom}m → ${activeRound.chainageTo}m`}
+              geometry={{
+                widthM: activeLocation.widthM || 8,
+                heightM: activeLocation.heightM || 7,
+                wallHeightM: activeLocation.wallHeightM || 4.2,
+                pullLengthM: activeRound.pullLengthMeters || 3.0,
+                driveAzimuthDeg: activeRound.tunnelDriveDirection ?? activeLocation.defaultDriveAzimuth ?? 0,
+                tunnelShape: activeLocation.shape || 'd_shaped',
+                customProfile: activeLocation.customGeometry?.customProfile,
+                hasLeftWall: activeLocation.hasLeftWall,
+                hasCrown: activeLocation.hasCrown,
+                hasRightWall: activeLocation.hasRightWall,
+                hasInvert: activeLocation.hasInvert,
+              }}
+              rawPhotos={activeRound.digitalTwinRawPhotos || []}
+              surfacePhotos={{}}
+              extractedFits={[]}
+              existingJointTraces={activeRound.jointTraces || []}
+              existingDipSurfaces={activeRound.dipPlaneSurfaces || []}
+              onSyncDiscontinuityToNatm={(feat) => {
+                const newTrace: FieldJointTrace = {
+                  id: `jt-ai3d-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                  label: feat.featureCode,
+                  panel: feat.panelId,
+                  setId:
+                    feat.assignedSetId === 'J1' ||
+                    feat.assignedSetId === 'J2' ||
+                    feat.assignedSetId === 'J3'
+                      ? feat.assignedSetId
+                      : 'J1',
+                  points:
+                    feat.canvasPoints2D && feat.canvasPoints2D.length >= 2
+                      ? feat.canvasPoints2D
+                      : [
+                          { x: 210, y: 180 },
+                          { x: 310, y: 260 },
+                        ],
+                  dipDirection: Math.round(feat.dipDirectionDeg),
+                  dipAmount: Math.round(feat.dipDeg),
+                  strike: Math.round(feat.strikeRhrDeg),
+                  traceLengthM: feat.persistence.visibleTraceLengthM,
+                  editedByCompass: true,
+                };
+                updateActiveRound((r) => {
+                  const clampedPts = (newTrace.points || []).map((pt) =>
+                    clampPointToFieldPanelOutline(pt, newTrace.panel, activeLocation, r)
+                  );
+                  const metricPoints = computePhysicalMetricPoints(
+                    clampedPts,
+                    newTrace.panel,
+                    activeLocation,
+                    r
+                  );
+                  return {
+                    ...r,
+                    jointTraces: [
+                      ...(r.jointTraces || []),
+                      {
+                        ...newTrace,
+                        points: clampedPts,
+                        metricPoints,
+                      },
+                    ],
+                  };
+                });
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       </div>
     </div>
