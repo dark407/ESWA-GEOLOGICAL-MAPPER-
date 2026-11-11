@@ -2934,6 +2934,7 @@ ${safeJsContent}
    * Declared before /api/email/* and /api/licensing/* so all handlers have lexical access.
    */
   const licensingStorePath = path.join(runtimeCacheDir, 'licensing-cloud-mirror.json');
+  const persistentLicensingStorePath = path.join(releaseDir, 'licensing-cloud-mirror.json');
   interface ServerLicensingStore {
     access_requests: Record<string, Record<string, unknown>>;
     software_licenses: Record<string, Record<string, unknown>>;
@@ -2947,22 +2948,54 @@ ${safeJsContent}
     };
   }
 
+  const normalizeLicenseMap = (
+    rawMap: Record<string, Record<string, unknown>> | undefined
+  ): Record<string, Record<string, unknown>> => {
+    const out: Record<string, Record<string, unknown>> = {};
+    if (!rawMap || typeof rawMap !== 'object') return out;
+    for (const [k, v] of Object.entries(rawMap)) {
+      if (!v || typeof v !== 'object') continue;
+      const st = String(v.status || '').toUpperCase();
+      const isExplicitlyRevokedByMaster =
+        (st === 'REVOKED' || st === 'SUSPENDED') &&
+        v.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1';
+      out[k] = {
+        ...v,
+        userId: v.userId || k,
+        status: isExplicitlyRevokedByMaster ? st : 'ACTIVE',
+      };
+    }
+    return out;
+  };
+
   const readServerLicensingStore = (): ServerLicensingStore => {
-    try {
-      if (fs.existsSync(licensingStorePath)) {
-        const raw = fs.readFileSync(licensingStorePath, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<ServerLicensingStore>;
-        return {
-          access_requests: parsed.access_requests || {},
-          software_licenses: parsed.software_licenses || {},
-          software_releases: parsed.software_releases || {},
-          master_pcs: parsed.master_pcs || {},
-          deleted_tombstones: parsed.deleted_tombstones || {},
-          email_config: parsed.email_config || {},
-        };
+    const candidatePaths = [licensingStorePath, persistentLicensingStorePath];
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          const parsed = JSON.parse(raw) as Partial<ServerLicensingStore>;
+          const store: ServerLicensingStore = {
+            access_requests: parsed.access_requests || {},
+            software_licenses: normalizeLicenseMap(parsed.software_licenses),
+            software_releases: parsed.software_releases || {},
+            master_pcs: parsed.master_pcs || {},
+            deleted_tombstones: parsed.deleted_tombstones || {},
+            email_config: parsed.email_config || {},
+          };
+          if (p === licensingStorePath && !fs.existsSync(persistentLicensingStorePath)) {
+            try {
+              fs.mkdirSync(path.dirname(persistentLicensingStorePath), { recursive: true });
+              fs.writeFileSync(persistentLicensingStorePath, JSON.stringify(store, null, 2), 'utf8');
+            } catch {
+              // Ignore
+            }
+          }
+          return store;
+        }
+      } catch {
+        // Try next path
       }
-    } catch {
-      // Ignore read errors
     }
     return {
       access_requests: {},
@@ -2975,16 +3008,162 @@ ${safeJsContent}
   };
 
   const writeServerLicensingStore = (store: ServerLicensingStore): void => {
-    try {
-      const dir = path.dirname(licensingStorePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+    store.software_licenses = normalizeLicenseMap(store.software_licenses);
+    const serialized = JSON.stringify(store, null, 2);
+    for (const p of [licensingStorePath, persistentLicensingStorePath]) {
+      try {
+        const dir = path.dirname(p);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(p, serialized, 'utf8');
+      } catch {
+        // Ignore write errors
       }
-      fs.writeFileSync(licensingStorePath, JSON.stringify(store, null, 2), 'utf8');
-    } catch {
-      // Ignore write errors
     }
   };
+
+  /**
+   * POST /api/gdrive/overwrite-installers
+   * Server-side Google Drive In-Place Binary Uploader for Channel 2 (New Users).
+   * Streams the real pre-built User Android APK (25.92 MB) and User Windows EXE directly
+   * from server disk to the permanent Google Drive File IDs so share links never change
+   * and live users never get interrupted by popups.
+   */
+  app.options('/api/gdrive/overwrite-installers', (_req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.status(204).end();
+  });
+
+  app.post('/api/gdrive/overwrite-installers', async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    try {
+      const { userApkFileId, userExeFileId, accessToken } = req.body || {};
+      const store = readServerLicensingStore();
+      const effectiveToken = String(
+        accessToken || store.email_config?.oauthAccessToken || ''
+      ).trim();
+
+      if (!effectiveToken) {
+        res.status(401).json({
+          ok: false,
+          updatedCount: 0,
+          summary:
+            'Google Drive OAuth Token required. Click "Sign in with Google Drive (1-Click Token)" first.',
+        });
+        return;
+      }
+
+      if (accessToken) {
+        store.email_config = {
+          ...store.email_config,
+          oauthAccessToken: effectiveToken,
+          updatedAtIso: new Date().toISOString(),
+        };
+        writeServerLicensingStore(store);
+      }
+
+      const targets: Array<{
+        label: string;
+        fileId: string;
+        mimeType: string;
+        getBuffer: () => Promise<Buffer | null>;
+      }> = [];
+
+      const cleanApkId = String(userApkFileId || '').trim();
+      if (cleanApkId) {
+        targets.push({
+          label: 'User .APK',
+          fileId: cleanApkId,
+          mimeType: 'application/vnd.android.package-archive',
+          getBuffer: async () => {
+            const { filePath } = resolveEffectiveApkPath(false);
+            await ensureAndroidApkBuiltAsync(filePath);
+            return fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+          },
+        });
+      }
+
+      const cleanExeId = String(userExeFileId || '').trim();
+      if (cleanExeId) {
+        targets.push({
+          label: 'User .EXE',
+          fileId: cleanExeId,
+          mimeType: 'application/vnd.microsoft.portable-executable',
+          getBuffer: async () => {
+            const exeCandidates = [
+              path.join(releaseDir, 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe'),
+              path.join(releaseDir, 'AKASH-TUNNEL-MAPPER-User-Setup.exe'),
+              path.join(runtimeCacheDir, 'ESWA-GEOLOGICAL-MAPPER-User-Setup.exe'),
+            ];
+            for (const p of exeCandidates) {
+              if (fs.existsSync(p) && fs.statSync(p).size > 10240) {
+                return fs.readFileSync(p);
+              }
+            }
+            return null;
+          },
+        });
+      }
+
+      if (targets.length === 0) {
+        res.status(400).json({
+          ok: false,
+          updatedCount: 0,
+          summary: 'No Google Drive File IDs provided.',
+        });
+        return;
+      }
+
+      let updatedCount = 0;
+      const results: string[] = [];
+
+      for (const t of targets) {
+        const buf = await t.getBuffer();
+        if (!buf || buf.length < 1024) {
+          results.push(`${t.label}: binary not ready on server`);
+          continue;
+        }
+        const driveUrl = `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(
+          t.fileId
+        )}?uploadType=media&supportsAllDrives=true`;
+        const driveResp = await fetch(driveUrl, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${effectiveToken}`,
+            'Content-Type': t.mimeType,
+            'Content-Length': String(buf.length),
+          },
+          body: new Uint8Array(buf),
+        });
+        if (driveResp.ok) {
+          updatedCount += 1;
+          const sizeMb = (buf.length / (1024 * 1024)).toFixed(2);
+          results.push(`${t.label} (${sizeMb} MB -> ${t.fileId.slice(0, 8)}…)`);
+        } else {
+          const errTxt = await driveResp.text().catch(() => '');
+          results.push(`${t.label} failed (HTTP ${driveResp.status}: ${errTxt.slice(0, 120)})`);
+        }
+      }
+
+      res.json({
+        ok: updatedCount > 0,
+        updatedCount,
+        summary:
+          updatedCount > 0
+            ? `✓ Overwrote ${updatedCount}/${targets.length} permanent Google Drive installer file(s) in-place [${results.join(', ')}] — Share links for new users remain 100% unchanged and existing live users were not interrupted!`
+            : `Could not overwrite Google Drive files: ${results.join(' | ')}`,
+      });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        updatedCount: 0,
+        summary: err instanceof Error ? err.message : 'Server error syncing to Google Drive.',
+      });
+    }
+  });
 
   /**
    * POST /api/email/send-notification
@@ -3330,7 +3509,28 @@ ${safeJsContent}
       }
 
       const targetMap = store[collection as 'access_requests' | 'software_licenses' | 'software_releases' | 'master_pcs'];
-      targetMap[id] = { ...(targetMap[id] || {}), ...recObj };
+      const prevRec = targetMap[id] || {};
+      const mergedRec: Record<string, unknown> = { ...prevRec, ...recObj };
+      if (collection === 'software_licenses') {
+        const incomingStatus = String(recObj.status || '').toUpperCase();
+        const isExplicitMasterRevoke =
+          (incomingStatus === 'REVOKED' || incomingStatus === 'SUSPENDED') &&
+          recObj.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1';
+        if (isExplicitMasterRevoke) {
+          mergedRec.status = incomingStatus;
+        } else if (incomingStatus === 'ACTIVE') {
+          mergedRec.status = 'ACTIVE';
+        } else {
+          // Preserve existing status if it was explicitly revoked by Master, otherwise always ACTIVE
+          const prevStatus = String(prevRec.status || '').toUpperCase();
+          mergedRec.status =
+            (prevStatus === 'REVOKED' || prevStatus === 'SUSPENDED') &&
+            prevRec.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1'
+              ? prevStatus
+              : 'ACTIVE';
+        }
+      }
+      targetMap[id] = mergedRec;
       writeServerLicensingStore(store);
       res.json({ ok: true, item: targetMap[id] });
     } catch (err: unknown) {

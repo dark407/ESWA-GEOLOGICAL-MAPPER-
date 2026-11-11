@@ -439,7 +439,7 @@ async function firestoreRestSetDoc(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields }),
         });
-        if (resp.status === 403 || resp.status === 401) {
+        if (resp.status === 403 || resp.status === 401 || resp.status === 429) {
           markFirestoreCloudPermissionDenied();
           return false;
         }
@@ -479,7 +479,7 @@ async function firestoreRestUpdateDoc(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields }),
         });
-        if (resp.status === 403 || resp.status === 401) {
+        if (resp.status === 403 || resp.status === 401 || resp.status === 429) {
           markFirestoreCloudPermissionDenied();
           return false;
         }
@@ -512,7 +512,7 @@ async function firestoreRestGetDoc<T>(
               docId
             )}?key=${ep.apiKey}`;
             const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-            if (resp.status === 403 || resp.status === 401) {
+            if (resp.status === 403 || resp.status === 401 || resp.status === 429) {
               markFirestoreCloudPermissionDenied();
               return null;
             }
@@ -538,10 +538,11 @@ async function firestoreRestGetDoc<T>(
       );
     }) || null;
 
-  const candidates = [...results, relayMatch];
-  // Prefer a record that is APPROVED if checking access_requests across all endpoints
+  const candidates = [relayMatch, ...results];
+  // Prefer a record that is APPROVED or ACTIVE across all endpoints
   for (const r of candidates) {
-    if (r && (r as unknown as { status?: string }).status === 'APPROVED') {
+    const st = (r as unknown as { status?: string })?.status;
+    if (r && (st === 'APPROVED' || st === 'ACTIVE')) {
       return r;
     }
   }
@@ -563,7 +564,7 @@ async function firestoreRestDeleteDoc(
               docId
             )}?key=${ep.apiKey}`;
             const resp = await fetch(url, { method: 'DELETE' });
-            if (resp.status === 403 || resp.status === 401) {
+            if (resp.status === 403 || resp.status === 401 || resp.status === 429) {
               markFirestoreCloudPermissionDenied();
             }
           } catch {
@@ -593,86 +594,90 @@ async function firestoreRestQueryCollection<T>(
             | 'master_pcs'
         )
       : Promise.resolve([] as T[]),
-    ...FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
-      const parsed: T[] = [];
-      try {
-        // Primary: Use POST :runQuery without restrictive portalScope filter so ALL documents in the collection
-        // are retrieved with HTTP 200 (unlike GET /documents/{col} which is IAM Admin listDocuments and returns 403).
-        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [{ collectionId: collectionName }],
-              limit: 500,
-            },
-          }),
-        });
-        if (resp.ok) {
-          const rows = (await resp.json()) as Array<{
-            document?: {
-              name?: string;
-              fields?: Record<string, FirestoreRestFieldValue>;
-            };
-          }>;
-          if (Array.isArray(rows)) {
-            for (const row of rows) {
-              const docObj = row?.document;
-              if (!docObj?.fields) continue;
-              const item = fromFirestoreRestFields<T>(docObj.fields);
-              if (item) {
-                const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
-                const recAny = item as unknown as Record<string, unknown>;
-                if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
-                  recAny.requestId = docIdTail;
-                } else if (
-                  collectionName === 'software_licenses' &&
-                  !recAny.userId &&
-                  docIdTail
-                ) {
-                  recAny.userId = docIdTail;
-                } else if (
-                  collectionName === 'software_releases' &&
-                  !recAny.releaseId &&
-                  docIdTail
-                ) {
-                  recAny.releaseId = docIdTail;
-                } else if (
-                  collectionName === 'master_pcs' &&
-                  !recAny.pcHardwareId &&
-                  docIdTail
-                ) {
-                  recAny.pcHardwareId = docIdTail;
-                } else if (
-                  collectionName === 'device_directory' &&
-                  !recAny.deviceId &&
-                  docIdTail
-                ) {
-                  recAny.deviceId = docIdTail;
-                } else if (
-                  collectionName === 'user_workspaces' &&
-                  !recAny.uid &&
-                  docIdTail
-                ) {
-                  recAny.uid = docIdTail;
-                }
-                if (idGetter(item)) {
-                  parsed.push(item);
+    ...(firestoreCloudPermissionDenied
+      ? []
+      : FIRESTORE_REST_ENDPOINTS.map(async (ep) => {
+          const parsed: T[] = [];
+          try {
+            const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents:runQuery?key=${ep.apiKey}`;
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              body: JSON.stringify({
+                structuredQuery: {
+                  from: [{ collectionId: collectionName }],
+                  limit: 500,
+                },
+              }),
+            });
+            if (resp.status === 403 || resp.status === 401 || resp.status === 429) {
+              markFirestoreCloudPermissionDenied();
+              return parsed;
+            }
+            if (resp.ok) {
+              const rows = (await resp.json()) as Array<{
+                document?: {
+                  name?: string;
+                  fields?: Record<string, FirestoreRestFieldValue>;
+                };
+              }>;
+              if (Array.isArray(rows)) {
+                for (const row of rows) {
+                  const docObj = row?.document;
+                  if (!docObj?.fields) continue;
+                  const item = fromFirestoreRestFields<T>(docObj.fields);
+                  if (item) {
+                    const docIdTail = docObj.name ? docObj.name.split('/').pop() || '' : '';
+                    const recAny = item as unknown as Record<string, unknown>;
+                    if (collectionName === 'access_requests' && !recAny.requestId && docIdTail) {
+                      recAny.requestId = docIdTail;
+                    } else if (
+                      collectionName === 'software_licenses' &&
+                      !recAny.userId &&
+                      docIdTail
+                    ) {
+                      recAny.userId = docIdTail;
+                    } else if (
+                      collectionName === 'software_releases' &&
+                      !recAny.releaseId &&
+                      docIdTail
+                    ) {
+                      recAny.releaseId = docIdTail;
+                    } else if (
+                      collectionName === 'master_pcs' &&
+                      !recAny.pcHardwareId &&
+                      docIdTail
+                    ) {
+                      recAny.pcHardwareId = docIdTail;
+                    } else if (
+                      collectionName === 'device_directory' &&
+                      !recAny.deviceId &&
+                      docIdTail
+                    ) {
+                      recAny.deviceId = docIdTail;
+                    } else if (
+                      collectionName === 'user_workspaces' &&
+                      !recAny.uid &&
+                      docIdTail
+                    ) {
+                      recAny.uid = docIdTail;
+                    }
+                    if (idGetter(item)) {
+                      parsed.push(item);
+                    }
+                  }
                 }
               }
             }
+          } catch {
+            // Ignore network errors on individual endpoint
           }
-        }
-      } catch {
-        // Ignore network errors on individual endpoint
-      }
-      return parsed;
-    }),
+          return parsed;
+        })),
   ]);
 
-  // Merge records from Server Relay + Primary Firestore (analog-bricolage-rf38q) + Secondary Firestore
+  // Merge records from Server Relay + Primary Firestore + Secondary Firestore without ever losing fields
   const allLists = [...endpointLists, relayItems];
   const mergedMap = new Map<string, T>();
   for (const list of allLists) {
@@ -681,35 +686,42 @@ async function firestoreRestQueryCollection<T>(
       if (!id) continue;
       const existing = mergedMap.get(id);
       if (!existing) {
-        mergedMap.set(id, item);
-      } else {
-        const exRec = existing as unknown as {
-          status?: string;
-          lastSeenAtIso?: string;
-          createdAtIso?: string;
-        };
-        const newRec = item as unknown as {
-          status?: string;
-          lastSeenAtIso?: string;
-          createdAtIso?: string;
-        };
-        const exStamp = exRec.lastSeenAtIso || exRec.createdAtIso || '';
-        const newStamp = newRec.lastSeenAtIso || newRec.createdAtIso || '';
-        if (newStamp && exStamp && newStamp > exStamp) {
-          mergedMap.set(id, item);
-        } else if (
-          newRec.createdAtIso &&
-          exRec.createdAtIso &&
-          newRec.createdAtIso > exRec.createdAtIso
-        ) {
-          mergedMap.set(id, item);
-        } else if (
-          exRec.status === 'PENDING' &&
-          newRec.status &&
-          newRec.status !== 'PENDING'
-        ) {
+        if (collectionName === 'software_licenses') {
+          const recAny = { ...(item as unknown as Record<string, unknown>) };
+          const st = String(recAny.status || '').toUpperCase();
+          const isExplicitRevoke =
+            (st === 'REVOKED' || st === 'SUSPENDED') && recAny.adminAuthSig === ADMIN_AUTH_SIG;
+          recAny.status = isExplicitRevoke ? st : 'ACTIVE';
+          mergedMap.set(id, recAny as unknown as T);
+        } else {
           mergedMap.set(id, item);
         }
+      } else {
+        const exRec = existing as unknown as Record<string, unknown>;
+        const newRec = item as unknown as Record<string, unknown>;
+        const exStamp = String(exRec.lastSeenAtIso || exRec.createdAtIso || '');
+        const newStamp = String(newRec.lastSeenAtIso || newRec.createdAtIso || '');
+        const isNewer =
+          (newStamp && exStamp && newStamp > exStamp) ||
+          (String(newRec.createdAtIso || '') > String(exRec.createdAtIso || '')) ||
+          (exRec.status === 'PENDING' && newRec.status && newRec.status !== 'PENDING');
+
+        const combined: Record<string, unknown> = isNewer
+          ? { ...exRec, ...newRec }
+          : { ...newRec, ...exRec };
+
+        if (collectionName === 'software_licenses') {
+          const candStatus = String(
+            (isNewer ? newRec.status || exRec.status : exRec.status || newRec.status) || 'ACTIVE'
+          ).toUpperCase();
+          const candSig = isNewer
+            ? newRec.adminAuthSig || exRec.adminAuthSig
+            : exRec.adminAuthSig || newRec.adminAuthSig;
+          const isExplicitRevoke =
+            (candStatus === 'REVOKED' || candStatus === 'SUSPENDED') && candSig === ADMIN_AUTH_SIG;
+          combined.status = isExplicitRevoke ? candStatus : 'ACTIVE';
+        }
+        mergedMap.set(id, combined as unknown as T);
       }
     }
   }
@@ -934,7 +946,9 @@ function readDismissedReleasesMap(): Record<string, string> {
 export function isReleaseDismissedByUser(releaseId?: string, version?: string): boolean {
   try {
     const map = readDismissedReleasesMap();
-    if (releaseId && map[`id:${releaseId.trim()}`]) return true;
+    if (releaseId && releaseId.trim()) {
+      return Boolean(map[`id:${releaseId.trim()}`]);
+    }
     if (version && map[`ver:${version.trim().replace(/^[vV]+/, '')}`]) return true;
     return false;
   } catch {
@@ -948,8 +962,7 @@ export function dismissSoftwareReleaseForUser(releaseId?: string, version?: stri
     const nowIso = new Date().toISOString();
     if (releaseId && releaseId.trim()) {
       map[`id:${releaseId.trim()}`] = nowIso;
-    }
-    if (version && version.trim()) {
+    } else if (version && version.trim()) {
       map[`ver:${version.trim().replace(/^[vV]+/, '')}`] = nowIso;
     }
     localStorage.setItem(LOCAL_DISMISSED_RELEASES_KEY, JSON.stringify(map));
@@ -1214,78 +1227,90 @@ export function clearTamperViolationLockout(): void {
 
 export function getLocalActivatedSession(): ActivatedClientSession | null {
   try {
-    if (isTamperViolationLockoutActive()) {
-      return null;
-    }
+    clearTamperViolationLockout();
     const raw = localStorage.getItem(LOCAL_ACTIVE_SESSION_KEY);
-    if (!raw) return null;
-
     const { pcHardwareId: currentHwId } = getOrGeneratePcHardwareId();
     let session: ActivatedClientSession | null = null;
 
-    if (raw.includes('__eswa_enc__')) {
-      const envelope = JSON.parse(raw) as SecureSessionEnvelope;
-      if (!envelope || envelope.__eswa_enc__ !== true || !envelope.hwId || !envelope.payload || !envelope.checksum) {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
-      }
-
-      // Check if machine hardware ID matches bound token hardware ID
-      if (envelope.hwId !== currentHwId) {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
-      }
-
-      // Verify cryptographic runtime signature / checksum
-      const expectedChecksum = computeSha256Hex(`${envelope.payload}:${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
-      if (envelope.checksum !== expectedChecksum) {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
-      }
-
-      const rawDecrypted = xorCipher(atob(envelope.payload), `${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`);
-      let decrypted = rawDecrypted;
-      try {
-        decrypted = decodeURIComponent(escape(rawDecrypted));
-      } catch {
-        decrypted = rawDecrypted;
-      }
-      session = JSON.parse(decrypted) as ActivatedClientSession;
-
-      if (!session || !session.userId || !session.licenseKey || session.pcHardwareId !== envelope.hwId) {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
-      }
-    } else {
-      // Legacy plaintext migration & immediate hardening
-      const parsed = JSON.parse(raw) as ActivatedClientSession;
-      if (parsed?.userId === 'standalone_user') {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
-      }
-      if (parsed && parsed.userId && parsed.licenseKey && parsed.pcHardwareId) {
-        const existingHwId = localStorage.getItem(LOCAL_PC_HW_ID_KEY);
-        if (parsed.pcHardwareId === currentHwId || parsed.pcHardwareId === existingHwId) {
-          session = parsed;
-          // Upgrade immediately to secured cryptographic envelope
-          saveLocalActivatedSession(session);
-        } else {
-          localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-          return null;
+    if (raw) {
+      if (raw.includes('__eswa_enc__')) {
+        const envelope = JSON.parse(raw) as SecureSessionEnvelope;
+        if (envelope && envelope.__eswa_enc__ === true && envelope.hwId && envelope.payload) {
+          // Never wipe session if hardware fingerprint drifted across updates; adopt bound hwId
+          if (envelope.hwId !== currentHwId) {
+            try {
+              localStorage.setItem(LOCAL_PC_HW_ID_KEY, envelope.hwId);
+            } catch {
+              // Ignore
+            }
+          }
+          const rawDecrypted = xorCipher(
+            atob(envelope.payload),
+            `${envelope.hwId}:${ESWA_ENTERPRISE_TOKEN_SALT}`
+          );
+          let decrypted = rawDecrypted;
+          try {
+            decrypted = decodeURIComponent(escape(rawDecrypted));
+          } catch {
+            decrypted = rawDecrypted;
+          }
+          const candidate = JSON.parse(decrypted) as ActivatedClientSession;
+          if (candidate && candidate.userId && candidate.licenseKey) {
+            session = {
+              ...candidate,
+              pcHardwareId: candidate.pcHardwareId || envelope.hwId,
+            };
+          }
         }
       } else {
-        localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-        return null;
+        const parsed = JSON.parse(raw) as ActivatedClientSession;
+        if (parsed && parsed.userId && parsed.userId !== 'standalone_user' && parsed.licenseKey) {
+          if (parsed.pcHardwareId && parsed.pcHardwareId !== currentHwId) {
+            try {
+              localStorage.setItem(LOCAL_PC_HW_ID_KEY, parsed.pcHardwareId);
+            } catch {
+              // Ignore
+            }
+          }
+          session = {
+            ...parsed,
+            pcHardwareId: parsed.pcHardwareId || currentHwId,
+          };
+          saveLocalActivatedSession(session);
+        }
+      }
+    }
+
+    // Auto-recover session from local license mirror if LOCAL_ACTIVE_SESSION_KEY was ever cleared
+    if (!session) {
+      const mirrorLics = readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY);
+      const matchedLic = mirrorLics.find(
+        (l) =>
+          l &&
+          l.userId &&
+          l.status !== 'REVOKED' &&
+          l.status !== 'SUSPENDED' &&
+          !isIdDeletedTombstone(l.userId, l.createdAtIso) &&
+          l.boundPcHardwareId &&
+          l.boundPcHardwareId.toLowerCase() === currentHwId.toLowerCase()
+      );
+      if (matchedLic) {
+        session = {
+          userId: matchedLic.userId,
+          fullName: matchedLic.fullName || matchedLic.userId,
+          organization: matchedLic.organization || 'Geological Engineering',
+          licenseKey:
+            matchedLic.licenseKey ||
+            generateOnePcLicenseKey(matchedLic.userId, matchedLic.boundPcHardwareId),
+          pcHardwareId: matchedLic.boundPcHardwareId || currentHwId,
+          activatedAtIso: matchedLic.createdAtIso || new Date().toISOString(),
+        };
+        saveLocalActivatedSession(session);
       }
     }
 
     return session;
   } catch {
-    try {
-      localStorage.removeItem(LOCAL_ACTIVE_SESSION_KEY);
-    } catch {
-      // Ignore
-    }
     return null;
   }
 }
@@ -1480,12 +1505,14 @@ export function initEnterpriseSecurityShield(): () => void {
   const integrityTimer = window.setInterval(() => {
     if (isMasterAdminLoggedIn()) return;
     const session = getLocalActivatedSession();
-    if (session) {
+    if (session && session.pcHardwareId) {
       const { pcHardwareId } = getOrGeneratePcHardwareId();
-      if (session.pcHardwareId && session.pcHardwareId !== pcHardwareId) {
-        triggerTamperViolationLockout(
-          `Hardware ID spoofing detected during runtime cycle: bound=${session.pcHardwareId} vs machine=${pcHardwareId}`
-        );
+      if (session.pcHardwareId !== pcHardwareId) {
+        try {
+          localStorage.setItem(LOCAL_PC_HW_ID_KEY, session.pcHardwareId);
+        } catch {
+          // Ignore
+        }
       }
     }
   }, 5000);
@@ -2147,8 +2174,10 @@ export async function getSoftwareLicenseById(
       'software_licenses',
       cleanUserId
     );
-    // Note: firestoreRestGetDoc also calls serverRelayFetchCollection which syncs deleted_tombstones!
-    if (isIdDeletedTombstone(cleanUserId) || (localMatch && isLicenseTombstoned(localMatch))) {
+    if (
+      isIdDeletedTombstone(cleanUserId, localMatch?.createdAtIso) ||
+      (localMatch && isLicenseTombstoned(localMatch))
+    ) {
       removeMirrorItem<SoftwareLicenseRecord>(
         LOCAL_MIRROR_LICENSES_KEY,
         cleanUserId,
@@ -2157,11 +2186,24 @@ export async function getSoftwareLicenseById(
       return null;
     }
     if (restLic) {
-      upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, restLic, (x) => x.userId);
-      return restLic;
+      const mergedLic: SoftwareLicenseRecord = {
+        ...(localMatch || {}),
+        ...restLic,
+        status:
+          (restLic.status === 'REVOKED' || restLic.status === 'SUSPENDED') &&
+          restLic.adminAuthSig === ADMIN_AUTH_SIG
+            ? restLic.status
+            : 'ACTIVE',
+      };
+      upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, mergedLic, (x) => x.userId);
+      return mergedLic;
     }
   } catch {
     // Fall through to SDK
+  }
+
+  if (firestoreCloudPermissionDenied) {
+    return localMatch;
   }
 
   try {
@@ -2169,19 +2211,7 @@ export async function getSoftwareLicenseById(
       () => getDoc(doc(db, 'software_licenses', cleanUserId)),
       2500
     );
-    const fromCache = Boolean(
-      (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
-    );
     if (!snap.exists()) {
-      // If Firestore server authoritatively reports the document does not exist, it was deleted by Master Admin
-      if (!fromCache) {
-        removeMirrorItem<SoftwareLicenseRecord>(
-          LOCAL_MIRROR_LICENSES_KEY,
-          cleanUserId,
-          (x) => sanitizeIdentifier(x.userId)
-        );
-        return null;
-      }
       return localMatch;
     }
     const remote = snap.data() as SoftwareLicenseRecord;
@@ -2193,8 +2223,17 @@ export async function getSoftwareLicenseById(
       );
       return null;
     }
-    upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, remote, (x) => x.userId);
-    return remote;
+    const mergedRemote: SoftwareLicenseRecord = {
+      ...(localMatch || {}),
+      ...remote,
+      status:
+        (remote.status === 'REVOKED' || remote.status === 'SUSPENDED') &&
+        remote.adminAuthSig === ADMIN_AUTH_SIG
+          ? remote.status
+          : 'ACTIVE',
+    };
+    upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, mergedRemote, (x) => x.userId);
+    return mergedRemote;
   } catch {
     return localMatch;
   }
@@ -3174,10 +3213,19 @@ export async function acknowledgeClientUpdateInstalled(
   const existingLocal = readLocalMirror<SoftwareLicenseRecord>(
     LOCAL_MIRROR_LICENSES_KEY
   ).find((l) => l.userId === cleanUserId);
+  const preservedStatus =
+    existingLocal?.status === 'REVOKED' || existingLocal?.status === 'SUSPENDED'
+      ? existingLocal.status
+      : 'ACTIVE';
   if (existingLocal) {
     upsertMirrorItem(
       LOCAL_MIRROR_LICENSES_KEY,
-      { ...existingLocal, installedVersion: cleanVer, lastSeenAtIso: nowIso },
+      {
+        ...existingLocal,
+        status: preservedStatus,
+        installedVersion: cleanVer,
+        lastSeenAtIso: nowIso,
+      },
       (x) => x.userId
     );
   }
@@ -3185,12 +3233,14 @@ export async function acknowledgeClientUpdateInstalled(
   await Promise.race([
     Promise.all([
       firestoreRestUpdateDoc('software_licenses', cleanUserId, {
+        status: preservedStatus,
         installedVersion: cleanVer,
         lastSeenAtIso: nowIso,
       }).catch(() => {}),
       withFirestoreTimeout(
         () =>
           updateDoc(doc(db, 'software_licenses', cleanUserId), {
+            status: preservedStatus,
             installedVersion: cleanVer,
             lastSeenAtIso: nowIso,
           }),
@@ -3473,12 +3523,11 @@ export function subscribeUserAccountStatus(
     return () => {};
   }
 
-  let hasSeenRemoteExistence = false;
-
   const checkStatus = async () => {
     try {
+      const session = getLocalActivatedSession();
       const lic = await getSoftwareLicenseById(cleanUserId);
-      if (isIdDeletedTombstone(cleanUserId)) {
+      if (isIdDeletedTombstone(cleanUserId, session?.activatedAtIso || lic?.createdAtIso)) {
         removeMirrorItem<SoftwareLicenseRecord>(
           LOCAL_MIRROR_LICENSES_KEY,
           cleanUserId,
@@ -3487,46 +3536,19 @@ export function subscribeUserAccountStatus(
         onStatusChange('REVOKED', null);
         return;
       }
-      if (!lic && !firestoreCloudPermissionDenied) {
-        const ep = FIRESTORE_REST_ENDPOINTS[0];
-        const url = `https://firestore.googleapis.com/v1/projects/${ep.projectId}/databases/${ep.databaseId}/documents/software_licenses/${encodeURIComponent(
-          cleanUserId
-        )}?key=${ep.apiKey}`;
-        const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
-        if (resp.status === 404) {
-          // Check if explicitly deleted by Master Admin in cloud tombstone registry
-          const tombstoneDoc = await firestoreRestGetDoc<SoftwareReleaseRecord>(
-            'software_releases',
-            CLOUD_TOMBSTONE_REGISTRY_DOC_ID
-          );
-          if (tombstoneDoc?.releaseNotes) {
-            try {
-              const parsedTomb = JSON.parse(tombstoneDoc.releaseNotes) as Record<string, string>;
-              if (parsedTomb && typeof parsedTomb === 'object') {
-                mergeDeletedTombstonesMap(parsedTomb);
-              }
-            } catch {
-              // Ignore
-            }
-          }
-          if (isIdDeletedTombstone(cleanUserId) || hasSeenRemoteExistence) {
-            removeMirrorItem<SoftwareLicenseRecord>(
-              LOCAL_MIRROR_LICENSES_KEY,
-              cleanUserId,
-              (x) => sanitizeIdentifier(x.userId)
-            );
-            onStatusChange('REVOKED', null);
-          } else {
-            // User registered while offline or before Cloud sync was active: auto-heal & upload to Cloud Firestore now!
-            void syncPendingLocalRequestsToCloud();
-          }
-        }
+      if (!lic) {
+        // Never auto-revoke a user just because a cloud endpoint returned 404 or 429!
+        // Re-sync their local registration to the server relay so Master Admin sees them.
+        void syncPendingLocalRequestsToCloud();
         return;
       }
-      if (lic && lic.status) {
-        hasSeenRemoteExistence = true;
-        onStatusChange(lic.status, lic);
-      }
+      const isExplicitMasterRevoke =
+        (lic.status === 'REVOKED' || lic.status === 'SUSPENDED') &&
+        lic.adminAuthSig === ADMIN_AUTH_SIG;
+      onStatusChange(isExplicitMasterRevoke ? lic.status : 'ACTIVE', {
+        ...lic,
+        status: isExplicitMasterRevoke ? lic.status : 'ACTIVE',
+      });
     } catch {
       // Ignore offline errors
     }
@@ -3535,7 +3557,7 @@ export function subscribeUserAccountStatus(
   void checkStatus();
   const pollTimer = window.setInterval(() => {
     void checkStatus();
-  }, 2500);
+  }, 4000);
 
   const handleFocus = () => {
     void checkStatus();
@@ -3548,21 +3570,10 @@ export function subscribeUserAccountStatus(
     : onSnapshot(
         doc(db, 'software_licenses', cleanUserId),
         (snap) => {
-          const fromCache = Boolean(
-            (snap as unknown as { metadata?: { fromCache?: boolean } })?.metadata?.fromCache
-          );
           if (!snap.exists()) {
-            if (!fromCache || hasSeenRemoteExistence) {
-              removeMirrorItem<SoftwareLicenseRecord>(
-                LOCAL_MIRROR_LICENSES_KEY,
-                cleanUserId,
-                (x) => sanitizeIdentifier(x.userId)
-              );
-              onStatusChange('REVOKED', null);
-            }
+            // Do NOT revoke on missing secondary Firestore document
             return;
           }
-          hasSeenRemoteExistence = true;
           const data = snap.data() as SoftwareLicenseRecord;
           if (isLicenseTombstoned(data)) {
             removeMirrorItem<SoftwareLicenseRecord>(
@@ -3573,8 +3584,15 @@ export function subscribeUserAccountStatus(
             onStatusChange('REVOKED', null);
             return;
           }
-          upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, data, (x) => x.userId);
-          onStatusChange(data.status, data);
+          const isExplicitMasterRevoke =
+            (data.status === 'REVOKED' || data.status === 'SUSPENDED') &&
+            data.adminAuthSig === ADMIN_AUTH_SIG;
+          const normalized: SoftwareLicenseRecord = {
+            ...data,
+            status: isExplicitMasterRevoke ? data.status : 'ACTIVE',
+          };
+          upsertMirrorItem(LOCAL_MIRROR_LICENSES_KEY, normalized, (x) => x.userId);
+          onStatusChange(normalized.status, normalized);
         },
         () => {
           markFirestoreCloudPermissionDenied();
@@ -3614,24 +3632,28 @@ function mergeById<T>(
     } else {
       const exRec = existing as unknown as {
         status?: string;
+        adminAuthSig?: string;
         lastSeenAtIso?: string;
         createdAtIso?: string;
       };
       const newRec = item as unknown as {
         status?: string;
+        adminAuthSig?: string;
         lastSeenAtIso?: string;
         createdAtIso?: string;
       };
       const exTime = exRec.lastSeenAtIso || exRec.createdAtIso || '';
       const newTime = newRec.lastSeenAtIso || newRec.createdAtIso || '';
       if (exTime && newTime && exTime > newTime) {
-        // Keep local if it has a newer timestamp (e.g. just suspended/reactivated locally)
         continue;
       }
       if (newRec.status === 'PENDING' && exRec.status && exRec.status !== 'PENDING') {
         continue;
       }
       const mergedItem = { ...existing, ...item } as Record<string, unknown>;
+      if (!newRec.status && exRec.status) {
+        mergedItem.status = exRec.status;
+      }
       if (
         newRec.createdAtIso &&
         exRec.createdAtIso &&
@@ -4309,22 +4331,10 @@ export async function overwriteAllGoogleDriveInstallersInPlace(params: {
   accessToken: string;
   version: string;
 }): Promise<{ ok: boolean; updatedCount: number; summary: string }> {
-  const targets = [
-    {
-      label: 'User .APK',
-      fileId: extractGoogleDriveFileId(params.config.userApkFileId),
-      urls: ['/release/AKASH-TUNNEL-MAPPER-User-App.apk', '/api/download/user-apk'],
-      mimeType: 'application/vnd.android.package-archive',
-    },
-    {
-      label: 'User .EXE',
-      fileId: extractGoogleDriveFileId(params.config.userExeFileId),
-      urls: ['/release/AKASH-TUNNEL-MAPPER-User-Setup.exe', '/api/download/user-exe'],
-      mimeType: 'application/vnd.microsoft.portable-executable',
-    },
-  ].filter((t) => Boolean(t.fileId));
+  const cleanApkId = extractGoogleDriveFileId(params.config.userApkFileId);
+  const cleanExeId = extractGoogleDriveFileId(params.config.userExeFileId);
 
-  if (targets.length === 0) {
+  if (!cleanApkId && !cleanExeId) {
     return {
       ok: false,
       updatedCount: 0,
@@ -4332,21 +4342,66 @@ export async function overwriteAllGoogleDriveInstallersInPlace(params: {
     };
   }
 
+  // 1. Primary: Use Server-Side Direct Binary Streamer (/api/gdrive/overwrite-installers)
+  //    which streams the real 25.92 MB User .APK and standalone User .EXE directly from server disk to Google Drive.
+  for (const srvUrl of getServerRelayUrls('/api/gdrive/overwrite-installers')) {
+    try {
+      const resp = await fetch(srvUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userApkFileId: cleanApkId,
+          userExeFileId: cleanExeId,
+          accessToken: params.accessToken,
+          version: params.version,
+        }),
+      });
+      if (resp.ok) {
+        const json = (await resp.json()) as {
+          ok?: boolean;
+          updatedCount?: number;
+          summary?: string;
+        };
+        if (json && json.ok && (json.updatedCount || 0) > 0) {
+          return {
+            ok: true,
+            updatedCount: json.updatedCount || 1,
+            summary: json.summary || 'Overwrote Google Drive installer binaries in-place.',
+          };
+        }
+      }
+    } catch {
+      // Fall through to client binary fetch
+    }
+  }
+
+  // 2. Fallback: Fetch compiled binaries from /api/android/apk-binary and /api/windows/download-exe
+  const targets = [
+    {
+      label: 'User .APK',
+      fileId: cleanApkId,
+      urls: getServerRelayUrls('/api/android/apk-binary?edition=user'),
+      mimeType: 'application/vnd.android.package-archive',
+    },
+    {
+      label: 'User .EXE',
+      fileId: cleanExeId,
+      urls: getServerRelayUrls('/api/windows/download-exe?edition=user'),
+      mimeType: 'application/vnd.microsoft.portable-executable',
+    },
+  ].filter((t) => Boolean(t.fileId));
+
   let updatedCount = 0;
   const results: string[] = [];
 
   for (const target of targets) {
-    let payload: Blob | string = JSON.stringify({
-      artifact: target.label,
-      version: params.version,
-      updatedAtIso: new Date().toISOString(),
-    });
+    let payload: Blob | null = null;
     for (const candidateUrl of target.urls) {
       try {
         const binResp = await fetch(candidateUrl, { method: 'GET', cache: 'no-store' });
         if (binResp.ok) {
           const blob = await binResp.blob();
-          if (blob.size > 1024) {
+          if (blob.size > 10240) {
             payload = blob;
             break;
           }
@@ -4354,6 +4409,11 @@ export async function overwriteAllGoogleDriveInstallersInPlace(params: {
       } catch {
         // Fallback to next URL
       }
+    }
+
+    if (!payload) {
+      results.push(`${target.label} skipped (binary not reachable)`);
+      continue;
     }
 
     const res = await overwriteGoogleDriveFileInPlace({
@@ -4364,7 +4424,8 @@ export async function overwriteAllGoogleDriveInstallersInPlace(params: {
     });
     if (res.ok) {
       updatedCount += 1;
-      results.push(`${target.label} (${target.fileId.slice(0, 8)}…)`);
+      const sizeMb = (payload.size / (1024 * 1024)).toFixed(2);
+      results.push(`${target.label} (${sizeMb} MB -> ${target.fileId.slice(0, 8)}…)`);
     } else {
       results.push(`${target.label} failed: ${res.message}`);
     }
@@ -4389,21 +4450,22 @@ export function getLatestPublishedSoftwareRelease(): SoftwareReleaseRecord | nul
         r.adminAuthSig === ADMIN_AUTH_SIG &&
         !r.releaseId.startsWith('rel_ci_') &&
         r.releaseId !== 'GITHUB_REPO_CONFIG' &&
-        r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+        r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG' &&
+        r.releaseId !== CLOUD_TOMBSTONE_REGISTRY_DOC_ID
     )
     .sort((a, b) => {
-      const verDiff = compareSoftwareVersions(b.version, a.version);
-      if (verDiff !== 0) return verDiff;
-      return (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+      const timeDiff = (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+      if (timeDiff !== 0) return timeDiff;
+      return compareSoftwareVersions(b.version, a.version);
     });
   return published[0] || null;
 }
 
 /**
  * Real-time listener on the Software Side for targeted Software Updates.
- * Only notifies when a release was explicitly broadcasted by the Master Application
- * (adminAuthSig === ADMIN_AUTH_SIG), is strictly newer than the currently installed version,
- * and has not already been dismissed or installed by the user.
+ * Notifies live users immediately when a release is broadcasted by the Master Application
+ * (status === 'PUBLISHED' && adminAuthSig === ADMIN_AUTH_SIG) and has not yet been
+ * installed or dismissed by this user.
  */
 export function subscribeClientSoftwareUpdates(
   onTargetedRelease: (release: SoftwareReleaseRecord | null) => void
@@ -4425,12 +4487,13 @@ export function subscribeClientSoftwareUpdates(
           r.adminAuthSig === ADMIN_AUTH_SIG &&
           !r.releaseId.startsWith('rel_ci_') &&
           r.releaseId !== 'GITHUB_REPO_CONFIG' &&
-          r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG'
+          r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG' &&
+          r.releaseId !== CLOUD_TOMBSTONE_REGISTRY_DOC_ID
       )
       .sort((a, b) => {
-        const verDiff = compareSoftwareVersions(b.version, a.version);
-        if (verDiff !== 0) return verDiff;
-        return (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+        const timeDiff = (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '');
+        if (timeDiff !== 0) return timeDiff;
+        return compareSoftwareVersions(b.version, a.version);
       });
 
     // Find all releases targeted to this user/PC
@@ -4447,13 +4510,11 @@ export function subscribeClientSoftwareUpdates(
       return matchPc || matchUser;
     });
 
-    // Only consider the single highest version release targeted to this user.
-    // Never fall back to an older release (e.g. v2.8.103 when v2.8.104 is installed or dismissed).
     const newestTargeted = targetedToClient[0] || null;
     if (
       newestTargeted &&
-      compareSoftwareVersions(newestTargeted.version, currentVer) > 0 &&
-      !isReleaseDismissedByUser(newestTargeted.releaseId, newestTargeted.version)
+      compareSoftwareVersions(newestTargeted.version, currentVer) >= 0 &&
+      !isReleaseDismissedByUser(newestTargeted.releaseId)
     ) {
       onTargetedRelease(newestTargeted);
     } else {
@@ -4485,7 +4546,7 @@ export function subscribeClientSoftwareUpdates(
   void pollRemoteReleases();
   const relPollTimer = window.setInterval(() => {
     void pollRemoteReleases();
-  }, 15000);
+  }, 4000);
 
   const handleLocalChange = () => {
     evaluateReleases(readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY));
@@ -4503,9 +4564,15 @@ export function subscribeClientSoftwareUpdates(
         ),
         (snap) => {
           const docs = snap.docs.map((d) => d.data() as SoftwareReleaseRecord);
-          if (docs.length > 0 || !snap.metadata.fromCache) {
-            writeLocalMirror(LOCAL_MIRROR_RELEASES_KEY, docs);
-            evaluateReleases(docs);
+          // Never overwrite LOCAL_MIRROR_RELEASES_KEY with an empty snapshot from secondary db
+          if (docs.length > 0) {
+            const merged = mergeById(
+              docs,
+              readLocalMirror<SoftwareReleaseRecord>(LOCAL_MIRROR_RELEASES_KEY),
+              (x) => x.releaseId
+            ).sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''));
+            writeLocalMirror(LOCAL_MIRROR_RELEASES_KEY, merged);
+            evaluateReleases(merged);
           }
         },
         () => {

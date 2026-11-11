@@ -204,7 +204,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       onRequests: (reqList) => setRequests(reqList || []),
       onLicenses: (licList) => setLicenses(licList || []),
       onReleases: (relList) => {
-        setReleases(relList || []);
+        const list = relList || [];
+        setReleases(list);
         const latestGd = getGoogleDriveSyncConfig();
         setDriveCfg((prev) =>
           !prev.userApkFileId &&
@@ -213,6 +214,25 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
             ? latestGd
             : prev
         );
+        // Auto-increment target version above highest published release so each broadcast is a fresh version
+        const highestPublished = list.find(
+          (r) =>
+            r.status === 'PUBLISHED' &&
+            r.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1' &&
+            !r.releaseId.startsWith('rel_ci_')
+        );
+        if (highestPublished?.version) {
+          const parts = highestPublished.version.replace(/^[vV]+/, '').split('.');
+          const lastNum = Number.parseInt(parts[parts.length - 1] || '105', 10);
+          if (Number.isFinite(lastNum)) {
+            const nextVer = [...parts.slice(0, -1), String(lastNum + 1)].join('.');
+            setNewRelVersion((prev) =>
+              prev.replace(/^[vV]+/, '') === highestPublished.version.replace(/^[vV]+/, '')
+                ? nextVer
+                : prev
+            );
+          }
+        }
       },
       onMasterPcs: () => {},
     });
@@ -410,14 +430,13 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       );
 
       const resolvedStatus: 'pending' | 'approved' | 'revoked' = matchedLic
-        ? matchedLic.status === 'ACTIVE'
-          ? 'approved'
-          : 'revoked'
-        : r.status === 'APPROVED'
-        ? 'approved'
+        ? (matchedLic.status === 'REVOKED' || matchedLic.status === 'SUSPENDED') &&
+          matchedLic.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1'
+          ? 'revoked'
+          : 'approved'
         : r.status === 'REJECTED'
         ? 'revoked'
-        : 'pending';
+        : 'approved';
 
       list.push({
         id: matchedLic?.userId || reqIdStr || `req_${ list.length }`,
@@ -463,7 +482,11 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
           position: extractPosition(l, undefined),
           organization: l.organization || 'Field Office',
           hardwareId: l.boundPcHardwareId || 'N/A',
-          status: l.status === 'ACTIVE' ? 'approved' : 'revoked',
+          status:
+            (l.status === 'REVOKED' || l.status === 'SUSPENDED') &&
+            l.adminAuthSig === 'ESWA_MASTER_ADMIN_SIG_v1'
+              ? 'revoked'
+              : 'approved',
           date: pickNewestDate(l.lastSeenAtIso, l.createdAtIso),
           rawLic: l,
         });
@@ -1291,9 +1314,10 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                         onClick={async () => {
                           setPublishingRel(true);
                           try {
+                            const targetVer = newRelVersion.trim();
                             const rec = await publishSoftwareUpdateRelease({
-                              version: newRelVersion.trim(),
-                              title: newRelTitle.trim() || `ESWA Update v${newRelVersion.trim()}`,
+                              version: targetVer,
+                              title: newRelTitle.trim() || `ESWA Update v${targetVer}`,
                               releaseNotes: newRelNotes.trim(),
                               downloadUrl: driveCfg.userExeFileId
                                 ? `https://drive.google.com/uc?export=download&id=${driveCfg.userExeFileId}`
@@ -1302,8 +1326,13 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
                               targetIdentifierCsv: 'ALL',
                               isMandatory: false,
                             });
+                            const parts = targetVer.replace(/^[vV]+/, '').split('.');
+                            const lastNum = Number.parseInt(parts[parts.length - 1] || '105', 10);
+                            if (Number.isFinite(lastNum)) {
+                              setNewRelVersion([...parts.slice(0, -1), String(lastNum + 1)].join('.'));
+                            }
                             setDriveSyncStatus(
-                              `Broadcasted v${rec.version} from Master Application to all live users! Users on older versions can now 1-click update in-place or click Later to continue with their current version.`
+                              `✓ Channel 1 Live Broadcast v${rec.version} sent to all existing live users! Every active user on Android or PC will see the 1-click in-app update banner within 4 seconds (with Zero Data Loss and zero re-login).`
                             );
                           } finally {
                             setPublishingRel(false);

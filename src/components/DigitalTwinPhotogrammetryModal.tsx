@@ -1694,18 +1694,18 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
         {/* LEFT / BOTTOM CONTROL & PER-PORTION PRIMARY + SUPPORTING PHOTO BAYS */}
         {!isFullScreen3D && (
         <div
-          className={`bg-slate-900 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col shrink-0 transition-all ${
+          className={`bg-slate-900 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col shrink-0 overflow-hidden transition-all ${
             isMobileControlDrawerCollapsed
-              ? 'h-10 md:h-full md:w-11 overflow-hidden'
-              : 'w-full h-[46dvh] md:h-full md:w-[320px] lg:w-[395px] xl:w-[455px] overflow-y-auto'
+              ? 'h-10 md:h-full md:w-11'
+              : 'w-full h-[46dvh] md:h-full md:w-[350px] lg:w-[410px] xl:w-[460px]'
           }`}
         >
           {/* Mobile / Compact Drawer Collapse Header Bar */}
-          <div className="px-3 py-1.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 sticky top-0 z-20">
-            <span className="text-[10.5px] font-black uppercase tracking-wider text-sky-400 truncate flex items-center gap-1.5">
+          <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-20">
+            <span className="text-[10.5px] font-black uppercase tracking-wider text-sky-400 truncate flex items-center gap-1.5 min-w-0">
               <Camera className="w-3.5 h-3.5 shrink-0" />
               {!isMobileControlDrawerCollapsed && (
-                <span>Photo Bays &amp; 3D Controls ({localRawPhotos.length} Photos)</span>
+                <span className="truncate">Photo Bays &amp; 3D Controls ({localRawPhotos.length} Photos)</span>
               )}
             </span>
             <button
@@ -1729,15 +1729,15 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
           </div>
 
           {!isMobileControlDrawerCollapsed && (
-          <>
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-800">
           {/* SECTION 1: PER-PORTION PRIMARY + SUPPORTING PHOTO BAYS & CROSS-PORTION OVERLAP ENGINE */}
-          <div className="p-3 sm:p-3.5 border-b border-slate-800 space-y-2.5 bg-slate-900/95">
-            <div className="flex items-center justify-between gap-1">
+          <div className="p-3 sm:p-3.5 space-y-3 bg-slate-900/95">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5" />
-                Portion Primary + Supporting Photo Bays ({localRawPhotos.length})
+                <Camera className="w-3.5 h-3.5 shrink-0" />
+                <span>Portion Primary + Supporting Photo Bays ({localRawPhotos.length})</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-mono font-bold">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-mono font-bold shrink-0">
                 CROSS-PORTION AI OVERLAP
               </span>
             </div>
@@ -1747,7 +1747,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             </p>
 
             {/* Per-Portion Structured Cards (Face, Left Wall, Right Wall, Crown) */}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {portionCoverageReadiness.map((rep) => {
                 const portionPhotos = localRawPhotos.filter((p) => {
                   if (p.targetZone === rep.panelId) return true;
@@ -1768,124 +1768,124 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                 return (
                   <div
                     key={rep.panelId}
-                    className={`p-2.5 rounded-xl border transition ${
+                    className={`p-2.5 rounded-xl border space-y-2 transition ${
                       selectedPanel === rep.panelId
                         ? 'bg-slate-950 border-sky-500/60'
                         : 'bg-slate-950/80 border-slate-800'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-extrabold text-white">{rep.shortLabel}</span>
-                        <span
-                          className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
-                            rep.status === 'COMPLETE_DIRECT'
-                              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                              : rep.status === 'CROSS_RECOVERED'
-                              ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                              : rep.status === 'DONOR_ONLY'
-                              ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
-                              : rep.status === 'PARTIAL_BLIND_SPOTS'
-                              ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                              : 'bg-slate-800 border-slate-700 text-slate-400'
-                          }`}
-                        >
-                          {rep.status === 'COMPLETE_DIRECT'
-                            ? `DIRECT ${rep.directCoveragePct}%`
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <span className="text-xs font-extrabold text-white">{rep.shortLabel}</span>
+                      <span
+                        className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border shrink-0 ${
+                          rep.status === 'COMPLETE_DIRECT'
+                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                             : rep.status === 'CROSS_RECOVERED'
-                            ? `${rep.directCoveragePct}% + ${rep.crossFilledDonorPct}% OVERLAP`
+                            ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
                             : rep.status === 'DONOR_ONLY'
-                            ? `CROSS-FILLED (${rep.crossFilledDonorPct}% FROM WALLS/FACE)`
+                            ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
                             : rep.status === 'PARTIAL_BLIND_SPOTS'
-                            ? `PARTIAL (${rep.directCoveragePct}%)`
-                            : 'AWAITING PHOTO'}
-                        </span>
-                      </div>
+                            ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                            : 'bg-slate-800 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        {rep.status === 'COMPLETE_DIRECT'
+                          ? `DIRECT ${rep.directCoveragePct}%`
+                          : rep.status === 'CROSS_RECOVERED'
+                          ? `${rep.directCoveragePct}% + ${rep.crossFilledDonorPct}% OVERLAP`
+                          : rep.status === 'DONOR_ONLY'
+                          ? `CROSS-FILLED (${rep.crossFilledDonorPct}% OVERLAP)`
+                          : rep.status === 'PARTIAL_BLIND_SPOTS'
+                          ? `PARTIAL (${rep.directCoveragePct}%)`
+                          : 'AWAITING PHOTO'}
+                      </span>
+                    </div>
 
-                      <div className="flex items-center gap-1">
-                        {/* Upload / Replace Primary Photo */}
-                        <label className="cursor-pointer px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-bold flex items-center gap-1 transition">
-                          <Upload className="w-2.5 h-2.5" />
-                          <span>{primaryPhoto ? 'Replace Primary' : '+ Primary'}</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              handleUploadPortionPhotos(rep.panelId, 'primary', e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {/* Upload / Replace Primary Photo */}
+                      <label className="cursor-pointer px-2 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition text-center">
+                        <Upload className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{primaryPhoto ? 'Replace Primary' : '+ Primary Photo'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            handleUploadPortionPhotos(rep.panelId, 'primary', e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
 
-                        {/* Upload Supporting Photos (1..N) */}
-                        <label
-                          className="cursor-pointer px-2 py-1 rounded bg-purple-600/25 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 text-[10px] font-bold flex items-center gap-1 transition"
-                          title="Add supporting close-up, oblique, or shoulder overlap photos for this portion"
-                        >
-                          <PlusCircle className="w-2.5 h-2.5" />
-                          <span>+ Support ({supportingPhotos.length})</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              handleUploadPortionPhotos(rep.panelId, 'supporting', e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
+                      {/* Upload Supporting Photos (1..N) */}
+                      <label
+                        className="cursor-pointer px-2 py-1.5 rounded-lg bg-purple-600/25 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 text-[10px] font-bold flex items-center justify-center gap-1 transition text-center"
+                        title="Add supporting close-up, oblique, or shoulder overlap photos for this portion"
+                      >
+                        <PlusCircle className="w-3 h-3 shrink-0" />
+                        <span className="truncate">+ Support ({supportingPhotos.length})</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            handleUploadPortionPhotos(rep.panelId, 'supporting', e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
                     </div>
 
                     {/* Primary + Supporting Thumbnails Row */}
                     {portionPhotos.length > 0 && (
-                      <div className="mt-2 space-y-1.5">
+                      <div className="pt-1 space-y-1.5">
                         {portionPhotos.map((ph, idx) => {
                           const isPrim = primaryPhoto?.id === ph.id;
                           return (
                             <div
                               key={ph.id}
-                              className="flex items-center gap-2 bg-slate-900/90 px-2 py-1 rounded border border-slate-800/90"
+                              className="bg-slate-900/90 p-2 rounded-lg border border-slate-800/90 space-y-1.5"
                             >
-                              <img
-                                src={ph.dataUrl}
-                                alt={ph.fileName}
-                                className="w-11 h-8 object-cover rounded border border-slate-700 shrink-0"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded ${
-                                      isPrim
-                                        ? 'bg-sky-500/25 text-sky-300'
-                                        : 'bg-purple-500/25 text-purple-300'
-                                    }`}
-                                  >
-                                    {isPrim ? 'PRIMARY' : `SUPPORT #${idx}`}
-                                  </span>
-                                  <span className="text-[10px] font-semibold text-slate-200 truncate">
-                                    {ph.fileName}
-                                  </span>
-                                </div>
-                                <div className="text-[9px] font-mono text-slate-400">
-                                  {ph.naturalWidth}×{ph.naturalHeight} • {ph.focalLengthMm}mm
-                                  {ph.crossPortionSpillover?.extraCrownTopPct
-                                    ? ` • +${ph.crossPortionSpillover.extraCrownTopPct}% Crown Arch`
-                                    : ''}
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img
+                                  src={ph.dataUrl}
+                                  alt={ph.fileName}
+                                  className="w-11 h-8 object-cover rounded border border-slate-700 shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span
+                                      className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded shrink-0 ${
+                                        isPrim
+                                          ? 'bg-sky-500/25 text-sky-300'
+                                          : 'bg-purple-500/25 text-purple-300'
+                                      }`}
+                                    >
+                                      {isPrim ? 'PRIMARY' : `SUPPORT #${idx}`}
+                                    </span>
+                                    <span className="text-[10px] font-semibold text-slate-200 truncate">
+                                      {ph.fileName}
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] font-mono text-slate-400 truncate mt-0.5">
+                                    {ph.naturalWidth}×{ph.naturalHeight} • {ph.focalLengthMm}mm
+                                    {ph.crossPortionSpillover?.extraCrownTopPct
+                                      ? ` • +${ph.crossPortionSpillover.extraCrownTopPct}% Crown Arch`
+                                      : ''}
+                                  </div>
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1 shrink-0">
+                              <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-800/70">
                                 {ph.cameraPose && hasBuilt3DTwin && (
                                   <button
                                     type="button"
                                     onClick={() => focusOnPhotoCameraPose(ph)}
-                                    className="px-1.5 py-0.5 rounded bg-sky-500/15 hover:bg-sky-600 text-sky-300 hover:text-white text-[9px] font-bold"
+                                    className="px-2 py-0.5 rounded bg-sky-500/15 hover:bg-sky-600 text-sky-300 hover:text-white text-[9px] font-bold"
                                     title="Inspect 3D Digital Twin from this camera pose"
                                   >
-                                    Pose
+                                    3D Pose
                                   </button>
                                 )}
                                 <button
@@ -1894,7 +1894,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                                     setReplaceTargetPhotoId(ph.id);
                                     replaceRawInputRef.current?.click();
                                   }}
-                                  className="px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-[9px] font-bold"
+                                  className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-[9px] font-bold"
                                   title="Replace this photo"
                                 >
                                   Replace
@@ -1906,10 +1906,11 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                                       prev.filter((item) => item.id !== ph.id)
                                     )
                                   }
-                                  className="p-1 rounded bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white"
+                                  className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white flex items-center gap-1 text-[9px] font-bold"
                                   title="Remove photo"
                                 >
                                   <Trash2 className="w-2.5 h-2.5" />
+                                  <span>Remove</span>
                                 </button>
                               </div>
                             </div>
@@ -1920,7 +1921,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
 
                     {/* Cross-Portion Donor Overlap Notice */}
                     {rep.donorSources.length > 0 && (
-                      <div className="mt-1.5 text-[10px] text-sky-300/90 bg-sky-950/40 px-2 py-1 rounded border border-sky-500/20">
+                      <div className="text-[10px] text-sky-300/90 bg-sky-950/40 px-2 py-1.5 rounded border border-sky-500/20 leading-snug break-words">
                         <span className="font-bold">Overlap Recovery:</span>{' '}
                         {rep.donorSources.join(' + ')}
                       </div>
@@ -1930,40 +1931,38 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               })}
 
               {/* General Multi-Angle / Corridor Tie-Points Pool */}
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-slate-200">
-                      General Multi-Angle / Tie-Point Photos ({multiAngleTiePhotos.length})
-                    </span>
-                    <p className="text-[10px] text-slate-400">
-                      Extra wide-angle or oblique corridor shots that span Face + Walls + Crown.
-                    </p>
-                  </div>
-                  <label className="cursor-pointer px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[10px] font-bold text-slate-200 flex items-center gap-1 transition">
-                    <Upload className="w-3 h-3 text-sky-400" />
-                    <span>+ Multi-Angle</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        handleUploadPortionPhotos('auto', 'multi_angle', e.target.files);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-200 block">
+                    General Multi-Angle / Tie-Point Photos ({multiAngleTiePhotos.length})
+                  </span>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    Extra wide-angle or oblique corridor shots that span Face + Walls + Crown.
+                  </p>
                 </div>
+                <label className="w-full cursor-pointer px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[10px] font-bold text-slate-200 flex items-center justify-center gap-1.5 transition">
+                  <Upload className="w-3 h-3 text-sky-400 shrink-0" />
+                  <span>+ Upload Multi-Angle / Tie-Point Photos</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      handleUploadPortionPhotos('auto', 'multi_angle', e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
 
                 {multiAngleTiePhotos.length > 0 && (
-                  <div className="mt-2 space-y-1">
+                  <div className="space-y-1">
                     {multiAngleTiePhotos.map((mp, idx) => (
                       <div
                         key={mp.id}
-                        className="flex items-center justify-between bg-slate-900 px-2 py-1 rounded border border-slate-800 text-[10px]"
+                        className="flex items-center justify-between gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-800 text-[10px]"
                       >
-                        <span className="text-slate-300 truncate">
+                        <span className="text-slate-300 truncate min-w-0 flex-1">
                           Tie #{idx + 1}: {mp.fileName} ({mp.naturalWidth}×{mp.naturalHeight})
                         </span>
                         <button
@@ -1971,7 +1970,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                           onClick={() =>
                             updateRawPhotosList((prev) => prev.filter((item) => item.id !== mp.id))
                           }
-                          className="text-rose-400 hover:text-rose-300 ml-2"
+                          className="text-rose-400 hover:text-rose-300 shrink-0"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -1987,33 +1986,33 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               type="button"
               disabled={isReconstructing || localRawPhotos.length === 0}
               onClick={() => handleRunDeepReconstruction()}
-              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600 via-indigo-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 disabled:opacity-45 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg cursor-pointer transition"
+              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600 via-indigo-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 disabled:opacity-45 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg cursor-pointer transition text-center leading-snug"
             >
-              <Cpu className="w-4 h-4" />
+              <Cpu className="w-4 h-4 shrink-0" />
               <span>
                 {deepPipelineProgress?.active
                   ? `Running Stage ${deepPipelineProgress.stageNumber}/${deepPipelineProgress.totalStages}...`
                   : hasBuilt3DTwin
-                  ? `Re-Build & Render 3D Digital Twin (${localRawPhotos.length} Photos • Cross-Portion AI)`
-                  : `Build & Render 3D Digital Twin (${localRawPhotos.length} Photos • Cross-Portion AI)`}
+                  ? `Re-Build & Render 3D Digital Twin (${localRawPhotos.length} Photos)`
+                  : `Build & Render 3D Digital Twin (${localRawPhotos.length} Photos)`}
               </span>
             </button>
 
             {rockMassSummary && (
               <div className="p-2.5 rounded-lg bg-sky-950/50 border border-sky-500/30 text-[11px] text-sky-200 space-y-1.5">
-                <div className="font-bold text-sky-300 flex items-center justify-between">
+                <div className="font-bold text-sky-300 flex flex-wrap items-center justify-between gap-1">
                   <span>Cross-Portion AI Reconstruction Summary</span>
                   {overbreakCavities.length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-mono">
+                    <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-mono shrink-0">
                       {overbreakCavities.length} Overbreak Zones
                     </span>
                   )}
                 </div>
-                <p className="text-slate-300 leading-snug">{rockMassSummary}</p>
+                <p className="text-slate-300 leading-snug break-words">{rockMassSummary}</p>
                 {crossPortionRecoveryNotes.length > 0 && (
                   <ul className="text-[10px] text-emerald-300/90 space-y-0.5 list-disc pl-4 pt-1 border-t border-sky-500/20">
                     {crossPortionRecoveryNotes.slice(0, 4).map((note, idx) => (
-                      <li key={idx}>{note}</li>
+                      <li key={idx} className="break-words">{note}</li>
                     ))}
                   </ul>
                 )}
@@ -2022,15 +2021,15 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
           </div>
 
           {/* SECTION 2: SURFACE PORTION SELECTOR & 3D RELIEF DEPTH SCALE */}
-          <div className="p-3.5 border-b border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between">
+          <div className="p-3 sm:p-3.5 space-y-2.5 bg-slate-900/90">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Inspect Tunnel Portion &amp; Display Mode
               </span>
               <button
                 type="button"
                 onClick={() => setShowCameraFrustums((v) => !v)}
-                className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition ${
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition shrink-0 ${
                   showCameraFrustums
                     ? 'bg-sky-500/20 border-sky-400/50 text-sky-300'
                     : 'bg-slate-950 border-slate-800 text-slate-400'
@@ -2052,15 +2051,15 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                       setSelectedPanel(p.id);
                       focusCameraOnPanel(p.id);
                     }}
-                    className={`px-2.5 py-1.5 rounded text-left text-xs font-medium border flex items-center justify-between transition ${
+                    className={`px-2.5 py-2 rounded-lg text-left text-xs font-medium border flex flex-wrap items-center justify-between gap-1 min-w-0 transition ${
                       isSelected
                         ? 'bg-sky-500/20 border-sky-400 text-white'
                         : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
-                    <span className="truncate">{p.shortLabel}</span>
+                    <span className="truncate font-bold">{p.shortLabel}</span>
                     <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0 ${
                         pData && (pData.crossFilledDonorPct || 0) > 0
                           ? 'bg-emerald-500/20 text-emerald-300'
                           : pData
@@ -2069,7 +2068,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                       }`}
                     >
                       {pData
-                        ? `${Math.min(100, (pData.directCoveragePct || 0) + (pData.crossFilledDonorPct || 0))}% COV`
+                        ? `${Math.min(100, (pData.directCoveragePct || 0) + (pData.crossFilledDonorPct || 0))}%`
                         : 'STAGED'}
                     </span>
                   </button>
@@ -2078,12 +2077,12 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             </div>
 
             <div className="bg-slate-950/80 p-2.5 rounded-lg border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                 <span className="text-slate-400 flex items-center gap-1">
-                  <Sliders className="w-3.5 h-3.5 text-sky-400" />
-                  3D Rock Relief Depth Scale:
+                  <Sliders className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span>3D Rock Relief Depth Scale:</span>
                 </span>
-                <span className="font-mono font-bold text-sky-300">
+                <span className="font-mono font-bold text-sky-300 shrink-0">
                   ±{(reliefDepthScaleM * 100).toFixed(0)} cm ({reliefDepthScaleM.toFixed(2)}m)
                 </span>
               </div>
@@ -2097,21 +2096,21 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                 className="w-full accent-sky-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
               />
 
-              <div className="grid grid-cols-5 gap-1 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
                 {(
                   [
                     { id: 'PHOTO_DRAPED_3D', label: 'Photo 3D' },
-                    { id: 'COVERAGE_OVERLAP_MAP', label: 'Coverage' },
+                    { id: 'COVERAGE_OVERLAP_MAP', label: 'Coverage Map' },
                     { id: 'SURFACE_NORMAL_MAP', label: 'Normals' },
-                    { id: 'RELIEF_ELEVATION_HEATMAP', label: 'Depth' },
-                    { id: 'HYBRID_WIREFRAME', label: 'Wire' },
+                    { id: 'RELIEF_ELEVATION_HEATMAP', label: 'Depth Map' },
+                    { id: 'HYBRID_WIREFRAME', label: 'Wireframe' },
                   ] as { id: DigitalTwinDisplayMode; label: string }[]
                 ).map((m) => (
                   <button
                     key={m.id}
                     type="button"
                     onClick={() => setDisplayMode(m.id)}
-                    className={`py-1 px-1 rounded text-[10px] font-semibold border transition ${
+                    className={`py-1.5 px-2 rounded text-[10px] font-semibold border truncate transition ${
                       displayMode === m.id
                         ? 'bg-sky-600 border-sky-400 text-white'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -2123,29 +2122,35 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               </div>
 
               {currentPhoto && (
-                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-800/80">
-                  <span>Direct: {currentPhoto.directCoveragePct ?? 100}%</span>
-                  <span>Overlap Filled: {currentPhoto.crossFilledDonorPct ?? 0}%</span>
-                  <span>Blind Spot: {currentPhoto.blindSpotPct ?? 0}%</span>
+                <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-slate-400 pt-1.5 border-t border-slate-800/80 text-center">
+                  <span className="bg-slate-900/90 py-1 px-1 rounded border border-slate-800/80 truncate">
+                    Direct: {currentPhoto.directCoveragePct ?? 100}%
+                  </span>
+                  <span className="bg-slate-900/90 py-1 px-1 rounded border border-slate-800/80 truncate">
+                    Overlap: {currentPhoto.crossFilledDonorPct ?? 0}%
+                  </span>
+                  <span className="bg-slate-900/90 py-1 px-1 rounded border border-slate-800/80 truncate">
+                    Blind: {currentPhoto.blindSpotPct ?? 0}%
+                  </span>
                 </div>
               )}
             </div>
           </div>
 
           {/* SECTION 3: ACTIVE EXTRACTION WORKFLOW CONTROLS */}
-          <div className="p-3.5 border-b border-slate-800 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          <div className="p-3 sm:p-3.5 space-y-3 bg-slate-900/95">
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                 Target Joint Set:
               </span>
-              <div className="flex items-center gap-1 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {(['J1', 'J2', 'J3', 'J4', 'J-Bedding', 'J-Random'] as FieldJointGroupingId[]).map(
                   (setKey) => (
                     <button
                       key={setKey}
                       type="button"
                       onClick={() => setActiveSetId(setKey)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition ${
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition shrink-0 ${
                         activeSetId === setKey
                           ? 'bg-slate-100 text-slate-950 border-white'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600'
@@ -2165,19 +2170,21 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             {(extractionMethod === 'FACET_3PT_POLYGON' ||
               extractionMethod === 'CROSS_SURFACE_TIE_POINTS') && (
               <div className="bg-slate-950/90 p-3 rounded-lg border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
-                    <Crosshair className="w-4 h-4" />
-                    {extractionMethod === 'CROSS_SURFACE_TIE_POINTS'
-                      ? 'Cross-Surface Tie Points (Click 2+ Surfaces)'
-                      : 'Click 3+ Points on 3D Rock Facet'}
+                    <Crosshair className="w-4 h-4 shrink-0" />
+                    <span>
+                      {extractionMethod === 'CROSS_SURFACE_TIE_POINTS'
+                        ? 'Cross-Surface Tie Points (Click 2+ Surfaces)'
+                        : 'Click 3+ Points on 3D Rock Facet'}
+                    </span>
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       disabled={pickedPoints.length === 0}
                       onClick={() => setPickedPoints((prev) => prev.slice(0, -1))}
-                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-[11px] text-slate-200 flex items-center gap-1"
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-[11px] text-slate-200 flex items-center gap-1"
                     >
                       <RotateCcw className="w-3 h-3" />
                       Undo Pt
@@ -2190,7 +2197,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                         setManualDipOverrideDeg(null);
                         setManualDipDirOverrideDeg(null);
                       }}
-                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-700 disabled:opacity-40 text-[11px] text-slate-200 flex items-center gap-1"
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-rose-700 disabled:opacity-40 text-[11px] text-slate-200 flex items-center gap-1"
                     >
                       <Trash2 className="w-3 h-3" />
                       Clear
@@ -2199,11 +2206,11 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                 </div>
 
                 {pickedPoints.length < 3 ? (
-                  <div className="text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded p-2">
+                  <div className="text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded p-2 leading-relaxed">
                     Click directly on any exposed rock facet in the white 3D viewport ({pickedPoints.length}/3 minimum points picked).
                   </div>
                 ) : (
-                  <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded p-2 flex items-center justify-between">
+                  <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded p-2 flex flex-wrap items-center justify-between gap-1">
                     <span>
                       Exact 3D Plane Fitted ({pickedPoints.length} vertices • RMSE {livePlaneFit?.rmseMm} mm)
                     </span>
@@ -2216,7 +2223,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                     {pickedPoints.map((pt, idx) => (
                       <div
                         key={pt.id}
-                        className="flex items-center justify-between text-[11px] font-mono bg-slate-900 px-2 py-1 rounded border border-slate-800"
+                        className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono bg-slate-900 px-2 py-1 rounded border border-slate-800"
                       >
                         <span className="text-sky-400 font-semibold">
                           P{idx + 1} ({pt.panelId.replace('_', ' ')})
@@ -2234,11 +2241,11 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             {extractionMethod === 'TRACE_RELIEF_PROJECTION' && (
               <div className="bg-slate-950/90 p-3 rounded-lg border border-slate-800 space-y-2.5">
                 <div className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
-                  <Activity className="w-4 h-4" />
-                  Project 2D Drawn Trace onto 3D Displaced Relief
+                  <Activity className="w-4 h-4 shrink-0" />
+                  <span>Project 2D Drawn Trace onto 3D Displaced Relief</span>
                 </div>
                 {existingJointTraces.length === 0 ? (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-400 leading-relaxed">
                     No existing 2D joint traces in this round yet. Use Method 1 (3-Pt Facet Click) or Deep AI Reconstruction above.
                   </p>
                 ) : (
@@ -2257,10 +2264,10 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                     <button
                       type="button"
                       onClick={handleProjectSelected2DTrace}
-                      className="w-full py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition"
+                      className="w-full py-2 px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition text-center leading-snug"
                     >
-                      <Sparkles className="w-4 h-4" />
-                      Drape Trace onto 3D Relief &amp; Solve Exact Plane
+                      <Sparkles className="w-4 h-4 shrink-0" />
+                      <span>Drape Trace onto 3D Relief &amp; Solve Exact Plane</span>
                     </button>
                   </>
                 )}
@@ -2269,20 +2276,20 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
 
             {extractionMethod === 'AUTO_FACET_DETECTION' && (
               <div className="bg-slate-950/90 p-3 rounded-lg border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4" />
-                    Automatic 3D Rock Facet Normal Scanner
+                    <Sparkles className="w-4 h-4 shrink-0" />
+                    <span>Automatic 3D Rock Facet Normal Scanner</span>
                   </span>
                   <button
                     type="button"
                     onClick={handleRunAutoFacetDetector}
-                    className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                    className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shrink-0"
                   >
                     Re-Scan 3D Twin
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
                   Analyzes local 3D surface normals across all reconstructed panels and clusters planar rock facets into structural sets.
                 </p>
               </div>
@@ -2291,23 +2298,23 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
 
           {/* SECTION 4: EXACT FITTED 3D DIP DIRECTION, DIP AMOUNT (180° HALF-CIRCLE INWARDS/OUTWARDS) & STRIKE */}
           {activeDisplayedFit && (
-            <div className="p-3.5 border-b border-slate-800 bg-slate-900/90 space-y-3">
-              <div className="flex items-center justify-between">
+            <div className="p-3 sm:p-3.5 bg-slate-900/90 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-                  <Compass className="w-4 h-4" />
-                  Extracted 3D Plane Orientation
+                  <Compass className="w-4 h-4 shrink-0" />
+                  <span>Extracted 3D Plane Orientation</span>
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
                   Planarity {activeDisplayedFit.planarityScore}% • RMSE {activeDisplayedFit.rmseMm}mm
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-[10px] uppercase text-slate-400 font-semibold">
+              <div className="grid grid-cols-3 gap-1.5">
+                <div className="bg-slate-950 p-2 rounded-lg border border-slate-800 text-center min-w-0">
+                  <div className="text-[9.5px] uppercase text-slate-400 font-semibold truncate">
                     Dip Direction
                   </div>
-                  <div className="text-lg font-mono font-extrabold text-sky-400">
+                  <div className="text-base font-mono font-extrabold text-sky-400">
                     {Math.round(activeDisplayedFit.dipDirectionDeg).toString().padStart(3, '0')}°
                   </div>
                   <input
@@ -2321,11 +2328,11 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                   />
                 </div>
 
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-[10px] uppercase text-slate-400 font-semibold">
+                <div className="bg-slate-950 p-2 rounded-lg border border-slate-800 text-center min-w-0">
+                  <div className="text-[9.5px] uppercase text-slate-400 font-semibold truncate">
                     Dip Amount
                   </div>
-                  <div className="text-lg font-mono font-extrabold text-amber-400">
+                  <div className="text-base font-mono font-extrabold text-amber-400">
                     {Math.round(activeDisplayedFit.dipAmountDeg)}°
                   </div>
                   <input
@@ -2339,29 +2346,29 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                   />
                 </div>
 
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center">
-                  <div className="text-[10px] uppercase text-slate-400 font-semibold">
+                <div className="bg-slate-950 p-2 rounded-lg border border-slate-800 text-center min-w-0">
+                  <div className="text-[9.5px] uppercase text-slate-400 font-semibold truncate">
                     Strike (RHR)
                   </div>
-                  <div className="text-lg font-mono font-extrabold text-emerald-400">
+                  <div className="text-base font-mono font-extrabold text-emerald-400">
                     {Math.round(activeDisplayedFit.strikeRhrDeg).toString().padStart(3, '0')}°
                   </div>
-                  <div className="text-[10px] font-mono text-slate-400 mt-1">
+                  <div className="text-[9.5px] font-mono text-slate-400 mt-1 truncate">
                     {activeDisplayedFit.strikePairLabel}
                   </div>
                 </div>
               </div>
 
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-300">
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-semibold text-slate-300 block">
                     180° Half-Circle Dip Sense:
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
                       onClick={() => setDipSenseOverride('inwards')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                      className={`px-2 py-1.5 rounded text-[10.5px] font-bold transition text-center leading-tight ${
                         activeDisplayedFit.dipHalfCircleSense === 'inwards'
                           ? 'bg-sky-600 text-white shadow'
                           : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
@@ -2372,18 +2379,18 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                     <button
                       type="button"
                       onClick={() => setDipSenseOverride('outwards')}
-                      className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                      className={`px-2 py-1.5 rounded text-[10.5px] font-bold transition text-center leading-tight ${
                         activeDisplayedFit.dipHalfCircleSense === 'outwards'
                           ? 'bg-amber-600 text-white shadow'
                           : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                       }`}
                     >
-                      ↘ Dip Outwards (Into Excavation)
+                      ↘ Dip Outwards (Excavation)
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-center">
+                <div className="flex items-center justify-center pt-1">
                   <svg
                     viewBox="0 0 220 115"
                     className="w-52 h-24 cursor-pointer select-none"
@@ -2447,18 +2454,18 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                 <button
                   type="button"
                   onClick={() => handleSaveAsDipSurface(activeDisplayedFit)}
-                  className="py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition"
+                  className="py-2 px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition text-center leading-tight"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  Save as 3D Dip Surface
+                  <PlusCircle className="w-4 h-4 shrink-0" />
+                  <span>Save as 3D Dip Surface</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSaveAsJointTrace(activeDisplayedFit)}
-                  className="py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition"
+                  className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow transition text-center leading-tight"
                 >
-                  <Check className="w-4 h-4" />
-                  Save as Joint Trace
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>Save as Joint Trace</span>
                 </button>
               </div>
 
@@ -2469,10 +2476,10 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                     onApplyToActiveInspector(activeDisplayedFit);
                     onClose();
                   }}
-                  className="w-full py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow transition"
+                  className="w-full py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 shadow transition text-center leading-snug"
                 >
-                  <ArrowLeftRight className="w-4 h-4" />
-                  Apply Exact 3D Facet Orientation to Active 3D Joint Inspector
+                  <ArrowLeftRight className="w-4 h-4 shrink-0" />
+                  <span>Apply Exact 3D Facet Orientation to Active 3D Joint Inspector</span>
                 </button>
               )}
 
@@ -2480,18 +2487,18 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                 <button
                   type="button"
                   onClick={() => onOpenIn3DJointInspector(activeDisplayedFit)}
-                  className="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  className="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition text-center leading-snug"
                 >
-                  <Box className="w-3.5 h-3.5" />
-                  Inspect Full 3D Plane Intersections in 3D Joint Inspector
+                  <Box className="w-3.5 h-3.5 shrink-0" />
+                  <span>Inspect Full 3D Plane Intersections in 3D Joint Inspector</span>
                 </button>
               )}
             </div>
           )}
 
           {/* SECTION 5: EXTRACTED 3D PLANES & FACETS LIST */}
-          <div className="p-3.5 flex-1 space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="p-3 sm:p-3.5 space-y-2 bg-slate-900/95">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Extracted 3D Facets &amp; Planes ({extractedPlanes.length})
               </span>
@@ -2508,7 +2515,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                       `Synced all ${extractedPlanes.length} extracted 3D Dip Surfaces to Round Canvas`
                     );
                   }}
-                  className="text-[11px] font-bold text-sky-400 hover:text-sky-300"
+                  className="text-[11px] font-bold text-sky-400 hover:text-sky-300 shrink-0"
                 >
                   Sync All to Canvas →
                 </button>
@@ -2516,7 +2523,7 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
             </div>
 
             {extractedPlanes.length === 0 ? (
-              <div className="text-xs text-slate-500 bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center">
+              <div className="text-xs text-slate-500 bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center leading-relaxed">
                 Upload your portion photos and click &ldquo;Build &amp; Render 3D Digital Twin&rdquo; to automatically extract 3D dip planes or pick 3+ points on any rock facet.
               </div>
             ) : (
@@ -2530,30 +2537,30 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
                         setPickedPoints([]);
                         setSelectedPlaneId(plane.id);
                       }}
-                      className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center justify-between ${
+                      className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center justify-between gap-2 ${
                         isSel
                           ? 'bg-sky-500/15 border-sky-400'
                           : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      <div>
-                        <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span
-                            className="w-2.5 h-2.5 rounded-full"
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
                             style={{ backgroundColor: JOINT_SET_COLORS[plane.setId] || '#0284c7' }}
                           />
-                          <span className="text-xs font-bold text-white">{plane.label}</span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                          <span className="text-xs font-bold text-white truncate">{plane.label}</span>
+                          <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0">
                             {plane.dipHalfCircleSense.toUpperCase()}
                           </span>
                         </div>
-                        <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                        <div className="text-[10.5px] font-mono text-slate-400 mt-0.5 break-words">
                           Dip Dir {Math.round(plane.dipDirectionDeg).toString().padStart(3, '0')}° • Dip{' '}
                           {Math.round(plane.dipAmountDeg)}° • Strike{' '}
                           {Math.round(plane.strikeRhrDeg).toString().padStart(3, '0')}° • Area {plane.areaSqM}m²
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -2571,321 +2578,328 @@ export const DigitalTwinPhotogrammetryModal: React.FC<DigitalTwinPhotogrammetryM
               </div>
             )}
           </div>
-          </>
+          </div>
           )}
         </div>
         )}
 
         {/* RIGHT 3D DIGITAL TWIN WEBGL VIEWPORT (PURE WHITE #FFFFFF ENGINEERING CANVAS) */}
-        <div className="flex-1 min-h-[220px] relative bg-white flex flex-col overflow-hidden">
-          {/* Top-Left Camera Preset & Full-Screen 3D Toggle Overlay (Compact Single-Row Scrollable on Android) */}
-          <div className="absolute top-2 left-2 right-2 lg:right-auto z-10 flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar whitespace-nowrap bg-white/95 p-1 sm:p-1.5 rounded-lg border border-slate-300 shadow-md max-w-full">
-            <button
-              type="button"
-              onClick={() => setIsFullScreen3D((v) => !v)}
-              className={`px-2 py-1 rounded text-[11px] sm:text-xs font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition ${
-                isFullScreen3D
-                  ? 'bg-emerald-600 border-emerald-700 text-white shadow'
-                  : 'bg-slate-900 hover:bg-slate-800 border-slate-900 text-amber-300'
-              }`}
-              title="Toggle Full-Screen 3D Viewport (Hides Controls & Header)"
-            >
-              {isFullScreen3D ? (
-                <>
-                  <Minimize2 className="w-3.5 h-3.5" />
-                  <span>Exit Full 3D</span>
-                </>
-              ) : (
-                <>
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>Full 3D</span>
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => focusCameraOnPanel('overview')}
-              className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[11px] sm:text-xs font-bold text-slate-800 border border-slate-300 flex items-center gap-1 shrink-0"
-            >
-              <Box className="w-3.5 h-3.5 text-sky-600" />
-              <span>Overview</span>
-            </button>
-            {availablePanels.map((p) => (
+        <div className="flex-1 min-h-[240px] relative bg-white flex flex-col overflow-hidden">
+          {/* Dedicated Non-Overlapping Top Viewport Bar for Camera Presets & Active Measurement HUD */}
+          <div className="px-2.5 py-1.5 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <button
-                key={p.id}
                 type="button"
-                onClick={() => {
-                  setSelectedPanel(p.id);
-                  focusCameraOnPanel(p.id);
-                }}
-                className={`px-2 py-1 rounded text-[11px] sm:text-xs font-bold border transition shrink-0 ${
-                  selectedPanel === p.id
-                    ? 'bg-sky-600 border-sky-700 text-white shadow-sm'
-                    : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                onClick={() => setIsFullScreen3D((v) => !v)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold border flex items-center gap-1 shrink-0 cursor-pointer transition ${
+                  isFullScreen3D
+                    ? 'bg-emerald-600 border-emerald-500 text-white shadow'
+                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300'
                 }`}
+                title="Toggle Full-Screen 3D Viewport (Hides Controls & Header)"
               >
-                <Eye className="w-3 h-3 inline mr-1" />
-                {p.shortLabel}
+                {isFullScreen3D ? (
+                  <>
+                    <Minimize2 className="w-3.5 h-3.5" />
+                    <span>Exit Full 3D</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>Full 3D</span>
+                  </>
+                )}
               </button>
-            ))}
-            {hasBuilt3DTwin && (
               <button
                 type="button"
-                onClick={() => setShowCoverageBlueprintModal((v) => !v)}
-                className="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 text-[11px] sm:text-xs font-bold flex items-center gap-1 shrink-0"
+                onClick={() => focusCameraOnPanel('overview')}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] sm:text-xs font-bold text-slate-200 border border-slate-700 flex items-center gap-1 shrink-0 cursor-pointer"
               >
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                <span>{showCoverageBlueprintModal ? 'Hide Overlap' : 'Overlap Info'}</span>
+                <Box className="w-3.5 h-3.5 text-sky-400" />
+                <span>Overview</span>
               </button>
-            )}
-          </div>
-
-          {/* Top-Right Active Measurement HUD (Positioned below presets on narrow mobile so they never overlap) */}
-          <div className="absolute top-12 lg:top-2 right-2 z-10 bg-white/95 px-2.5 py-1.5 rounded-lg border border-slate-300 shadow-md text-right max-w-[94vw] sm:max-w-md pointer-events-none">
-            <div className="hidden sm:block text-[10px] font-mono uppercase text-slate-600 font-bold">
-              Drive Azimuth: {(geometry.driveAzimuthDeg || 0).toString().padStart(3, '0')}° • Exact Profile Silhouette • White 3D Canvas
+              {availablePanels.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPanel(p.id);
+                    focusCameraOnPanel(p.id);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold border transition shrink-0 cursor-pointer flex items-center gap-1 ${
+                    selectedPanel === p.id
+                      ? 'bg-sky-600 border-sky-400 text-white shadow-sm'
+                      : 'bg-slate-800/80 hover:bg-slate-700 border-slate-700 text-slate-300'
+                  }`}
+                >
+                  <Eye className="w-3 h-3 shrink-0" />
+                  <span>{p.shortLabel}</span>
+                </button>
+              ))}
+              {hasBuilt3DTwin && (
+                <button
+                  type="button"
+                  onClick={() => setShowCoverageBlueprintModal((v) => !v)}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-[11px] sm:text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{showCoverageBlueprintModal ? 'Hide Overlap' : 'Overlap Info'}</span>
+                </button>
+              )}
             </div>
-            {activeDisplayedFit ? (
-              <div className="text-[11px] sm:text-xs font-mono font-extrabold text-sky-700">
-                Dip Dir {Math.round(activeDisplayedFit.dipDirectionDeg).toString().padStart(3, '0')}° / Dip{' '}
-                {Math.round(activeDisplayedFit.dipAmountDeg)}° ({activeDisplayedFit.dipHalfCircleSense.toUpperCase()}) • RHR Strike{' '}
-                {Math.round(activeDisplayedFit.strikeRhrDeg).toString().padStart(3, '0')}°
+
+            {/* Active Measurement HUD Badge (Right-aligned inside toolbar, never overlaps 3D canvas or cards) */}
+            <div className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-right max-w-full">
+              <div className="hidden xl:block text-[9.5px] font-mono uppercase text-slate-400 font-semibold">
+                Drive Azimuth: {(geometry.driveAzimuthDeg || 0).toString().padStart(3, '0')}° • Exact Profile Silhouette
               </div>
-            ) : (
-              <div className="text-[10.5px] sm:text-xs font-mono font-semibold text-amber-700 truncate">
-                {hasBuilt3DTwin
-                  ? 'Tap 3+ points on 3D rock surface to fit exact Dip Plane'
-                  : 'Stage photos, then tap Build & Render 3D Digital Twin'}
-              </div>
-            )}
+              {activeDisplayedFit ? (
+                <div className="text-[11px] sm:text-xs font-mono font-extrabold text-sky-300">
+                  Dip Dir {Math.round(activeDisplayedFit.dipDirectionDeg).toString().padStart(3, '0')}° / Dip{' '}
+                  {Math.round(activeDisplayedFit.dipAmountDeg)}° ({activeDisplayedFit.dipHalfCircleSense.toUpperCase()}) • RHR Strike{' '}
+                  {Math.round(activeDisplayedFit.strikeRhrDeg).toString().padStart(3, '0')}°
+                </div>
+              ) : (
+                <div className="text-[10.5px] sm:text-xs font-mono font-semibold text-amber-300 truncate">
+                  {hasBuilt3DTwin
+                    ? 'Tap 3+ points on 3D rock surface to fit exact Dip Plane'
+                    : 'Stage photos below or on left, then tap Build & Render 3D Digital Twin'}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* PRE-BUILD TUNNEL SHAPE, PORTION COVERAGE & CROSS-PORTION OVERLAP BLUEPRINT OVERLAY */}
-          {(!hasBuilt3DTwin || showCoverageBlueprintModal) && !deepPipelineProgress?.active && (
-            <div className="absolute inset-0 z-15 bg-white/94 backdrop-blur-sm flex items-center justify-center p-6 overflow-y-auto">
-              <div className="max-w-3xl w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl text-slate-100 space-y-5">
-                <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-extrabold text-[10px] uppercase">
-                        BETA • DEFERRED 3D RENDERING
-                      </span>
-                      <span className="text-xs font-mono text-sky-400 font-bold">
-                        {geometry.widthM}m W × {geometry.heightM}m H × Pull {geometry.pullLengthM}m (
-                        {(geometry.tunnelShape || 'd_shaped').replace('_', ' ').toUpperCase()})
-                      </span>
+          {/* Inner Relative Container for 3D Canvas & Overlays */}
+          <div className="flex-1 min-h-0 relative w-full overflow-hidden">
+            {/* PRE-BUILD TUNNEL SHAPE, PORTION COVERAGE & CROSS-PORTION OVERLAP BLUEPRINT OVERLAY */}
+            {(!hasBuilt3DTwin || showCoverageBlueprintModal) && !deepPipelineProgress?.active && (
+              <div className="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm flex items-start justify-center p-3 sm:p-5 overflow-y-auto">
+                <div className="max-w-3xl w-full my-auto bg-slate-900 border border-slate-700 rounded-2xl p-4 sm:p-6 shadow-2xl text-slate-100 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-extrabold text-[10px] uppercase shrink-0">
+                          BETA • DEFERRED 3D RENDERING
+                        </span>
+                        <span className="text-xs font-mono text-sky-400 font-bold">
+                          {geometry.widthM}m W × {geometry.heightM}m H × Pull {geometry.pullLengthM}m (
+                          {(geometry.tunnelShape || 'd_shaped').replace('_', ' ').toUpperCase()})
+                        </span>
+                      </div>
+                      <h3 className="text-sm sm:text-base font-extrabold text-white mt-1.5">
+                        Cross-Portion Overlap &amp; Missing-Coverage AI Photogrammetry Engine
+                      </h3>
+                      <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                        3D rendering is held until you finish staging your Primary and Supporting tunnel photos. Our AI engine understands that real underground photos overlap: wide-angle <strong>Face</strong> photos include extra wall/crown rim, and <strong>Left/Right Wall</strong> photos include the upper <strong>Crown</strong> arch haunches—automatically cross-filling any missing Crown or Shoulder areas.
+                      </p>
                     </div>
-                    <h3 className="text-base font-extrabold text-white mt-1">
-                      Cross-Portion Overlap &amp; Missing-Coverage AI Photogrammetry Engine
-                    </h3>
-                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                      3D rendering is held until you finish staging your Primary and Supporting tunnel photos. Our AI engine understands that real underground photos overlap: wide-angle <strong>Face</strong> photos include extra wall/crown rim, and <strong>Left/Right Wall</strong> photos include the upper <strong>Crown</strong> arch haunches—automatically cross-filling any missing Crown or Shoulder areas.
-                    </p>
+                    {hasBuilt3DTwin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCoverageBlueprintModal(false)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 shrink-0 cursor-pointer"
+                      >
+                        Return to 3D View
+                      </button>
+                    )}
                   </div>
-                  {hasBuilt3DTwin && (
+
+                  {/* 4 Portion Readiness Cards (1 col on compact/medium panes, 2 cols on wide panes) */}
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    {portionCoverageReadiness.map((rep) => (
+                      <div
+                        key={rep.panelId}
+                        className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-2.5"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold text-white">{rep.label}</span>
+                            <span
+                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded shrink-0 ${
+                                rep.status === 'COMPLETE_DIRECT'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : rep.status === 'CROSS_RECOVERED' || rep.status === 'DONOR_ONLY'
+                                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              }`}
+                            >
+                              {rep.primaryPhotoCount} Primary • {rep.supportingPhotoCount} Support
+                            </span>
+                          </div>
+
+                          {/* Coverage Bar (Direct Emerald + Donor Sky + Blind Spot Slate) */}
+                          <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden flex">
+                            <div
+                              className="h-full bg-emerald-500 transition-all"
+                              style={{ width: `${rep.directCoveragePct}%` }}
+                              title={`Direct Photo Coverage: ${rep.directCoveragePct}%`}
+                            />
+                            <div
+                              className="h-full bg-sky-400 transition-all"
+                              style={{ width: `${rep.crossFilledDonorPct}%` }}
+                              title={`Cross-Filled from Adjacent Portions: ${rep.crossFilledDonorPct}%`}
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] font-mono text-slate-400">
+                            <span className="text-emerald-400">Direct: {rep.directCoveragePct}%</span>
+                            <span className="text-sky-400">
+                              Cross-Filled Overlap: +{rep.crossFilledDonorPct}%
+                            </span>
+                            <span className={rep.blindSpotPct > 15 ? 'text-amber-400' : 'text-slate-500'}>
+                              Blind Spot: {rep.blindSpotPct}%
+                            </span>
+                          </div>
+
+                          {rep.donorSources.length > 0 ? (
+                            <div className="text-[10px] text-sky-300 bg-sky-950/50 px-2.5 py-1.5 rounded-lg border border-sky-500/20 leading-snug">
+                              ✓ {rep.donorSources.join(' • ')}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 leading-snug">
+                              Upload Primary or Supporting photos for this portion or adjacent walls/face.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          <label className="cursor-pointer py-2 px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition text-center">
+                            <Upload className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">
+                              {rep.primaryPhotoCount > 0 ? 'Replace Primary' : '+ Upload Primary'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                handleUploadPortionPhotos(rep.panelId, 'primary', e.target.files);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          <label className="cursor-pointer py-2 px-2.5 rounded-lg bg-purple-600/25 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 text-[11px] font-bold flex items-center justify-center gap-1.5 transition text-center">
+                            <PlusCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">+ Supporting Photos</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                handleUploadPortionPhotos(rep.panelId, 'supporting', e.target.files);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Build Action Footer */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                    <div className="text-xs text-slate-300">
+                      <span className="font-bold text-white">{localRawPhotos.length} total photo(s)</span>{' '}
+                      staged across portions. Ready for 6-stage cross-portion AI overlap synthesis.
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setShowCoverageBlueprintModal(false)}
-                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300"
+                      disabled={isReconstructing || localRawPhotos.length === 0}
+                      onClick={() => handleRunDeepReconstruction()}
+                      className="px-5 py-3 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 hover:from-sky-400 hover:to-emerald-400 disabled:opacity-40 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-xl cursor-pointer transition shrink-0"
                     >
-                      Return to 3D View
+                      <Cpu className="w-4 h-4 shrink-0" />
+                      <span>
+                        Build &amp; Render 3D Digital Twin ({localRawPhotos.length} Photos)
+                      </span>
                     </button>
-                  )}
+                  </div>
                 </div>
+              </div>
+            )}
 
-                {/* 4 Portion Readiness Cards */}
-                <div className="grid grid-cols-2 gap-3">
-                  {portionCoverageReadiness.map((rep) => (
+            {/* 6-Stage Deep Cross-Portion AI + SfM Reconstruction Progress Overlay */}
+            {deepPipelineProgress?.active && (
+              <div className="absolute inset-0 z-30 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6">
+                <div className="max-w-xl w-full bg-slate-900 border border-sky-500/40 rounded-2xl p-5 sm:p-6 shadow-2xl text-slate-100 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 animate-spin shrink-0">
+                        <RefreshCw className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-mono uppercase text-sky-400 font-bold truncate">
+                          Cross-Portion AI Photogrammetry Engine (BETA)
+                        </div>
+                        <h3 className="text-sm font-extrabold text-white truncate">
+                          {deepPipelineProgress.stageTitle}
+                        </h3>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 font-mono text-xs font-bold shrink-0">
+                      {Math.round(
+                        (deepPipelineProgress.stageNumber / deepPipelineProgress.totalStages) * 100
+                      )}
+                      %
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {deepPipelineProgress.detailText}
+                  </p>
+
+                  <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
                     <div
-                      key={rep.panelId}
-                      className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-white">{rep.label}</span>
-                        <span
-                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                            rep.status === 'COMPLETE_DIRECT'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : rep.status === 'CROSS_RECOVERED' || rep.status === 'DONOR_ONLY'
-                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      className="h-full bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 transition-all duration-300"
+                      style={{
+                        width: `${
+                          (deepPipelineProgress.stageNumber / deepPipelineProgress.totalStages) * 100
+                        }%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
+                    {[
+                      '1. EXIF Pool',
+                      '2. Spillover AI',
+                      '3. Tie-Points',
+                      '4. Cross-Fill',
+                      '5. MVS Relief',
+                      '6. 3D Facets',
+                    ].map((lbl, i) => {
+                      const done = deepPipelineProgress.stageNumber > i + 1;
+                      const active = deepPipelineProgress.stageNumber === i + 1;
+                      return (
+                        <div
+                          key={lbl}
+                          className={`px-1.5 py-1 rounded text-[9px] font-mono text-center border truncate ${
+                            done
+                              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold'
+                              : active
+                              ? 'bg-sky-500/25 border-sky-400 text-white font-bold animate-pulse'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
                           }`}
                         >
-                          {rep.primaryPhotoCount} Primary • {rep.supportingPhotoCount} Support
-                        </span>
-                      </div>
-
-                      {/* Coverage Bar (Direct Emerald + Donor Sky + Blind Spot Slate) */}
-                      <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden flex">
-                        <div
-                          className="h-full bg-emerald-500 transition-all"
-                          style={{ width: `${rep.directCoveragePct}%` }}
-                          title={`Direct Photo Coverage: ${rep.directCoveragePct}%`}
-                        />
-                        <div
-                          className="h-full bg-sky-400 transition-all"
-                          style={{ width: `${rep.crossFilledDonorPct}%` }}
-                          title={`Cross-Filled from Adjacent Portions: ${rep.crossFilledDonorPct}%`}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                        <span className="text-emerald-400">Direct: {rep.directCoveragePct}%</span>
-                        <span className="text-sky-400">
-                          Cross-Filled Overlap: +{rep.crossFilledDonorPct}%
-                        </span>
-                        <span className={rep.blindSpotPct > 15 ? 'text-amber-400' : 'text-slate-500'}>
-                          Blind Spot: {rep.blindSpotPct}%
-                        </span>
-                      </div>
-
-                      {rep.donorSources.length > 0 ? (
-                        <div className="text-[10px] text-sky-300 bg-sky-950/50 px-2 py-1 rounded border border-sky-500/20">
-                          ✓ {rep.donorSources.join(' • ')}
+                          {lbl}
                         </div>
-                      ) : (
-                        <div className="text-[10px] text-slate-400">
-                          Upload Primary or Supporting photos for this portion or adjacent walls/face.
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-1.5 pt-1">
-                        <label className="flex-1 cursor-pointer py-1.5 px-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 transition">
-                          <Upload className="w-3 h-3" />
-                          <span>
-                            {rep.primaryPhotoCount > 0 ? 'Replace Primary' : '+ Upload Primary'}
-                          </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              handleUploadPortionPhotos(rep.panelId, 'primary', e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-                        <label className="flex-1 cursor-pointer py-1.5 px-2 rounded-lg bg-purple-600/25 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 text-[11px] font-bold flex items-center justify-center gap-1 transition">
-                          <PlusCircle className="w-3 h-3" />
-                          <span>+ Supporting Photos</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              handleUploadPortionPhotos(rep.panelId, 'supporting', e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Build Action Footer */}
-                <div className="flex items-center justify-between gap-4 pt-2 border-t border-slate-800">
-                  <div className="text-xs text-slate-300">
-                    <span className="font-bold text-white">{localRawPhotos.length} total photo(s)</span>{' '}
-                    staged across portions. Ready for 6-stage cross-portion AI overlap synthesis.
+                      );
+                    })}
                   </div>
-                  <button
-                    type="button"
-                    disabled={isReconstructing || localRawPhotos.length === 0}
-                    onClick={() => handleRunDeepReconstruction()}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 hover:from-sky-400 hover:to-emerald-400 disabled:opacity-40 text-white text-xs font-extrabold flex items-center gap-2 shadow-xl cursor-pointer transition"
-                  >
-                    <Cpu className="w-4 h-4" />
-                    <span>
-                      Build &amp; Render 3D Digital Twin ({localRawPhotos.length} Photos • Take Full AI Time)
-                    </span>
-                  </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* 6-Stage Deep Cross-Portion AI + SfM Reconstruction Progress Overlay */}
-          {deepPipelineProgress?.active && (
-            <div className="absolute inset-0 z-20 bg-white/90 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="max-w-xl w-full bg-slate-900 border border-sky-500/40 rounded-2xl p-6 shadow-2xl text-slate-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 animate-spin">
-                      <RefreshCw className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-mono uppercase text-sky-400 font-bold">
-                        Cross-Portion AI Photogrammetry Engine (BETA)
-                      </div>
-                      <h3 className="text-sm font-extrabold text-white">
-                        {deepPipelineProgress.stageTitle}
-                      </h3>
-                    </div>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 font-mono text-xs font-bold">
-                    {Math.round(
-                      (deepPipelineProgress.stageNumber / deepPipelineProgress.totalStages) * 100
-                    )}
-                    %
-                  </span>
-                </div>
-
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {deepPipelineProgress.detailText}
-                </p>
-
-                <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 transition-all duration-300"
-                    style={{
-                      width: `${
-                        (deepPipelineProgress.stageNumber / deepPipelineProgress.totalStages) * 100
-                      }%`,
-                    }}
-                  />
-                </div>
-
-                <div className="grid grid-cols-6 gap-1 pt-1">
-                  {[
-                    '1. EXIF Pool',
-                    '2. Spillover AI',
-                    '3. Tie-Points',
-                    '4. Cross-Fill',
-                    '5. MVS Relief',
-                    '6. 3D Facets',
-                  ].map((lbl, i) => {
-                    const done = deepPipelineProgress.stageNumber > i + 1;
-                    const active = deepPipelineProgress.stageNumber === i + 1;
-                    return (
-                      <div
-                        key={lbl}
-                        className={`px-1.5 py-1 rounded text-[9px] font-mono text-center border ${
-                          done
-                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold'
-                            : active
-                            ? 'bg-sky-500/25 border-sky-400 text-white font-bold animate-pulse'
-                            : 'bg-slate-950 border-slate-800 text-slate-500'
-                        }`}
-                      >
-                        {lbl}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Three.js Canvas Mount (Pure White #FFFFFF WebGL Background) */}
-          <div
-            ref={mountRef}
-            onPointerDown={handleViewportPointerDown}
-            onPointerMove={handleViewportPointerMove}
-            onPointerUp={handleViewportPointerUp}
-            className="w-full h-full cursor-crosshair bg-white"
-          />
+            {/* Three.js Canvas Mount (Pure White #FFFFFF WebGL Background) */}
+            <div
+              ref={mountRef}
+              onPointerDown={handleViewportPointerDown}
+              onPointerMove={handleViewportPointerMove}
+              onPointerUp={handleViewportPointerUp}
+              className="w-full h-full cursor-crosshair bg-white"
+            />
+          </div>
 
           {/* Bottom Legend Bar (Single-row scrollable on Android) */}
           <div className="h-8 sm:h-9 px-2.5 sm:px-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-3 text-[10px] sm:text-[11px] text-slate-400 shrink-0 overflow-x-auto no-scrollbar whitespace-nowrap">
