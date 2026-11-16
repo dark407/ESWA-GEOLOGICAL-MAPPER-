@@ -133,6 +133,7 @@ import {
 } from './engine/softwareLicensingEngine';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspace';
+import { DigitalTwinTunnelBetaWorkspace } from './components/DigitalTwinTunnelBetaWorkspace';
 import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
 import { DeviceIdAndNotificationHeaderWidget } from './components/DeviceIdReviewAndNotificationCenter';
 import { GlobalSettingsModal } from './components/GlobalSettingsModal';
@@ -337,6 +338,8 @@ export default function App({
   const [isBootLoading, setIsBootLoading] = useState<boolean>(true);
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(() => Boolean(initialDraft));
   const [isFieldMappingModeOpen, setIsFieldMappingModeOpen] = useState<boolean>(false);
+  const [isDigitalTwinBetaOpen, setIsDigitalTwinBetaOpen] = useState<boolean>(false);
+  const [resumeDigitalTwinBeta, setResumeDigitalTwinBeta] = useState<boolean>(false);
   const [isCoreLoggingOpen, setIsCoreLoggingOpen] = useState<boolean>(false);
   const [resumeFieldAtLastStage, setResumeFieldAtLastStage] = useState<boolean>(false);
   const [activeFieldWorkflowMode, setActiveFieldWorkflowMode] = useState<
@@ -3923,13 +3926,15 @@ export default function App({
   );
 
   const userFeedbackModalNode = (
-    <UserFeedbackModal
-      isOpen={isUserFeedbackModalOpen}
-      onClose={() => setIsUserFeedbackModalOpen(false)}
-      defaultUserName={activeGeologist?.name || googleUser?.displayName || 'Field Geologist'}
-      defaultUserEmail={activeGeologist?.email || googleUser?.email || ''}
-      industryMode={industryMode}
-    />
+    <>
+      <UserFeedbackModal
+        isOpen={isUserFeedbackModalOpen}
+        onClose={() => setIsUserFeedbackModalOpen(false)}
+        defaultUserName={activeGeologist?.name || googleUser?.displayName || 'Field Geologist'}
+        defaultUserEmail={activeGeologist?.email || googleUser?.email || ''}
+        industryMode={industryMode}
+      />
+    </>
   );
 
   const projectConfigModalNode = (
@@ -4205,6 +4210,24 @@ export default function App({
   }
 
   // ============================================================================
+  // STANDALONE 3D DIGITAL TWIN TUNNEL (BETA) — 20-PHOTO REAL-EDGE RECONSTRUCTION
+  // ============================================================================
+  if (isDigitalTwinBetaOpen) {
+    return (
+      <DigitalTwinTunnelBetaWorkspace
+        resumeAtLastStep={resumeDigitalTwinBeta}
+        onBackToMainMenu={() => {
+          setIsDigitalTwinBetaOpen(false);
+          setResumeDigitalTwinBeta(false);
+          if (industryMode === 'NATM') {
+            setScreen('welcome');
+          }
+        }}
+      />
+    );
+  }
+
+  // ============================================================================
   // SCREEN 0: OFFICIAL ESWA WELCOME WINDOW (Civil/NATM Drill & Blast)
   // Strictly renders ONLY when industryMode === 'NATM'
   // ============================================================================
@@ -4251,6 +4274,10 @@ export default function App({
         onOpenTunnelMonitoring={() => setIsTunnelMonitoringOpen(true)}
         onOpenProbeHoleDrilling={() => setIsProbeHoleDrillingOpen(true)}
         onOpenGrouting={() => setIsGroutingModalOpen(true)}
+        onOpenDigitalTwinTunnelBeta={(resume = false) => {
+          setResumeDigitalTwinBeta(resume);
+          setIsDigitalTwinBetaOpen(true);
+        }}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
         tunnelMonitoringModalNode={tunnelMonitoringModalNode}

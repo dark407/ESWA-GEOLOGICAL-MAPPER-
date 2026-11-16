@@ -1,6 +1,0 @@
-{
-  "summary":  "Implementation plan for decoupling the two update channels: (1) Master Application-only Live User In-App Broadcasts with 1-click OTA update and persistent Later/Use Current Version dismissal, and (2) Silent Continuous Google Drive Installer (.APK & .EXE) updates for new users without triggering popups on existing live users.",
-  "updatedAt":  "2026-11-11T02:06:56.214978938Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

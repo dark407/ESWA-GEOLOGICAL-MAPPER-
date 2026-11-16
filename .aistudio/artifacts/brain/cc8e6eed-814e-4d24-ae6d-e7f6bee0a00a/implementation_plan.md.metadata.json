@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan for restoring strict 3D Joint Inspection trace-hinge rotation rules (with pre-change warning modals for Face Dip Amount and Crown/Surface Strike Direction), adding a Main Screen Update Notification Toggle with 1-click automatic software update, and automating in-place Google Drive file overwrites via both GitHub Actions and the Master Admin Portal so shared LinkedIn and website links never change.",
-  "updatedAt": "2026-11-04T21:26:18.064204261Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
+  BookOpen,
   BookmarkCheck,
   Box,
   Camera,
@@ -48,7 +49,6 @@ import { MiningStopeFaceInspectorModal } from './MiningStopeFaceInspectorModal';
 import { TbmShieldInspectorModal } from './TbmShieldInspectorModal';
 import { ReportHeaderLogoBox } from './UniversalLogoAndSignatureAdjuster';
 import { NatmJoint3DInspectorModal } from './NatmJoint3DInspectorModal';
-import { DigitalTwinPhotogrammetryModal } from './DigitalTwinPhotogrammetryModal';
 import { EswaRockMappySuperStudioPanel } from './EswaRockMappySuperStudioPanel';
 import { TunnelMonitoringModal } from './TunnelMonitoringModal';
 import {
@@ -300,6 +300,12 @@ interface FieldMappingModeWorkspaceProps {
   onChangeMappingDomain?: (domain: MappingDomainType) => void;
   industryMode?: IndustryMode;
   onChangeIndustryMode?: (mode: IndustryMode) => void;
+  embeddedInDigitalTwin3DTo2D?: {
+    syncVersion: number;
+    targetViewMode: '2d_canvas' | '3d_flat_tunnel' | 'strip_log';
+    onBackTo3DTwin: () => void;
+    onResyncFrom3DTwin: () => void;
+  };
 }
 
 export type FieldWorkflowStage =
@@ -370,6 +376,7 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   onChangeMappingDomain,
   industryMode: propIndustryMode,
   onChangeIndustryMode,
+  embeddedInDigitalTwin3DTo2D,
 }) => {
   const [currentIndustryMode, setCurrentIndustryMode] = useState<IndustryMode>(() => {
     if (propIndustryMode) return propIndustryMode;
@@ -682,18 +689,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
   const formatDomainProjName = formatProjectNameForDomain;
   const formatDomainLocName = formatLocationNameForDomain;
 
-  // Ensure Field Mapping never lands on 'photo_fit' or 'digital_twin_3d'
+  // Ensure Underground Mapping never lands on 'digital_twin_3d' (now a standalone module in NATM Main Window)
   useEffect(() => {
-    if (workflowMode === 'field_mapping' && (stage === 'photo_fit' || stage === 'digital_twin_3d')) {
+    if (stage === 'digital_twin_3d' || (workflowMode === 'field_mapping' && stage === 'photo_fit')) {
       setStage('field_canvas');
     }
   }, [workflowMode, stage]);
 
-  // In surface mapping no need for 3D Digital Twin Tunnel, FEM, DEM, or Advance Analysis
+  // In surface mapping no need for FEM, DEM, or Advance Analysis
   useEffect(() => {
     if (
       mappingDomain !== 'TUNNEL' &&
-      (stage === 'digital_twin_3d' || stage === 'fem_dem_analysis' || stage === 'advance_analysis')
+      (stage === 'fem_dem_analysis' || stage === 'advance_analysis')
     ) {
       setStage('field_canvas');
     }
@@ -1535,6 +1542,31 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
       setIs3DMappingMode(false);
     }
   }, [mappingDomain, is3DMappingMode]);
+
+  // Synchronize store and view mode when embedded inside 3D Digital Twin Tunnel Step 5 (3D-to-2D Window)
+  useEffect(() => {
+    if (!embeddedInDigitalTwin3DTo2D) return;
+    const syncedStore = loadFieldMappingStore('TUNNEL', 'tunnel');
+    setStore(syncedStore);
+    latestStoreRef.current = syncedStore;
+  }, [embeddedInDigitalTwin3DTo2D?.syncVersion]);
+
+  useEffect(() => {
+    if (!embeddedInDigitalTwin3DTo2D) return;
+    if (embeddedInDigitalTwin3DTo2D.targetViewMode === '2d_canvas') {
+      setStage('field_canvas');
+      setIs3DMappingMode(false);
+    } else if (embeddedInDigitalTwin3DTo2D.targetViewMode === '3d_flat_tunnel') {
+      setStage('field_canvas');
+      setIs3DMappingMode(true);
+    } else if (embeddedInDigitalTwin3DTo2D.targetViewMode === 'strip_log') {
+      setStage('strip_align');
+      setIs3DMappingMode(false);
+    }
+  }, [
+    embeddedInDigitalTwin3DTo2D?.targetViewMode,
+    embeddedInDigitalTwin3DTo2D?.syncVersion,
+  ]);
 
   // Automatically persist where the user is working (debounced so it never blocks drawing)
   useEffect(() => {
@@ -6259,15 +6291,18 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
 
   return (
     <div
-      className={`relative h-dvh w-full max-w-full min-h-0 overflow-hidden flex flex-col select-none ${
+      className={`relative ${
+        embeddedInDigitalTwin3DTo2D ? 'h-full flex-1' : 'h-dvh'
+      } w-full max-w-full min-h-0 overflow-hidden flex flex-col select-none ${
         isReportStage ? 'bg-white text-slate-900' : 'bg-transparent text-slate-100'
       }`}
     >
       {/* Subtle Background ESWA Official Logo Watermark & Geological Orange Map (No Logo Watermark on Canvas Areas or Reports) */}
       <EswaAppBackgroundWatermark
-        visible={!isReportStage}
+        visible={!isReportStage && !embeddedInDigitalTwin3DTo2D}
         showLogoWatermark={
           !isReportStage &&
+          !embeddedInDigitalTwin3DTo2D &&
           stage !== 'field_canvas' &&
           stage !== 'joint_grouping' &&
           stage !== 'photo_fit' &&
@@ -6281,19 +6316,57 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
         data-window="field-top-header"
         className="relative z-20 eswa-landscape-compact-header min-h-9 sm:min-h-10 h-10 sm:h-11 px-1.5 sm:px-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 overflow-x-auto no-scrollbar mouse-scrollable touch-pan-x safe-area-inset-box"
       >
-        <div className="flex items-center gap-1.5 shrink-0">
-          <EswaTunnelLogo size="xs" variant="emblem" />
+        <div className="flex items-center gap-1.5 shrink-0" style={{ minWidth: 'max-content' }}>
+          {!embeddedInDigitalTwin3DTo2D && (
+            <EswaTunnelLogo size="xs" variant="emblem" />
+          )}
           <button
             type="button"
             onClick={() => {
-              if (onBackToWelcome) onBackToWelcome();
-              else if (onExitToWelcome) onExitToWelcome();
+              if (embeddedInDigitalTwin3DTo2D) {
+                embeddedInDigitalTwin3DTo2D.onBackTo3DTwin();
+              } else if (onBackToWelcome) {
+                onBackToWelcome();
+              } else if (onExitToWelcome) {
+                onExitToWelcome();
+              }
             }}
-            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer shrink-0"
+            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer shrink-0 whitespace-nowrap"
           >
-            <ArrowLeft className="w-3.5 h-3.5 text-orange-500" />
-            <span>Menu</span>
+            <ArrowLeft className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+            <span>{embeddedInDigitalTwin3DTo2D ? '3D Twin' : 'Menu'}</span>
           </button>
+
+          {embeddedInDigitalTwin3DTo2D && (
+            <>
+              <button
+                type="button"
+                onClick={() => embeddedInDigitalTwin3DTo2D.onResyncFrom3DTwin()}
+                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] flex items-center gap-1 border border-emerald-400/50 cursor-pointer shrink-0 whitespace-nowrap"
+                title="Re-unfold and sync latest 3D Joints, Dip Surfaces, and Shape from the 3D Digital Twin Tunnel into this 2D Canvas"
+              >
+                <Sparkles className="w-3 h-3 shrink-0" />
+                <span>Re-Sync 3D→2D</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStage('field_canvas');
+                  setIs3DMappingMode((prev) => !prev);
+                }}
+                className={`px-2 py-1 rounded-lg font-bold text-[10.5px] flex items-center gap-1 border cursor-pointer shrink-0 whitespace-nowrap ${
+                  stage === 'field_canvas' && is3DMappingMode
+                    ? 'bg-sky-600 text-white border-sky-400 font-black'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+                title="Toggle between 2D Wall/Crown/Face Canvas and Smooth 3D Flat Tunnel Shape & Size View"
+              >
+                <Box className="w-3 h-3 shrink-0" />
+                <span>{stage === 'field_canvas' && is3DMappingMode ? '3D Flat Tunnel (Active)' : '3D Flat Tunnel'}</span>
+              </button>
+            </>
+          )}
 
 
 
@@ -6345,12 +6418,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             if (workflowMode === 'photo_mapping') {
               rawStages.push(['camera_prompt', `${stepNum++}. Upload Photos`]);
               rawStages.push(['photo_fit', `${stepNum++}. Photo Fit`]);
-              if (!isSurface) {
-                rawStages.push([
-                  'digital_twin_3d',
-                  `${stepNum++}. 3D Digital Twin (BETA)`,
-                ]);
-              }
             }
 
             rawStages.push([
@@ -8588,50 +8655,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                                 ? 'Face Canvas'
                                 : domainPanelMap.face.shortLabel}
                             </button>
-
-                            {mappingDomain === 'TUNNEL' && rd.mappingMethod === 'photo_mapping' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setWorkflowMode('photo_mapping');
-                                  setStore((prev) => ({ ...prev, activeRoundId: rd.id }));
-                                  setStage('digital_twin_3d');
-                                }}
-                                className="px-2 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border border-cyan-500/40 font-bold text-[10px] cursor-pointer transition-colors"
-                                title="Open 5. 3D Digital Twin (BETA) Tunnel / Shaft working window for this round"
-                              >
-                                3D Digital Twin (BETA)
-                              </button>
-                            )}
-
-                            {mappingDomain === 'TUNNEL' && rd.mappingMethod !== 'photo_mapping' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setWorkflowMode('photo_mapping');
-                                  setStore((prev) => ({
-                                    ...prev,
-                                    activeRoundId: rd.id,
-                                    rounds: prev.rounds.map((item) =>
-                                      item.id === rd.id
-                                        ? { ...item, mappingMethod: 'photo_mapping' }
-                                        : item
-                                    ),
-                                  }));
-                                  const hasUploadedPhotos = (rd.collectedPhotos || []).some(
-                                    (cp) => Boolean(cp.dataUrl && cp.dataUrl.trim().length > 0)
-                                  );
-                                  setCameraViewTab('upload_grid');
-                                  setStage(hasUploadedPhotos ? 'photo_fit' : 'camera_prompt');
-                                }}
-                                className="px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500 text-sky-300 hover:text-slate-950 border border-sky-500/40 font-bold text-[10px] cursor-pointer transition-colors"
-                                title="Implement Photogrammetry & 3D Digital Twin (BETA) on this Field Mapping round (even after completion) while keeping all mapped joints & data"
-                              >
-                                + Implement Photogrammetry &amp; 3D Twin (BETA)
-                              </button>
-                            )}
                           </div>
                         </div>
                       );
@@ -9224,31 +9247,13 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   </button>
                   <div className="flex flex-wrap items-center gap-2">
                     {workflowMode === 'field_mapping' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWorkflowMode('photo_mapping');
-                            updateActiveRound((r) => ({ ...r, mappingMethod: 'photo_mapping' }));
-                            const hasUploadedPhotos = (activeRound.collectedPhotos || []).some(
-                              (cp) => Boolean(cp.dataUrl && cp.dataUrl.trim().length > 0)
-                            );
-                            setCameraViewTab('upload_grid');
-                            setStage(hasUploadedPhotos ? 'photo_fit' : 'camera_prompt');
-                          }}
-                          className="px-3.5 py-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 font-bold text-xs border border-sky-500/40 cursor-pointer"
-                          title="Switch this round to Photogrammetry workflow to fit photos and use the 3D Digital Twin Tunnel/Shaft stage while keeping all mapped data"
-                        >
-                          + Implement Photogrammetry &amp; 3D Digital Twin →
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStage('field_canvas')}
-                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs border border-emerald-500/40 cursor-pointer"
-                        >
-                          Skip Field Camera → Face Canvas
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        onClick={() => setStage('field_canvas')}
+                        className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs border border-emerald-500/40 cursor-pointer"
+                      >
+                        Skip Field Camera → Face Canvas
+                      </button>
                     )}
                     <button
                       onClick={() => setStage('camera_prompt')}
@@ -10198,190 +10203,8 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
             onUpdateRound={updateActiveRound}
             onBackToUpload={() => setStage('camera_prompt')}
             onProceedToFaceCanvas={() => setStage('field_canvas')}
-            onProceedToDigitalTwin3D={
-              mappingDomain === 'TUNNEL' ? () => setStage('digital_twin_3d') : undefined
-            }
           />
         )}
-
-      {/* ==================== STAGE 5: 3D DIGITAL TWIN TUNNEL / SHAFT WORKING WINDOW (PHOTOGRAMMETRY ONLY, BEFORE FACE CANVAS) ==================== */}
-      {stage === 'digital_twin_3d' &&
-        workflowMode === 'photo_mapping' &&
-        mappingDomain === 'TUNNEL' &&
-        activeRound &&
-        activeProject &&
-        activeLocation &&
-        (() => {
-          const fGeom = computePanelCanvasGeometry('face', activeLocation, activeRound);
-          const evalCustom = activeLocation.customGeometry?.customProfile
-            ? evaluateCustomProfileGeometry(activeLocation.customGeometry.customProfile)
-            : null;
-          const crossPts =
-            evalCustom?.crossSectionPoints ||
-            activeLocation.customGeometry?.crossSectionPoints ||
-            activeLocation.customCrossSectionPoints;
-
-          const existingPhotosMap: Partial<Record<FieldPanelId, string>> = {};
-          (activeRound.collectedPhotos || []).forEach((cp) => {
-            if (cp.dataUrl && cp.panel) {
-              existingPhotosMap[cp.panel] = cp.dataUrl;
-            }
-          });
-
-          const corridorSlices = store.rounds
-            .filter((r) => r.projectId === activeProject.id && r.locationId === activeLocation.id)
-            .map((rnd, idx) => ({
-              roundId: rnd.id,
-              roundNumber: idx + 1,
-              chainageFromM: parseFloat(rnd.chainageFrom) || idx * 3,
-              chainageToM: parseFloat(rnd.chainageTo) || (idx + 1) * 3,
-              pullLengthM: rnd.pullLengthMeters || 3.0,
-              xOffsetM: 0,
-              photosByPanel: {},
-              jointTraces: rnd.jointTraces || [],
-              dipPlaneSurfaces: rnd.dipPlaneSurfaces || [],
-            }));
-
-          const dtGeometry = {
-            widthM: fGeom?.tunnelW || activeLocation.widthM || 8.5,
-            heightM: fGeom?.tunnelH || activeLocation.heightM || 7.5,
-            wallHeightM:
-              fGeom?.splHeightM || activeLocation.wallHeightM || activeLocation.heightM || 4.2,
-            leftWallHeightM:
-              activeLocation.customGeometry?.leftWallHeight ??
-              fGeom?.leftWallLengthM ??
-              activeLocation.wallHeightM ??
-              4.2,
-            rightWallHeightM:
-              activeLocation.customGeometry?.rightWallHeight ??
-              fGeom?.rightWallLengthM ??
-              activeLocation.wallHeightM ??
-              4.2,
-            crownRadiusM: activeLocation.crownRadiusM,
-            pullLengthM: activeRound.pullLengthMeters || 3.0,
-            driveAzimuthDeg:
-              activeRound.tunnelDriveDirection ?? activeLocation.defaultDriveAzimuth,
-            currentChainageM: parseFloat(activeRound.chainageTo) || 100,
-            tunnelShape: isVerticalShaftMode
-              ? ('circular' as const)
-              : activeLocation.shape || 'd_shaped',
-            crossSectionPoints: crossPts,
-            customProfile: activeLocation.customGeometry?.customProfile,
-            hasLeftWall: fGeom?.hasLeftWall ?? true,
-            hasRightWall: fGeom?.hasRightWall ?? true,
-            hasCrown: fGeom?.hasCrown ?? true,
-            hasInvert: fGeom?.hasInvert ?? true,
-            isClosed: fGeom?.isClosed ?? true,
-            isVerticalShaft: isVerticalShaftMode,
-            mappingDomain,
-            excavationApproach: activeRound.excavationApproach,
-            shaftHalfSide: activeRound.shaftHalfSide || 'left_half',
-            shaftCenterMedianStatus: activeRound.shaftCenterMedianStatus || 'closed',
-          };
-
-          return (
-            <DigitalTwinPhotogrammetryModal
-              isOpen={true}
-              embeddedStage={true}
-              onClose={() => setStage('field_canvas')}
-              onBackToPhotoFit={() => setStage('photo_fit')}
-              onProceedToFaceCanvas={(portion) => {
-                if (portion) setActivePanel(portion);
-                setStage('field_canvas');
-              }}
-              projectName={formatDomainProjName(activeProject.projectName)}
-              locationName={formatDomainLocName(activeLocation.name)}
-              geometry={dtGeometry}
-              roundLabel={`CH ${activeRound.chainageFrom}m → ${activeRound.chainageTo}m`}
-              initialPanel={activePanel}
-              existingPhotos={existingPhotosMap}
-              photoFits={activeRound.photoFits}
-              rawPhotos={activeRound.digitalTwinRawPhotos}
-              onUpdateRawPhotos={(nextPhotos) => {
-                updateActiveRound((r) => ({
-                  ...r,
-                  digitalTwinRawPhotos: nextPhotos,
-                }));
-              }}
-              existingJointTraces={activeRound.jointTraces}
-              existingDipSurfaces={activeRound.dipPlaneSurfaces}
-              corridorRounds={corridorSlices}
-              onSaveJointTrace={(newTrace) => {
-                updateActiveRound((r) => {
-                  const clampedPts = (newTrace.points || []).map((pt) =>
-                    clampPointToFieldPanelOutline(pt, newTrace.panel, activeLocation, r)
-                  );
-                  const metricPoints = computePhysicalMetricPoints(
-                    clampedPts,
-                    newTrace.panel,
-                    activeLocation,
-                    r
-                  );
-                  const synced: FieldJointTrace = {
-                    ...newTrace,
-                    points: clampedPts,
-                    metricPoints,
-                  };
-                  return {
-                    ...r,
-                    jointTraces: [...r.jointTraces, synced],
-                  };
-                });
-                setActivePanel(newTrace.panel);
-                setLiveDipDirection(newTrace.dipDirection);
-                setLiveDipAmount(newTrace.dipAmount);
-              }}
-              onSaveDipSurface={(newSurface) => {
-                updateActiveRound((r) => ({
-                  ...r,
-                  dipPlaneSurfaces: [...r.dipPlaneSurfaces, newSurface],
-                }));
-                setActivePanel(newSurface.panel);
-                setLiveDipDirection(newSurface.dipDirection);
-                setLiveDipAmount(newSurface.dipAmount);
-              }}
-              onUpdateExistingJointTrace={(traceId, newDipDir, newDipAmt, newStrike) => {
-                updateActiveRound((r) => ({
-                  ...r,
-                  jointTraces: r.jointTraces.map((t) =>
-                    t.id === traceId
-                      ? {
-                          ...t,
-                          dipDirection: Math.round(newDipDir),
-                          dipAmount: Math.round(newDipAmt),
-                          strike: Math.round(newStrike),
-                          editedByCompass: true,
-                        }
-                      : t
-                  ),
-                }));
-              }}
-              onOpenIn3DJointInspector={(fit) => {
-                const newSurf = {
-                  id: `ds-photo-${Date.now()}`,
-                  label: fit.label,
-                  panel: fit.panelId,
-                  points: fit.canvasPoints2D,
-                  outlinePolygon: fit.canvasPoints2D,
-                  brushRadius: 18,
-                  dipDirection: Math.round(fit.dipDirectionDeg),
-                  dipAmount: Math.round(fit.dipAmountDeg),
-                  strike: Math.round(fit.strikeRhrDeg),
-                  setId: fit.setId,
-                };
-                updateActiveRound((r) => ({
-                  ...r,
-                  dipPlaneSurfaces: [...r.dipPlaneSurfaces, newSurf],
-                }));
-                setActivePanel(fit.panelId);
-                setSelectedDipSurfaceId(newSurf.id);
-                setInspectedDipSurfaceId(newSurf.id);
-                setInspectTargetType('dip_surface');
-                setIs3DJointInspectorOpen(true);
-              }}
-            />
-          );
-        })()}
 
       {/* ==================== STAGE 4 (FACE CANVAS) & STAGE 5 (GROUP JOINTS ON FULL 4-PANEL CANVAS) ==================== */}
       {(stage === 'field_canvas' || stage === 'joint_grouping') &&
@@ -12314,28 +12137,6 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                           <Box className="w-3 h-3" />
                           <span>3D Joint &amp; Dip Inspector</span>
                         </button>
-                        {mappingDomain === 'TUNNEL' && workflowMode === 'field_mapping' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setWorkflowMode('photo_mapping');
-                              updateActiveRound((r) => ({
-                                ...r,
-                                mappingMethod: 'photo_mapping',
-                              }));
-                              const hasUploadedPhotos = (activeRound.collectedPhotos || []).some(
-                                (cp) => Boolean(cp.dataUrl && cp.dataUrl.trim().length > 0)
-                              );
-                              setCameraViewTab('upload_grid');
-                              setStage(hasUploadedPhotos ? 'photo_fit' : 'camera_prompt');
-                            }}
-                            className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border bg-sky-500/15 hover:bg-sky-500 text-sky-300 hover:text-slate-950 border-sky-400/50 transition-all cursor-pointer shadow-xs"
-                            title="Implement Photogrammetry & 3D Digital Twin on this Field Mapping round (preserves all mapped joints, even after round completion)"
-                          >
-                            <Camera className="w-3 h-3" />
-                            <span>+ Photogrammetry &amp; 3D Twin</span>
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setIsRockMappyStudioOpen(true)}

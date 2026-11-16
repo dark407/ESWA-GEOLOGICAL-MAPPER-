@@ -1,6 +1,0 @@
-{
-  "summary":  "Implementation plan for streamlining the Custom Shape & Size editor into two focused modes (Manual Design Builder + Simple CAD Builder where missing lines stay Open) and eliminating unexcavated hatching, extra geometry, and underground tunnel terminology from Surface Mapping canvases and the 3D Joint Inspector.",
-  "updatedAt":  "2026-11-11T07:21:00.718567861Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

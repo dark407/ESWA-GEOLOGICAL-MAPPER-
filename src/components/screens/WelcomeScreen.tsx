@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import {
   Activity,
   ArrowRight,
+  BookOpen,
+  Box,
   Cloud,
   Compass,
   Crosshair,
@@ -105,6 +107,7 @@ export interface WelcomeScreenProps {
   onOpenTunnelMonitoring?: () => void;
   onOpenProbeHoleDrilling?: () => void;
   onOpenGrouting?: () => void;
+  onOpenDigitalTwinTunnelBeta?: (resume?: boolean) => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
   tunnelMonitoringModalNode?: React.ReactNode;
@@ -153,6 +156,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenTunnelMonitoring,
   onOpenProbeHoleDrilling,
   onOpenGrouting,
+  onOpenDigitalTwinTunnelBeta,
   projectMemoryModalNode,
   natmRockMechanicsModalNode,
   tunnelMonitoringModalNode,
@@ -365,6 +369,74 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                       ? `Resume Underground Face Mapping where you stopped (${fieldResumeMeta.stage})`
                       : 'Resume Last Active Underground Face Mapping Session'
                   }
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 1B. 3D Digital Twin Tunnel (BETA) — 20-Photo Left-to-Right Real-Edge 3D Tunnel Model */}
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2.5 text-left min-w-0">
+                <span
+                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{
+                    backgroundColor: palette.primaryHex + '20',
+                    color: palette.accentIconColor,
+                  }}
+                >
+                  <Box className="w-4 h-4 shrink-0" />
+                </span>
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-black font-extrabold text-sm sm:text-base truncate">
+                    3D Digital Twin Tunnel
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-cyan-600 text-white font-mono font-black text-[10px] uppercase tracking-wider shrink-0 shadow-xs">
+                    BETA
+                  </span>
+                </span>
+              </span>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenDigitalTwinTunnelBeta?.(false);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open 3D Digital Twin Tunnel (BETA) — Project, Location, Custom Shape & 20-Photo Left-to-Right Real-Edge 3D Reconstruction"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenDigitalTwinTunnelBeta?.(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title="Resume 3D Digital Twin Tunnel (BETA) where you stopped"
                 >
                   <Play
                     className="w-3.5 h-3.5 shrink-0"
@@ -768,8 +840,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* 6. Data Storage, Import & Export */}
-          <div className="grid grid-cols-1 gap-2.5 w-full">
+          {/* 6. Data Storage, Import & Export + 7. Master User Guide & Formula Validation Manual */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
             <button
               type="button"
               onClick={() => {
@@ -781,7 +853,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 borderColor: palette.primaryHex,
               }}
             >
-              <span className="flex items-center gap-2.5 text-left">
+              <span className="flex items-center gap-2.5 text-left min-w-0">
                 <span
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                   style={{
@@ -791,7 +863,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 >
                   <Database className="w-4 h-4 shrink-0" />
                 </span>
-                <span className="text-black font-extrabold text-sm sm:text-base">
+                <span className="text-black font-extrabold text-sm sm:text-base truncate">
                   Data Storage, Import &amp; Export
                 </span>
               </span>
