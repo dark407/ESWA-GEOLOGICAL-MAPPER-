@@ -1412,231 +1412,347 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* BEFORE SUPPORT SLICE */}
-                  <div className="bg-slate-950 border border-rose-500/30 rounded-xl p-3 flex flex-col items-center">
-                    <div className="w-full flex items-center justify-between text-xs font-black text-rose-400 mb-1">
-                      <span>A. BEFORE SUPPORT (UNREINFORCED)</span>
-                      <span className="font-mono">
-                        FoS = {activeFemSlice.unreinforcedContinuumFos.toFixed(2)}
-                      </span>
-                    </div>
-                    <svg viewBox="0 0 260 220" className="w-full h-48">
-                      {isShaft ? (
-                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
-                          <path
-                            d="M 55 140 A 75 75 0 0 1 205 140 Z"
-                            fill="rgba(244, 63, 94, 0.22)"
-                            stroke="#f43f5e"
-                            strokeDasharray="4,3"
-                            strokeWidth={1.5}
-                          />
-                        ) : (
-                          <circle
-                            cx={130}
-                            cy={110}
-                            r={Math.min(95, 52 + activeFemSlice.unreinforcedPlasticRadiusM * 8)}
-                            fill="rgba(244, 63, 94, 0.22)"
-                            stroke="#f43f5e"
-                            strokeDasharray="4,3"
-                            strokeWidth={1.5}
-                          />
-                        )
-                      ) : (
-                        <path
-                          d="M 48 175 L 48 105 A 82 82 0 0 1 212 105 L 212 175 Z"
-                          fill="rgba(244, 63, 94, 0.22)"
-                          stroke="#f43f5e"
-                          strokeDasharray="4,3"
-                          strokeWidth={1.5}
-                        />
-                      )}
+                  {(['before', 'after'] as const).map((stageMode) => {
+                    const isAfter = stageMode === 'after';
+                    const fosVal = isAfter
+                      ? activeFemSlice.reinforcedContinuumFos
+                      : activeFemSlice.unreinforcedContinuumFos;
+                    const dispVal = isAfter
+                      ? activeFemSlice.reinforcedDispMm
+                      : activeFemSlice.unreinforcedDispMm;
+                    const rpVal = isAfter
+                      ? activeFemSlice.reinforcedPlasticRadiusM
+                      : activeFemSlice.unreinforcedPlasticRadiusM;
+                    const plumeScale = isAfter ? 0.68 : 1.0;
+                    const rampColors = [
+                      '#00008b',
+                      '#000f9e',
+                      '#0b3b3c',
+                      '#006d0a',
+                      '#009e0f',
+                      '#4ea800',
+                      '#9ca300',
+                      '#a84b00',
+                      '#a82400',
+                      '#990000',
+                      '#780000',
+                    ];
+                    const boltAngles = isShaft
+                      ? dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
+                        ? [-168, -148, -128, -108, -90, -72, -52, -32, -12]
+                        : [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+                      : [-174, -158, -142, -126, -110, -96, -84, -70, -54, -38, -22, -6];
 
-                      {isShaft ? (
-                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
-                          <>
+                    // Generate boundary-hugging triangular mesh teeth around the tunnel/shaft perimeter
+                    const teethCount = 42;
+                    const boundaryPts: Array<{ x: number; y: number }> = [];
+                    for (let i = 0; i < teethCount; i++) {
+                      const t = i / teethCount;
+                      if (isShaft && (!dataset.shaftSubMode || dataset.shaftSubMode === 'FULL_CIRCLE')) {
+                        const ang = t * Math.PI * 2;
+                        boundaryPts.push({
+                          x: 135 + 42 * Math.cos(ang),
+                          y: 120 + 42 * Math.sin(ang),
+                        });
+                      } else {
+                        // Horseshoe / D-Shape tunnel perimeter (cx=135, arch cy=118, rx=40, floor y=156)
+                        const ang = -Math.PI * 1.18 + t * (Math.PI * 1.36);
+                        if (i < 32) {
+                          const a = -Math.PI * 1.12 + (i / 31) * (Math.PI * 1.24);
+                          boundaryPts.push({
+                            x: 135 + 40 * Math.cos(a),
+                            y: 120 + 42 * Math.sin(a),
+                          });
+                        } else {
+                          const fT = (i - 32) / Math.max(1, teethCount - 32);
+                          boundaryPts.push({
+                            x: 171 - fT * 72,
+                            y: 156,
+                          });
+                          void ang;
+                        }
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={stageMode}
+                        className={`bg-slate-950 border ${
+                          isAfter ? 'border-emerald-500/30' : 'border-rose-500/30'
+                        } rounded-xl p-2.5 flex flex-col items-center`}
+                      >
+                        <div
+                          className={`w-full flex items-center justify-between text-xs font-black ${
+                            isAfter ? 'text-emerald-400' : 'text-rose-400'
+                          } mb-1.5`}
+                        >
+                          <span>
+                            {isAfter
+                              ? 'B. AFTER SUPPORT (REINFORCED)'
+                              : 'A. BEFORE SUPPORT (UNREINFORCED)'}
+                          </span>
+                          <span className="font-mono">FoS = {fosVal.toFixed(2)}</span>
+                        </div>
+
+                        <svg
+                          viewBox="0 0 300 220"
+                          className="w-full h-52 rounded-lg overflow-hidden border border-slate-800"
+                        >
+                          <defs>
+                            <clipPath id={`a3-fem-clip-${stageMode}`}>
+                              <rect x={0} y={0} width={266} height={220} />
+                            </clipPath>
+                          </defs>
+
+                          {/* 1. Full-Domain Plaxis 2D / RS2 11-Band Iso-Contour Plumes */}
+                          <g clipPath={`url(#a3-fem-clip-${stageMode})`}>
+                            {/* Base Band 2: Dark Slate-Teal far-field background */}
+                            <rect x={0} y={0} width={266} height={220} fill="#0b3b3c" />
+
+                            {/* Band 3: Deep Forest Green (#006d0a) broad lateral & upper plume */}
                             <path
-                              d="M 78 135 A 52 52 0 0 1 182 135 Z"
-                              fill="#020617"
-                              stroke="#fb7185"
-                              strokeWidth={2.2}
+                              d={`M -15 0 L 280 0 C 232 45, 224 115, 272 198 L 208 190 C 175 168, 168 152, 162 146 L 108 146 C 102 152, 95 168, 62 190 L -10 198 C 42 115, 34 45, -15 0 Z`}
+                              fill="#006d0a"
+                            />
+
+                            {/* Band 4: Medium Green (#009e0f) upward-flaring chimney */}
+                            <path
+                              d={`M ${135 - 86 * plumeScale} 0 L ${135 + 86 * plumeScale} 0 C ${135 + 78 * plumeScale} 52, ${135 + 62 * plumeScale} 108, ${135 + 42} 142 L ${135 - 42} 142 C ${135 - 62 * plumeScale} 108, ${135 - 78 * plumeScale} 52, ${135 - 86 * plumeScale} 0 Z`}
+                              fill="#009e0f"
+                            />
+
+                            {/* Band 5: Bright Lime Green (#4ea800) inner chimney */}
+                            <path
+                              d={`M ${135 - 64 * plumeScale} 0 L ${135 + 64 * plumeScale} 0 C ${135 + 60 * plumeScale} 50, ${135 + 50 * plumeScale} 102, ${135 + 39} 138 L ${135 - 39} 138 C ${135 - 50 * plumeScale} 102, ${135 - 60 * plumeScale} 50, ${135 - 64 * plumeScale} 0 Z`}
+                              fill="#4ea800"
+                            />
+
+                            {/* Band 6: Olive / Chartreuse Yellow-Green (#9ca300) central chimney */}
+                            <path
+                              d={`M ${135 - 39 * plumeScale} 0 L ${135 + 39 * plumeScale} 0 C ${135 + 43 * plumeScale} 48, ${135 + 41 * plumeScale} 98, ${135 + 36} 132 L ${135 - 36} 132 C ${135 - 41 * plumeScale} 98, ${135 - 43 * plumeScale} 48, ${135 - 39 * plumeScale} 0 Z`}
+                              fill="#9ca300"
+                            />
+
+                            {/* Band 7: Warm Golden Ochre (#a84b00) parabolic arch dome */}
+                            <path
+                              d={`M ${135 - 35} 126 C ${135 - 38 * plumeScale} ${86 - 24 * plumeScale}, ${135 - 22 * plumeScale} ${28 - 14 * plumeScale}, 135 ${22 - 12 * plumeScale} C ${135 + 22 * plumeScale} ${28 - 14 * plumeScale}, ${135 + 38 * plumeScale} ${86 - 24 * plumeScale}, ${135 + 35} 126 Z`}
+                              fill="#a84b00"
+                            />
+
+                            {/* Band 8: Rust Orange-Red (#a82400) inner crown arch */}
+                            <path
+                              d={`M ${135 - 31} 120 C ${135 - 26 * plumeScale} ${92 - 14 * plumeScale}, ${135 - 12 * plumeScale} ${58 - 12 * plumeScale}, 135 ${52 - 10 * plumeScale} C ${135 + 12 * plumeScale} ${58 - 12 * plumeScale}, ${135 + 26 * plumeScale} ${92 - 14 * plumeScale}, ${135 + 31} 120 Z`}
+                              fill="#a82400"
+                            />
+
+                            {/* Band 9: Crimson Red (#990000) high-displacement crown core */}
+                            <path
+                              d={`M ${135 - 25} 112 C ${135 - 19 * plumeScale} ${94 - 8 * plumeScale}, ${135 - 9 * plumeScale} ${74 - 6 * plumeScale}, 135 ${70 - 6 * plumeScale} C ${135 + 9 * plumeScale} ${74 - 6 * plumeScale}, ${135 + 19 * plumeScale} ${94 - 8 * plumeScale}, ${135 + 25} 112 Z`}
+                              fill="#990000"
+                            />
+
+                            {/* Band 10: Dark Maroon Red (#780000) immediate crown apex */}
+                            <path
+                              d={`M ${135 - 16} 98 C ${135 - 10} 84, ${135 + 10} 84, ${135 + 16} 98 Z`}
+                              fill="#780000"
+                            />
+
+                            {/* Band 1: Sub-invert Royal Blue (#000f9e) rebound column */}
+                            <path
+                              d="M 96 136 C 91 168, 92 198, 95 220 L 175 220 C 178 198, 179 168, 174 136 Z"
+                              fill="#000f9e"
+                            />
+
+                            {/* Band 0: Deep Navy Blue (#00008b) invert heave bowl */}
+                            <path
+                              d="M 106 154 C 109 188, 121 202, 135 202 C 149 202, 161 188, 164 154 Z"
+                              fill="#00008b"
+                            />
+
+                            {/* Horizontal Geological Stratum / Bench Reference Lines */}
+                            <line
+                              x1={0}
+                              y1={14}
+                              x2={266}
+                              y2={14}
+                              stroke="#527a68"
+                              strokeWidth={0.7}
+                              opacity={0.85}
                             />
                             <line
-                              x1={78}
-                              y1={135}
-                              x2={182}
-                              y2={135}
-                              stroke="#fbbf24"
-                              strokeWidth={3}
-                              strokeDasharray={
-                                dataset.shaftCenterMedianStatus === 'open' ? '6,4' : undefined
-                              }
+                              x1={0}
+                              y1={56}
+                              x2={266}
+                              y2={56}
+                              stroke="#527a68"
+                              strokeWidth={0.7}
+                              opacity={0.85}
                             />
-                          </>
-                        ) : (
-                          <circle
-                            cx={130}
-                            cy={110}
-                            r={52}
-                            fill="#020617"
-                            stroke="#fb7185"
-                            strokeWidth={2.2}
-                          />
-                        )
-                      ) : (
-                        <path
-                          d="M 75 162 L 75 105 A 55 55 0 0 1 185 105 L 185 162 Z"
-                          fill="#020617"
-                          stroke="#fb7185"
-                          strokeWidth={2.2}
-                        />
-                      )}
 
-                      <polygon
-                        points={isShaft ? '112,60 148,60 130,32' : '110,52 150,52 130,22'}
-                        fill="rgba(244, 63, 94, 0.55)"
-                        stroke="#fda4af"
-                        strokeWidth={1.5}
-                      />
-                      <text
-                        x={130}
-                        y={204}
-                        fontSize={9}
-                        fill="#fda4af"
-                        textAnchor="middle"
-                        fontWeight={700}
-                      >
-                        u_max = {activeFemSlice.unreinforcedDispMm.toFixed(2)} mm | R_p ={' '}
-                        {activeFemSlice.unreinforcedPlasticRadiusM.toFixed(2)} m
-                      </text>
-                    </svg>
-                  </div>
-
-                  {/* AFTER SUPPORT SLICE */}
-                  <div className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3 flex flex-col items-center">
-                    <div className="w-full flex items-center justify-between text-xs font-black text-emerald-400 mb-1">
-                      <span>B. AFTER SUPPORT (REINFORCED)</span>
-                      <span className="font-mono">
-                        FoS = {activeFemSlice.reinforcedContinuumFos.toFixed(2)}
-                      </span>
-                    </div>
-                    <svg viewBox="0 0 260 220" className="w-full h-48">
-                      {isShaft ? (
-                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
-                          <path
-                            d="M 68 138 A 62 62 0 0 1 192 138 Z"
-                            fill="rgba(16, 185, 129, 0.16)"
-                            stroke="#10b981"
-                            strokeDasharray="4,3"
-                            strokeWidth={1.5}
-                          />
-                        ) : (
-                          <circle
-                            cx={130}
-                            cy={110}
-                            r={Math.min(85, 52 + activeFemSlice.reinforcedPlasticRadiusM * 8)}
-                            fill="rgba(16, 185, 129, 0.16)"
-                            stroke="#10b981"
-                            strokeDasharray="4,3"
-                            strokeWidth={1.5}
-                          />
-                        )
-                      ) : (
-                        <path
-                          d="M 64 168 L 64 105 A 66 66 0 0 1 196 105 L 196 168 Z"
-                          fill="rgba(16, 185, 129, 0.16)"
-                          stroke="#10b981"
-                          strokeDasharray="4,3"
-                          strokeWidth={1.5}
-                        />
-                      )}
-
-                      {/* Radial Rock Bolts */}
-                      {(isShaft
-                        ? dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
-                          ? [-150, -120, -90, -60, -30]
-                          : [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
-                        : [-165, -135, -105, -90, -75, -45, -15]
-                      ).map((deg, idx) => {
-                        const rad = (deg * Math.PI) / 180;
-                        const cy =
-                          isShaft && dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
-                            ? 135
-                            : 110;
-                        const r1 = 52;
-                        const r2 = 82;
-                        return (
-                          <line
-                            key={idx}
-                            x1={130 + r1 * Math.cos(rad)}
-                            y1={cy + r1 * Math.sin(rad)}
-                            x2={130 + r2 * Math.cos(rad)}
-                            y2={cy + r2 * Math.sin(rad)}
-                            stroke="#22d3ee"
-                            strokeWidth={2}
-                          />
-                        );
-                      })}
-
-                      {isShaft ? (
-                        dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE' ? (
-                          <>
+                            {/* Semicircular Reinforced Arch / EDZ Reference Arc */}
                             <path
-                              d="M 78 135 A 52 52 0 0 1 182 135 Z"
-                              fill="#020617"
-                              stroke="#10b981"
-                              strokeWidth={4}
+                              d="M 68 134 A 67 67 0 0 1 202 134 L 68 134 Z"
+                              fill="none"
+                              stroke="#8a9ba8"
+                              strokeWidth={0.8}
+                              opacity={0.9}
                             />
-                            <line
-                              x1={78}
-                              y1={135}
-                              x2={182}
-                              y2={135}
-                              stroke="#10b981"
-                              strokeWidth={3.5}
-                              strokeDasharray={
-                                dataset.shaftCenterMedianStatus === 'open' ? '6,4' : undefined
-                              }
-                            />
-                          </>
-                        ) : (
-                          <circle
-                            cx={130}
-                            cy={110}
-                            r={52}
-                            fill="#020617"
-                            stroke="#10b981"
-                            strokeWidth={4}
-                          />
-                        )
-                      ) : (
-                        <path
-                          d="M 75 162 L 75 105 A 55 55 0 0 1 185 105 L 185 162 Z"
-                          fill="#020617"
-                          stroke="#10b981"
-                          strokeWidth={4}
-                        />
-                      )}
 
-                      <polygon
-                        points={isShaft ? '112,60 148,60 130,32' : '110,52 150,52 130,22'}
-                        fill="rgba(16, 185, 129, 0.35)"
-                        stroke="#6ee7b7"
-                        strokeWidth={1.5}
-                      />
-                      <text
-                        x={130}
-                        y={204}
-                        fontSize={9}
-                        fill="#6ee7b7"
-                        textAnchor="middle"
-                        fontWeight={800}
-                      >
-                        u_sup = {activeFemSlice.reinforcedDispMm.toFixed(2)} mm (-
-                        {activeFemSlice.dispReductionPct}%) | R_p ={' '}
-                        {activeFemSlice.reinforcedPlasticRadiusM.toFixed(2)} m
-                      </text>
-                    </svg>
-                  </div>
+                            {/* Radial Rockbolt Array */}
+                            {boltAngles.map((deg, idx) => {
+                              const rad = (deg * Math.PI) / 180;
+                              const r1 = 41;
+                              const r2 = isAfter ? 88 : 76;
+                              return (
+                                <line
+                                  key={idx}
+                                  x1={135 + r1 * Math.cos(rad)}
+                                  y1={120 + r1 * Math.sin(rad)}
+                                  x2={135 + r2 * Math.cos(rad)}
+                                  y2={120 + r2 * Math.sin(rad)}
+                                  stroke={isAfter ? '#334155' : '#475569'}
+                                  strokeWidth={isAfter ? 1.35 : 0.9}
+                                  strokeDasharray={isAfter ? undefined : '2,2'}
+                                />
+                              );
+                            })}
+
+                            {/* Pure White Excavated Tunnel Cavity (#ffffff) */}
+                            {isShaft &&
+                            (!dataset.shaftSubMode || dataset.shaftSubMode === 'FULL_CIRCLE') ? (
+                              <circle
+                                cx={135}
+                                cy={120}
+                                r={40}
+                                fill="#ffffff"
+                                stroke="#334155"
+                                strokeWidth={1.1}
+                              />
+                            ) : (
+                              <>
+                                <path
+                                  d="M 99 156 C 93 136, 95 112, 104 94 C 112 82, 123 78, 135 78 C 147 78, 158 82, 166 94 C 175 112, 177 136, 171 156 Z"
+                                  fill="#ffffff"
+                                  stroke="#334155"
+                                  strokeWidth={1.1}
+                                />
+                                {/* Stepped Invert Floor Recess */}
+                                <rect x={115} y={150} width={40} height={7} fill="#00008b" />
+                              </>
+                            )}
+
+                            {/* Fine Boundary-Hugging Triangular Liner / Interface Mesh Teeth (◇/△) */}
+                            {boundaryPts.map((pt, i) => {
+                              const nextPt = boundaryPts[(i + 1) % boundaryPts.length];
+                              const midX = (pt.x + nextPt.x) * 0.5;
+                              const midY = (pt.y + nextPt.y) * 0.5;
+                              const dx = midX - 135;
+                              const dy = midY - 120;
+                              const dist = Math.max(1, Math.hypot(dx, dy));
+                              const nx = dx / dist;
+                              const ny = dy / dist;
+                              const outX = midX + nx * 2.8;
+                              const outY = midY + ny * 2.8;
+                              const inX = midX - nx * 1.8;
+                              const inY = midY - ny * 1.8;
+                              return (
+                                <g key={`tooth-${i}`}>
+                                  <polygon
+                                    points={`${pt.x.toFixed(1)},${pt.y.toFixed(1)} ${nextPt.x.toFixed(1)},${nextPt.y.toFixed(1)} ${outX.toFixed(1)},${outY.toFixed(1)}`}
+                                    fill="none"
+                                    stroke="#334155"
+                                    strokeWidth={0.55}
+                                  />
+                                  <polygon
+                                    points={`${pt.x.toFixed(1)},${pt.y.toFixed(1)} ${nextPt.x.toFixed(1)},${nextPt.y.toFixed(1)} ${inX.toFixed(1)},${inY.toFixed(1)}`}
+                                    fill="none"
+                                    stroke="#475569"
+                                    strokeWidth={0.45}
+                                  />
+                                </g>
+                              );
+                            })}
+
+                            {/* Compact Telemetry Caption */}
+                            <rect
+                              x={6}
+                              y={198}
+                              width={254}
+                              height={17}
+                              rx={3}
+                              fill="rgba(2, 6, 23, 0.82)"
+                            />
+                            <text
+                              x={133}
+                              y={209.5}
+                              fontSize={8.5}
+                              fill={isAfter ? '#6ee7b7' : '#fda4af'}
+                              textAnchor="middle"
+                              fontWeight={800}
+                              fontFamily="monospace"
+                            >
+                              {isAfter
+                                ? `u_sup = ${dispVal.toFixed(2)} mm (-${activeFemSlice.dispReductionPct}%) | R_p = ${rpVal.toFixed(2)} m`
+                                : `u_max = ${dispVal.toFixed(2)} mm | R_p = ${rpVal.toFixed(2)} m`}
+                            </text>
+                          </g>
+
+                          {/* 2. Right-Hand White Sidebar Strip with 11-Stepped Uniform Colorbar */}
+                          <g transform="translate(266, 0)">
+                            <rect x={0} y={0} width={34} height={220} fill="#ffffff" />
+                            <line
+                              x1={0}
+                              y1={0}
+                              x2={0}
+                              y2={220}
+                              stroke="#cbd5e1"
+                              strokeWidth={1}
+                            />
+                            {rampColors.map((col, idx) => (
+                              <rect
+                                key={col}
+                                x={3}
+                                y={2 + idx * 12}
+                                width={28}
+                                height={12}
+                                fill={col}
+                                stroke="#1e293b"
+                                strokeWidth={0.55}
+                              />
+                            ))}
+                            <text
+                              x={3}
+                              y={192}
+                              fill="#0f172a"
+                              fontSize={6.5}
+                              fontWeight={600}
+                              fontFamily="sans-serif"
+                            >
+                              Uniform
+                            </text>
+                            <text
+                              x={3}
+                              y={204}
+                              fill="#0f172a"
+                              fontSize={5.8}
+                              fontFamily="sans-serif"
+                            >
+                              &lt;-{(dispVal * 0.18).toFixed(1)}mm
+                            </text>
+                            <text
+                              x={5}
+                              y={214}
+                              fill="#0f172a"
+                              fontSize={5.8}
+                              fontFamily="sans-serif"
+                            >
+                              .. {dispVal.toFixed(1)}
+                            </text>
+                          </g>
+                        </svg>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

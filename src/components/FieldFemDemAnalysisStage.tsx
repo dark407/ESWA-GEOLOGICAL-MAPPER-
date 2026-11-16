@@ -103,25 +103,31 @@ const LIGHT_PROVENANCE_STYLE_MAP: Record<
   },
 };
 
-// High-contrast 8-stop scientific colour ramp (RS2 / Plaxis Geotechnical Scale)
+// High-contrast 11-stop Plaxis / RS2 Geotechnical Iso-Contour Scale (matching reference mesh & contour plot)
 const CONTOUR_RAMP_COLORS = [
-  '#1d4ed8', // 0.00 - Deep Royal Blue (Low)
-  '#0284c7', // 0.16 - Cerulean Blue
-  '#06b6d4', // 0.32 - Cyan
-  '#10b981', // 0.48 - Emerald
-  '#84cc16', // 0.62 - Lime Green
-  '#eab308', // 0.76 - Amber Yellow
-  '#f97316', // 0.88 - Deep Orange
-  '#ef4444', // 1.00 - Crimson Red (High / Peak)
+  '#00008b', // Band 1 - Deep Navy Blue (Invert Rebound Core)
+  '#000f9e', // Band 2 - Royal Blue (Sub-Invert Floor Zone)
+  '#0b3b3c', // Band 3 - Dark Slate Teal (Far-Field Rock Mass)
+  '#006d0a', // Band 4 - Deep Forest Green (Outer Influence Envelope)
+  '#009e0f', // Band 5 - Medium Green (Outer Flaring Plume)
+  '#4ea800', // Band 6 - Bright Lime Green (Mid Flaring Plume)
+  '#9ca300', // Band 7 - Olive / Chartreuse Yellow-Green (Upper Arch Plume)
+  '#a84b00', // Band 8 - Warm Golden Ochre / Brown-Orange (High Displacement Plume)
+  '#a82400', // Band 9 - Rust Orange-Red (Intensive Crown Dome)
+  '#990000', // Band 10 - Crimson Red (Near-Crown Plastic Arch)
+  '#780000', // Band 11 - Dark Maroon Red (Peak Crown Apex Concentration)
 ];
 
 const FOS_RAMP_COLORS = [
-  '#ef4444', // < 1.00 Unstable
-  '#f97316', // 1.00 - 1.15 Marginal
-  '#eab308', // 1.15 - 1.35 Moderate
-  '#84cc16', // 1.35 - 1.60 Adequate
-  '#10b981', // 1.60 - 2.00 Stable
-  '#06b6d4', // > 2.00 Very Stable
+  '#780000', // < 1.00 Unstable (Maroon Red)
+  '#990000', // 1.00 - 1.10 Critical
+  '#a82400', // 1.10 - 1.20 Marginal
+  '#a84b00', // 1.20 - 1.35 Moderate
+  '#9ca300', // 1.35 - 1.55 Adequate
+  '#4ea800', // 1.55 - 1.80 Good
+  '#009e0f', // 1.80 - 2.10 Stable
+  '#006d0a', // 2.10 - 2.50 Very Stable
+  '#0b3b3c', // > 2.50 Far-Field Elastic
 ];
 
 function sampleColorRamp(ratio: number, palette: string[]): string {
@@ -157,7 +163,7 @@ function getElementFillColor(
   }
   // Factor of Safety (FoS)
   const fos = stageType === 'before' ? el.localFosBefore : el.localFosAfter;
-  const fosRatio = (fos - 0.8) / 1.6;
+  const fosRatio = (fos - 0.8) / 1.8;
   return sampleColorRamp(fosRatio, FOS_RAMP_COLORS);
 }
 
@@ -177,10 +183,10 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
 
   const [contourMode, setContourMode] = useState<FemFieldContourMode>('displacement');
   const [viewportLayout, setViewportLayout] = useState<CanvasViewportLayout>('split');
-  const [showMeshWireframe, setShowMeshWireframe] = useState<boolean>(true);
-  const [showMeshNodes, setShowMeshNodes] = useState<boolean>(true);
+  const [showMeshWireframe, setShowMeshWireframe] = useState<boolean>(false);
+  const [showMeshNodes, setShowMeshNodes] = useState<boolean>(false);
   const [showPlasticBoundary, setShowPlasticBoundary] = useState<boolean>(true);
-  const [showDeformedBoundary, setShowDeformedBoundary] = useState<boolean>(true);
+  const [showDeformedBoundary, setShowDeformedBoundary] = useState<boolean>(false);
   const [showJointNetwork, setShowJointNetwork] = useState<boolean>(true);
   const [showKeyBlocks, setShowKeyBlocks] = useState<boolean>(true);
   const [showDeformationVectors, setShowDeformationVectors] = useState<boolean>(true);
@@ -378,7 +384,6 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     (p) => p.key === 'intactUcsMpa'
   );
 
-  // Buffered draft states for Overburden H(m) and Intact UCS so typing "110" does not commit "1" on first keystroke
   const [overburdenDraft, setOverburdenDraft] = useState<string>(() => {
     const initVal =
       femDemCfg.overburdenDepthM ??
@@ -431,7 +436,7 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     handleOverrideParameter('intactUcsMpa', trimmed);
   };
 
-  // Render High-Visibility 2D Triangular FEM & DEM Cross-Section Canvas with Exact Fed Tunnel / Circular Vertical Shaft Shape
+  // Render Plaxis 2D / RS2 Full-Domain Iso-Contour & Boundary-Fitted Triangular FEM / DEM Cross-Section Canvas
   const renderCrossSectionSvg = (stageType: 'before' | 'after') => {
     const isAfter = stageType === 'after';
     const femState = isAfter ? analysisResult.femAfter : analysisResult.femBefore;
@@ -440,8 +445,9 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
 
     const svgW = 560;
     const svgH = 440;
-    const cx = svgW / 2;
-    const cy = svgH * 0.54;
+    const plotW = 506; // Left 506px is full-domain rock mass contour & mesh; right 54px is the Uniform stepped colorbar strip
+    const cx = 280; // Matches femDemAnalysisEngine cx=280
+    const cy = svgH * 0.54; // 237.6
     const boxW = 184;
     const boxH = isVertShaft
       ? boxW
@@ -452,7 +458,6 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
               Math.max(0.72, analysisResult.totalHeightM / Math.max(1, analysisResult.spanWidthM))
             )
         );
-    const scalePxPerM = boxW / Math.max(1, analysisResult.spanWidthM);
 
     const showFemLayers = activeMode === 'fem' || activeMode === 'combined';
     const showDemLayers = activeMode === 'dem' || activeMode === 'combined';
@@ -460,17 +465,23 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
     const maxDispRef = Math.max(2, analysisResult.femBefore.maxDisplacementMm);
     const maxStressRef = Math.max(2, analysisResult.femBefore.maxTangentialStressMpa);
 
+    // Dynamic Plume Scaling between Before Support (tall/wide yielding chimney) and After Support (compact reinforced arch)
+    const dispRatio = Math.min(
+      1.15,
+      Math.max(0.42, femState.maxDisplacementMm / Math.max(0.5, maxDispRef))
+    );
+    const plumeScale = isAfter ? Math.max(0.58, dispRatio * 0.88) : 1.0;
+
     // Exaggerated deformed boundary polygon inside the exact fed tunnel shape
     const dispExaggerationPx = isAfter
-      ? Math.min(20, Math.max(3.5, (femState.maxDisplacementMm / maxDispRef) * 18))
-      : Math.min(24, Math.max(8, 20));
+      ? Math.min(18, Math.max(3.5, (femState.maxDisplacementMm / maxDispRef) * 16))
+      : Math.min(22, Math.max(8, 18));
 
     const deformedBoundaryPoints = (analysisResult.tunnelOutlineSvgPoints || [])
       .map((pt) => {
         const dx = pt.x - cx;
         const dy = pt.y - cy;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        // In Circular Vertical Shaft mode, radial convergence acts around full 360° perimeter modulated by K0
         const dirScale = isVertShaft
           ? 0.96
           : dy < 0
@@ -485,80 +496,73 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
       })
       .join(' ');
 
-    const plasticPolyPts = (
-      isAfter
-        ? analysisResult.plasticZonePolygonAfterSvg
-        : analysisResult.plasticZonePolygonBeforeSvg
-    ) || [];
+    const outlinePts = analysisResult.tunnelOutlineSvgPoints || [];
+    const invertY = cy + boxH / 2;
+    const crownTopY = cy - boxH / 2;
+    const splY = analysisResult.tunnelSplY || cy + boxH * 0.08;
 
-    const legendMeta =
+    // Build dense boundary-hugging fine triangular FEM liner/interface teeth around the white tunnel perimeter
+    const boundaryTeethTriangles: string[] = [];
+    if (outlinePts.length >= 8) {
+      const nPts = outlinePts.length;
+      for (let i = 0; i < nPts; i++) {
+        const p0 = outlinePts[i];
+        const p1 = outlinePts[(i + 1) % nPts];
+        // Skip flat bottom center step segment so the stepped invert notch stays clean
+        if (
+          !isVertShaft &&
+          activeLocation.shape !== 'circular' &&
+          p0.y > invertY - 4 &&
+          p1.y > invertY - 4 &&
+          Math.abs(p0.x - cx) < boxW * 0.34 &&
+          Math.abs(p1.x - cx) < boxW * 0.34
+        ) {
+          continue;
+        }
+        const mx = (p0.x + p1.x) * 0.5;
+        const my = (p0.y + p1.y) * 0.5;
+        const dx = mx - cx;
+        const dy = my - cy;
+        const d = Math.max(1, Math.hypot(dx, dy));
+        const tipX = mx + (dx / d) * 4.2;
+        const tipY = my + (dy / d) * 4.2;
+        boundaryTeethTriangles.push(
+          `${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)} ${tipX.toFixed(1)},${tipY.toFixed(1)}`
+        );
+      }
+    }
+
+    // Range readout for bottom of Uniform right-hand sidebar
+    const minReadoutLabel =
       contourMode === 'displacement'
-        ? {
-            title: 'u_r (mm)',
-            minLabel: '0.0',
-            midLabel: (maxDispRef * 0.5).toFixed(1),
-            maxLabel: maxDispRef.toFixed(1),
-            colors: CONTOUR_RAMP_COLORS,
-          }
+        ? `<-${(femState.maxDisplacementMm * 0.24).toFixed(1)} mm ..`
         : contourMode === 'sigma_theta'
-        ? {
-            title: 'σ_θ (MPa)',
-            minLabel: '0.0',
-            midLabel: (maxStressRef * 0.5).toFixed(1),
-            maxLabel: maxStressRef.toFixed(1),
-            colors: CONTOUR_RAMP_COLORS,
-          }
+        ? `<${(femState.maxTangentialStressMpa * 0.12).toFixed(1)} MPa ..`
         : contourMode === 'strain'
-        ? {
-            title: 'γ (%)',
-            minLabel: '0.00',
-            midLabel: '0.60',
-            maxLabel: '1.20+',
-            colors: CONTOUR_RAMP_COLORS,
-          }
-        : contourMode === 'fos'
-        ? {
-            title: 'FoS',
-            minLabel: '<1.0',
-            midLabel: '1.5',
-            maxLabel: '2.4+',
-            colors: FOS_RAMP_COLORS,
-          }
-        : {
-            title: 'Lithology',
-            minLabel: '',
-            midLabel: '',
-            maxLabel: '',
-            colors: [analysisResult.meshElements[0]?.lithologyColor || '#38bdf8'],
-          };
+        ? `<0.02 % ..`
+        : `<1.00 FoS ..`;
+    const maxReadoutLabel =
+      contourMode === 'displacement'
+        ? `${femState.maxDisplacementMm.toFixed(1)} mm`
+        : contourMode === 'sigma_theta'
+        ? `${femState.maxTangentialStressMpa.toFixed(1)} MPa`
+        : contourMode === 'strain'
+        ? `${femState.maxShearStrainPct.toFixed(2)} %`
+        : `FoS ${femState.continuumFactorOfSafety.toFixed(2)}`;
+
+    const clipDomainId = `plaxis-domain-clip-${stageType}-${activeRound.id}`;
 
     return (
-      <div className="relative w-full h-[470px] xl:h-[540px] min-h-[450px] shrink-0 bg-white rounded-xl border border-slate-300 overflow-hidden shadow-xs">
+      <div className="relative w-full h-[470px] xl:h-[540px] min-h-[450px] shrink-0 bg-white rounded-xl border border-slate-400 overflow-hidden shadow-md">
         <svg
           viewBox={`0 0 ${svgW} ${svgH}`}
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="none"
           className="w-full h-full block select-none bg-white"
         >
           <defs>
-            <radialGradient id={`rock-halo-${stageType}`} cx="50%" cy="54%" r="50%">
-              <stop
-                offset="0%"
-                stopColor={isAfter ? '#0284c7' : '#e11d48'}
-                stopOpacity="0.08"
-              />
-              <stop offset="68%" stopColor="#f8fafc" stopOpacity="0.04" />
-              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-            </radialGradient>
-
-            <linearGradient id={`legend-grad-${stageType}`} x1="0%" y1="100%" x2="0%" y2="0%">
-              {legendMeta.colors.map((c, idx) => (
-                <stop
-                  key={idx}
-                  offset={`${Math.round((idx / Math.max(1, legendMeta.colors.length - 1)) * 100)}%`}
-                  stopColor={c}
-                />
-              ))}
-            </linearGradient>
+            <clipPath id={clipDomainId}>
+              <rect x="0" y="0" width={plotW} height={svgH} />
+            </clipPath>
 
             <marker
               id={`vec-arrow-${stageType}`}
@@ -571,848 +575,627 @@ export const FieldFemDemAnalysisStage: React.FC<FieldFemDemAnalysisStageProps> =
             >
               <path
                 d="M 0 1 L 10 5 L 0 9 z"
-                fill={isAfter ? '#059669' : '#dc2626'}
+                fill={isAfter ? '#10b981' : '#fde047'}
               />
-            </marker>
-
-            <marker
-              id={`stress-arrow-${stageType}`}
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto"
-            >
-              <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#0369a1" />
             </marker>
           </defs>
 
-          {/* Rock Mass Domain White Engineering Background */}
-          <rect x="0" y="0" width={svgW} height={svgH} fill="#ffffff" />
-          <circle cx={cx} cy={cy} r={245} fill={`url(#rock-halo-${stageType})`} />
+          {/* =====================================================================
+              1. PLAXIS 2D / RS2 FULL-DOMAIN SMOOTH ISO-CONTOUR PLUME BANDS
+              ===================================================================== */}
+          <g clipPath={`url(#${clipDomainId})`}>
+            {/* Band 3: Far-Field Dark Slate-Teal Rock Mass Domain (#0b3b3c) */}
+            <rect x="0" y="0" width={plotW} height={svgH} fill="#0b3b3c" />
 
-          {/* Background Engineering Coordinate Grid */}
-          {Array.from({ length: 12 }).map((_, idx) => {
-            const x = 24 + idx * 46;
-            return (
-              <line
-                key={`gx-${idx}`}
-                x1={x}
-                y1={16}
-                x2={x}
-                y2={svgH - 16}
-                stroke="#cbd5e1"
-                strokeWidth="0.7"
-                strokeDasharray="2 3"
-              />
-            );
-          })}
-          {Array.from({ length: 10 }).map((_, idx) => {
-            const y = 20 + idx * 44;
-            return (
-              <line
-                key={`gy-${idx}`}
-                x1={16}
-                y1={y}
-                x2={svgW - 16}
-                y2={y}
-                stroke="#cbd5e1"
-                strokeWidth="0.7"
-                strokeDasharray="2 3"
-              />
-            );
-          })}
-
-          {/* Far-Field In-Situ Stress Boundary Arrows (σv Top & σh Left/Right for Tunnels; Horizontal Plan Stress σH/σh for Vertical Shafts) */}
-          <g pointerEvents="none" opacity="0.92">
-            {[-90, -45, 0, 45, 90].map((dx, i) => (
-              <line
-                key={`sv-${i}`}
-                x1={cx + dx}
-                y1={14}
-                x2={cx + dx}
-                y2={31}
-                stroke="#0369a1"
-                strokeWidth="1.5"
-                markerEnd={`url(#stress-arrow-${stageType})`}
-              />
-            ))}
-            <text
-              x={cx}
-              y={11}
-              textAnchor="middle"
-              fontSize="8.5"
-              fontFamily="IBM Plex Mono, monospace"
-              fontWeight="bold"
-              fill="#0f172a"
-            >
-              {isVertShaft
-                ? `▲ 0° NORTH • σH = ${analysisResult.inSituHorizontalStressMpa} MPa (Depth H=${overburdenParam?.value ?? 85}m, σv=${analysisResult.inSituVerticalStressMpa} MPa)`
-                : `σv = ${analysisResult.inSituVerticalStressMpa} MPa (H=${overburdenParam?.value ?? 85}m)`}
-            </text>
-
-            {isVertShaft && (
-              <text
-                x={cx}
-                y={svgH - 6}
-                textAnchor="middle"
-                fontSize="8.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0f172a"
-              >
-                ▼ 180° SOUTH • Circular Vertical Shaft Plan Section (Ø{analysisResult.spanWidthM}m)
-              </text>
-            )}
-
-            {[-70, -25, 20, 65].map((dy, i) => (
-              <React.Fragment key={`sh-${i}`}>
-                <line
-                  x1={14}
-                  y1={cy + dy}
-                  x2={31}
-                  y2={cy + dy}
-                  stroke="#0369a1"
-                  strokeWidth="1.5"
-                  markerEnd={`url(#stress-arrow-${stageType})`}
+            {contourMode !== 'lithology' && !isVertShaft && (
+              <g>
+                {/* Band 4: Deep Forest Green (#006d0a) Full-Domain Hourglass / Wing Envelope */}
+                <path
+                  d={`M 0 0 L ${plotW} 0 L ${plotW} 45 C ${plotW - 58} 125, ${plotW - 64} 290, ${plotW} 405 L ${plotW} ${svgH} L ${cx + boxW * 0.48} ${svgH} L ${cx + boxW * 0.45} ${splY + 18} L ${cx - boxW * 0.45} ${splY + 18} L ${cx - boxW * 0.48} ${svgH} L 0 ${svgH} L 0 405 C 64 290, 58 125, 0 45 Z`}
+                  fill="#006d0a"
                 />
-                <line
-                  x1={svgW - 46}
-                  y1={cy + dy}
-                  x2={svgW - 63}
-                  y2={cy + dy}
-                  stroke="#0369a1"
-                  strokeWidth="1.5"
-                  markerEnd={`url(#stress-arrow-${stageType})`}
-                />
-              </React.Fragment>
-            ))}
-          </g>
 
-          {/* 1. 3-NODE TRIANGULAR FINITE ELEMENT MESH (432 CST Triangles Conforming to Fed Tunnel Shape) */}
-          {showFemLayers &&
-            (analysisResult.meshElements || []).map((el) => {
-              const fill = getElementFillColor(
-                el,
-                stageType,
-                contourMode,
-                maxDispRef,
-                maxStressRef
-              );
-              const isSelected = selectedElementId === el.id;
-              const isYielded = isAfter ? el.isYieldedAfter : el.isYieldedBefore;
-              return (
-                <g
-                  key={el.id}
-                  onClick={() => setSelectedElementId(el.id)}
-                  className="cursor-pointer"
-                >
-                  <polygon
-                    points={(el.pointsSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
-                    fill={fill}
-                    fillOpacity={activeMode === 'combined' ? 0.78 : 0.88}
-                    stroke={
-                      isSelected
-                        ? '#0f172a'
-                        : showMeshWireframe
-                        ? '#334155'
-                        : fill
-                    }
-                    strokeWidth={isSelected ? '2.2' : showMeshWireframe ? '0.65' : '0.25'}
-                    strokeLinejoin="round"
-                  />
-                  {/* Plastic Shear Yield Marker (×) on Yielded Triangular Elements */}
-                  {isYielded && showPlasticBoundary && (
-                    <g
-                      transform={`translate(${el.centroidSvg.x}, ${el.centroidSvg.y})`}
-                      pointerEvents="none"
-                    >
-                      <line
-                        x1="-1.9"
-                        y1="-1.9"
-                        x2="1.9"
-                        y2="1.9"
-                        stroke="#ffffff"
-                        strokeWidth="1.1"
-                      />
-                      <line
-                        x1="-1.9"
-                        y1="1.9"
-                        x2="1.9"
-                        y2="-1.9"
-                        stroke="#ffffff"
-                        strokeWidth="1.1"
-                      />
-                    </g>
-                  )}
-                </g>
-              );
-            })}
-
-          {/* Triangular FEM Mesh Nodal Vertices */}
-          {showFemLayers &&
-            showMeshNodes &&
-            (analysisResult.meshNodes || []).map((nd) => (
-              <circle
-                key={nd.id}
-                cx={nd.xSvg}
-                cy={nd.ySvg}
-                r="1.15"
-                fill="#0f172a"
-                opacity="0.65"
-                pointerEvents="none"
-              />
-            ))}
-
-          {/* 2. Boundary-Fitted Plastic Yield Zone Envelope (R_p) following Fed Tunnel Shape */}
-          {showFemLayers &&
-            showPlasticBoundary &&
-            femState.plasticZoneDepthMeters > 0.04 &&
-            plasticPolyPts.length > 3 && (
-              <g pointerEvents="none">
-                <polygon
-                  points={plasticPolyPts.map((p) => `${p.x},${p.y}`).join(' ')}
-                  fill="none"
-                  stroke={isAfter ? '#d97706' : '#dc2626'}
-                  strokeWidth="2.4"
-                  strokeDasharray="7 4"
+                {/* Band 5: Medium Green (#009e0f) Upward-Flaring Settlement Plume */}
+                <path
+                  d={`M ${cx - 175 * plumeScale} 0 L ${cx + 175 * plumeScale} 0 C ${cx + 168 * plumeScale} 118, ${cx + boxW * 0.62} ${splY - 24}, ${cx + boxW * 0.49} ${splY + 26} L ${cx - boxW * 0.49} ${splY + 26} C ${cx - boxW * 0.62} ${splY - 24}, ${cx - 168 * plumeScale} 118, ${cx - 175 * plumeScale} 0 Z`}
+                  fill="#009e0f"
                 />
-                <rect
-                  x={cx + 42}
-                  y={cy - boxH * 0.78 - 14}
-                  width="132"
-                  height="16"
-                  rx="4"
-                  fill="#ffffff"
-                  fillOpacity="0.95"
-                  stroke={isAfter ? '#d97706' : '#dc2626'}
-                  strokeWidth="1.2"
+
+                {/* Band 6: Bright Lime Green (#4ea800) Inner Upward-Flaring Plume */}
+                <path
+                  d={`M ${cx - 132 * plumeScale} 0 L ${cx + 132 * plumeScale} 0 C ${cx + 126 * plumeScale} 122, ${cx + boxW * 0.56} ${splY - 18}, ${cx + boxW * 0.48} ${splY + 16} L ${cx - boxW * 0.48} ${splY + 16} C ${cx - boxW * 0.56} ${splY - 18}, ${cx - 126 * plumeScale} 122, ${cx - 132 * plumeScale} 0 Z`}
+                  fill="#4ea800"
                 />
-                <text
-                  x={cx + 108}
-                  y={cy - boxH * 0.78 - 3}
-                  textAnchor="middle"
-                  fontSize="8.2"
-                  fontFamily="IBM Plex Mono, monospace"
-                  fontWeight="bold"
-                  fill={isAfter ? '#b45309' : '#b91c1c'}
-                >
-                  Rp={femState.plasticZoneRadiusMeters.toFixed(2)}m (dp=
-                  {femState.plasticZoneDepthMeters.toFixed(2)}m)
-                </text>
+
+                {/* Band 7: Olive / Chartreuse Yellow-Green (#9ca300) Parabolic Chimney Plume */}
+                <path
+                  d={`M ${cx - 90 * plumeScale} 0 L ${cx + 90 * plumeScale} 0 C ${cx + 96 * plumeScale} 118, ${cx + boxW * 0.54} ${splY - 22}, ${cx + boxW * 0.47} ${splY + 6} L ${cx - boxW * 0.47} ${splY + 6} C ${cx - boxW * 0.54} ${splY - 22}, ${cx - 96 * plumeScale} 118, ${cx - 90 * plumeScale} 0 Z`}
+                  fill="#9ca300"
+                />
+
+                {/* Band 8: Warm Golden Ochre / Brown-Orange (#a84b00) High-Displacement Arch Plume */}
+                <path
+                  d={`M ${cx - boxW * 0.46} ${splY - 4} C ${cx - boxW * 0.52} ${crownTopY - 28 * plumeScale}, ${cx - 46 * plumeScale} ${Math.max(18, crownTopY - 150 * plumeScale)}, ${cx} ${Math.max(16, crownTopY - 155 * plumeScale)} C ${cx + 46 * plumeScale} ${Math.max(18, crownTopY - 150 * plumeScale)}, ${cx + boxW * 0.52} ${crownTopY - 28 * plumeScale}, ${cx + boxW * 0.46} ${splY - 4} Z`}
+                  fill="#a84b00"
+                />
+
+                {/* Band 9: Rust Orange-Red (#a82400) Intensive Crown Arch Dome */}
+                <path
+                  d={`M ${cx - boxW * 0.43} ${splY - 14} C ${cx - boxW * 0.44} ${crownTopY - 14 * plumeScale}, ${cx - 28 * plumeScale} ${Math.max(42, crownTopY - 82 * plumeScale)}, ${cx} ${Math.max(40, crownTopY - 86 * plumeScale)} C ${cx + 28 * plumeScale} ${Math.max(42, crownTopY - 82 * plumeScale)}, ${cx + boxW * 0.44} ${crownTopY - 14 * plumeScale}, ${cx + boxW * 0.43} ${splY - 14} Z`}
+                  fill="#a82400"
+                />
+
+                {/* Band 10: Crimson Red (#990000) Near-Crown Plastic Arch */}
+                <path
+                  d={`M ${cx - boxW * 0.36} ${splY - 24} C ${cx - boxW * 0.34} ${crownTopY - 4}, ${cx - 18 * plumeScale} ${crownTopY - 38 * plumeScale}, ${cx} ${crownTopY - 42 * plumeScale} C ${cx + 18 * plumeScale} ${crownTopY - 38 * plumeScale}, ${cx + boxW * 0.34} ${crownTopY - 4}, ${cx + boxW * 0.36} ${splY - 24} Z`}
+                  fill="#990000"
+                />
+
+                {/* Band 11: Dark Maroon Red (#780000) Peak Crown Concentration */}
+                <path
+                  d={`M ${cx - boxW * 0.25} ${crownTopY + 18} C ${cx - boxW * 0.22} ${crownTopY - 6}, ${cx - 10} ${crownTopY - 18 * plumeScale}, ${cx} ${crownTopY - 20 * plumeScale} C ${cx + 10} ${crownTopY - 18 * plumeScale}, ${cx + boxW * 0.22} ${crownTopY - 6}, ${cx + boxW * 0.25} ${crownTopY + 18} Z`}
+                  fill="#780000"
+                />
+
+                {/* Band 2: Royal Blue (#000f9e) Sub-Invert Floor Rebound Column */}
+                <path
+                  d={`M ${cx - boxW * 0.46} ${splY + 26} C ${cx - boxW * 0.54} ${invertY + 28}, ${cx - boxW * 0.52} ${svgH - 42}, ${cx - boxW * 0.48} ${svgH} L ${cx + boxW * 0.48} ${svgH} C ${cx + boxW * 0.52} ${svgH - 42}, ${cx + boxW * 0.54} ${invertY + 28}, ${cx + boxW * 0.46} ${splY + 26} Z`}
+                  fill="#000f9e"
+                />
+
+                {/* Band 1: Deep Navy Blue (#00008b) Invert Heave Core Bulb */}
+                <ellipse
+                  cx={cx}
+                  cy={invertY + 4}
+                  rx={boxW * 0.33}
+                  ry={boxH * 0.28}
+                  fill="#00008b"
+                />
               </g>
             )}
 
-          {/* 3. DEM Discontinuity / Joint Traces in Surrounding Rock Mass */}
-          {showDemLayers &&
-            showJointNetwork &&
-            (analysisResult.demJointPlanes || []).map((jp) => {
-              const isSliding = (isAfter ? jp.jointFosAfter : jp.jointFosBefore) < 1.15;
-              return (
-                <g key={jp.id} pointerEvents="none">
-                  <line
-                    x1={jp.x1Svg}
-                    y1={jp.y1Svg}
-                    x2={jp.x2Svg}
-                    y2={jp.y2Svg}
-                    stroke="#ffffff"
-                    strokeWidth={isSliding ? '4.0' : '3.0'}
-                    opacity="0.85"
-                  />
-                  <line
-                    x1={jp.x1Svg}
-                    y1={jp.y1Svg}
-                    x2={jp.x2Svg}
-                    y2={jp.y2Svg}
-                    stroke={jp.color}
-                    strokeWidth={isSliding ? '2.4' : '1.8'}
-                    strokeDasharray={isSliding ? '5 2.5' : undefined}
-                  />
-                </g>
-              );
-            })}
+            {/* Vertical Shaft Radial Iso-Contour Rings when in Vertical Shaft mode */}
+            {contourMode !== 'lithology' && isVertShaft && (
+              <g>
+                {[
+                  { r: 260, c: '#006d0a' },
+                  { r: 215 * plumeScale, c: '#009e0f' },
+                  { r: 178 * plumeScale, c: '#4ea800' },
+                  { r: 148 * plumeScale, c: '#9ca300' },
+                  { r: 126 * plumeScale, c: '#a84b00' },
+                  { r: 110 * plumeScale, c: '#a82400' },
+                  { r: 99 * plumeScale, c: '#990000' },
+                ].map((ring, idx) => (
+                  <circle key={idx} cx={cx} cy={cy} r={ring.r} fill={ring.c} />
+                ))}
+              </g>
+            )}
 
-          {/* 4. DEM Discrete Key Blocks & Wedges around Excavation Boundary */}
-          {showDemLayers &&
-            showKeyBlocks &&
-            (analysisResult.demKeyBlocks || []).map((kb) => {
-              const fos = isAfter ? kb.fosAfter : kb.fosBefore;
-              const isSelected = selectedBlock?.id === kb.id;
-              const blockColor =
-                fos < 1.05
-                  ? '#dc2626'
-                  : fos < 1.45
-                  ? '#d97706'
-                  : '#059669';
-
-              const shiftScale = !isAfter && fos < 1.15 ? 0.24 : 0.05;
-              const tx = kb.moveVectorSvg.dx * shiftScale;
-              const ty = kb.moveVectorSvg.dy * shiftScale;
-
-              return (
-                <g
-                  key={kb.id}
-                  transform={`translate(${tx.toFixed(1)}, ${ty.toFixed(1)})`}
-                  onClick={() => setSelectedBlockId(kb.id)}
-                  className="cursor-pointer"
-                >
-                  <polygon
-                    points={(kb.polygonSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
-                    fill={blockColor}
-                    fillOpacity={isSelected ? 0.72 : 0.52}
-                    stroke={isSelected ? '#0f172a' : blockColor}
-                    strokeWidth={isSelected ? '2.5' : '1.9'}
-                  />
-                  {showDeformationVectors && (
-                    <line
-                      x1={kb.centroidSvg.x}
-                      y1={kb.centroidSvg.y}
-                      x2={kb.centroidSvg.x + kb.moveVectorSvg.dx * (isAfter ? 0.55 : 1.05)}
-                      y2={kb.centroidSvg.y + kb.moveVectorSvg.dy * (isAfter ? 0.55 : 1.05)}
-                      stroke={isAfter ? '#059669' : '#dc2626'}
-                      strokeWidth="2.1"
-                      markerEnd={`url(#vec-arrow-${stageType})`}
-                    />
-                  )}
-                  <rect
-                    x={kb.centroidSvg.x - 33}
-                    y={kb.centroidSvg.y - 8}
-                    width="66"
-                    height="14"
-                    rx="3"
-                    fill="#ffffff"
-                    fillOpacity="0.95"
-                    stroke={blockColor}
-                    strokeWidth="1.1"
-                  />
-                  <text
-                    x={kb.centroidSvg.x}
-                    y={kb.centroidSvg.y + 1.5}
-                    textAnchor="middle"
-                    fontSize="7.8"
-                    fontFamily="IBM Plex Mono, monospace"
-                    fontWeight="bold"
-                    fill="#0f172a"
+            {/* =====================================================================
+                2. 3-NODE TRIANGULAR FINITE ELEMENT MESH (Interactive + Optional Full-Domain Wireframe)
+                ===================================================================== */}
+            {showFemLayers &&
+              (analysisResult.meshElements || []).map((el) => {
+                const fill = getElementFillColor(
+                  el,
+                  stageType,
+                  contourMode,
+                  maxDispRef,
+                  maxStressRef
+                );
+                const isSelected = selectedElementId === el.id;
+                const isYielded = isAfter ? el.isYieldedAfter : el.isYieldedBefore;
+                const isBoundaryHuggingRing = el.radiusNorm <= 1.06;
+                return (
+                  <g
+                    key={el.id}
+                    onClick={() => setSelectedElementId(el.id)}
+                    className="cursor-pointer"
                   >
-                    {kb.id.replace('KB-', '')} FoS:{fos.toFixed(2)}
-                  </text>
-                </g>
-              );
-            })}
+                    <polygon
+                      points={(el.pointsSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
+                      fill={fill}
+                      fillOpacity={
+                        contourMode === 'lithology'
+                          ? 0.88
+                          : isSelected
+                          ? 0.65
+                          : showMeshWireframe
+                          ? 0.32
+                          : 0.01
+                      }
+                      stroke={
+                        isSelected
+                          ? '#ffffff'
+                          : showMeshWireframe
+                          ? 'rgba(15, 23, 42, 0.42)'
+                          : isBoundaryHuggingRing
+                          ? 'rgba(51, 65, 85, 0.55)'
+                          : 'none'
+                      }
+                      strokeWidth={
+                        isSelected
+                          ? '2.0'
+                          : showMeshWireframe
+                          ? '0.55'
+                          : isBoundaryHuggingRing
+                          ? '0.65'
+                          : '0'
+                      }
+                      strokeLinejoin="round"
+                    />
+                    {/* Plastic Shear Yield Marker (×) when Tri-Mesh + Yield are active */}
+                    {isYielded && showPlasticBoundary && showMeshWireframe && (
+                      <g
+                        transform={`translate(${el.centroidSvg.x}, ${el.centroidSvg.y})`}
+                        pointerEvents="none"
+                      >
+                        <line
+                          x1="-1.8"
+                          y1="-1.8"
+                          x2="1.8"
+                          y2="1.8"
+                          stroke="#fde047"
+                          strokeWidth="0.9"
+                        />
+                        <line
+                          x1="-1.8"
+                          y1="1.8"
+                          x2="1.8"
+                          y2="-1.8"
+                          stroke="#fde047"
+                          strokeWidth="0.9"
+                        />
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
 
-          {/* 5. EXACT FED TUNNEL PROFILE CAVITY MASK (D-Shaped, Horseshoe, Circular, Rectangular, or Custom) */}
-          <path
-            d={analysisResult.tunnelClosedPathD}
-            fill="#ffffff"
-            stroke={isAfter && isSupportInstalled ? '#0284c7' : '#0f172a'}
-            strokeWidth={isAfter && isSupportInstalled ? '3.0' : '2.2'}
-            strokeLinejoin="round"
-          />
+            {/* Triangular FEM Mesh Nodal Vertices */}
+            {showFemLayers &&
+              showMeshNodes &&
+              (analysisResult.meshNodes || []).map((nd) => (
+                <circle
+                  key={nd.id}
+                  cx={nd.xSvg}
+                  cy={nd.ySvg}
+                  r="1.1"
+                  fill="#0f172a"
+                  opacity="0.65"
+                  pointerEvents="none"
+                />
+              ))}
 
-          {/* 5B. Dotted Bench Line & Hatched Bench / Top Heading Portion inside FEM/DEM Tunnel Cavity (or Vertical Shaft Cardinal Axes & Half-Face Hatch) */}
-          {mappingDomain === 'TUNNEL' && !isVertShaft && (
-            <FieldTunnelBenchHatchAndLineSvg
-              location={activeLocation}
-              round={activeRound}
-              boxX={cx - boxW / 2}
-              boxY={cy - boxH / 2}
-              boxW={boxW}
-              boxH={boxH}
-              clipPathD={analysisResult.tunnelClosedPathD}
-              darkBackground={false}
-              idSuffix={`fem-${stageType}-${activeRound.id}`}
-            />
-          )}
-
-          {/* 5C. Circular Vertical Shaft 4-Quadrant Crosshairs & Half-Face Center Median inside Shaft Cavity */}
-          {isVertShaft && (
+            {/* =====================================================================
+                3. HORIZONTAL GEOLOGICAL STRATUM LINES & REINFORCED ARCH ENVELOPE ARC
+                ===================================================================== */}
             <g pointerEvents="none">
-              <defs>
-                <pattern
-                  id={`fem-shaft-half-hatch-${stageType}-${activeRound.id}`}
-                  width="8"
-                  height="8"
-                  patternTransform="rotate(45 0 0)"
-                  patternUnits="userSpaceOnUse"
-                >
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="8"
-                    stroke="#64748b"
-                    strokeWidth="1.6"
-                    strokeOpacity="0.4"
-                  />
-                </pattern>
-              </defs>
-              {isShaftHalfFace && (
-                <>
-                  <path
-                    d={
-                      shaftHalfSide === 'right_half'
-                        ? `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 0 ${cx} ${cy + boxW / 2} Z`
-                        : `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 1 ${cx} ${cy + boxW / 2} Z`
-                    }
-                    fill={`url(#fem-shaft-half-hatch-${stageType}-${activeRound.id})`}
-                  />
-                  <line
-                    x1={cx}
-                    y1={cy - boxW / 2}
-                    x2={cx}
-                    y2={cy + boxW / 2}
-                    stroke={shaftMedianStatus === 'closed' ? '#dc2626' : '#0284c7'}
-                    strokeWidth="2.2"
-                    strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '5 3'}
-                  />
-                </>
-              )}
+              {/* Upper & Mid Overburden Stratum Reference Lines */}
               <line
-                x1={cx}
-                y1={cy - boxW / 2 + 4}
-                x2={cx}
-                y2={cy + boxW / 2 - 4}
-                stroke="#94a3b8"
-                strokeWidth="0.9"
-                strokeDasharray="4 3"
+                x1="0"
+                y1="38"
+                x2={plotW}
+                y2="38"
+                stroke="#84cc16"
+                strokeWidth="0.75"
+                strokeOpacity="0.65"
               />
               <line
-                x1={cx - boxW / 2 + 4}
-                y1={cy}
-                x2={cx + boxW / 2 - 4}
-                y2={cy}
-                stroke="#94a3b8"
-                strokeWidth="0.9"
-                strokeDasharray="4 3"
+                x1="0"
+                y1="138"
+                x2={plotW}
+                y2="138"
+                stroke="#84cc16"
+                strokeWidth="0.75"
+                strokeOpacity="0.65"
               />
-              <text
-                x={cx}
-                y={cy - boxW / 2 + 13}
-                textAnchor="middle"
-                fontSize="7.5"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#dc2626"
-              >
-                0° N
-              </text>
-              <text
-                x={cx + boxW / 2 - 16}
-                y={cy - 3}
-                textAnchor="middle"
-                fontSize="7.5"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0284c7"
-              >
-                90° E
-              </text>
-              <text
-                x={cx}
-                y={cy + boxW / 2 - 6}
-                textAnchor="middle"
-                fontSize="7.5"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#334155"
-              >
-                180° S
-              </text>
-              <text
-                x={cx - boxW / 2 + 18}
-                y={cy - 3}
-                textAnchor="middle"
-                fontSize="7.5"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#7c3aed"
-              >
-                270° W
-              </text>
-              <text
-                x={cx + 42}
-                y={cy - 42}
-                textAnchor="middle"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0369a1"
-              >
-                Q1 NE
-              </text>
-              <text
-                x={cx + 42}
-                y={cy + 48}
-                textAnchor="middle"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0f766e"
-              >
-                Q2 ES
-              </text>
-              <text
-                x={cx - 42}
-                y={cy + 48}
-                textAnchor="middle"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#b45309"
-              >
-                Q3 SW
-              </text>
-              <text
-                x={cx - 42}
-                y={cy - 42}
-                textAnchor="middle"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#6d28d9"
-              >
-                Q4 WN
-              </text>
-            </g>
-          )}
 
-          {/* Springing Line (SPL) Reference inside Fed Tunnel Cavity */}
-          {mappingDomain === 'TUNNEL' && !isVertShaft && activeLocation.shape !== 'circular' && (
-            <g pointerEvents="none" opacity="0.8">
-              <line
-                x1={cx - boxW / 2 + 3}
-                y1={analysisResult.tunnelSplY}
-                x2={cx + boxW / 2 - 3}
-                y2={analysisResult.tunnelSplY}
-                stroke="#64748b"
-                strokeWidth="1"
-                strokeDasharray="4 3"
-              />
-              <text
-                x={cx - boxW / 2 + 8}
-                y={analysisResult.tunnelSplY - 3}
-                fontSize="7"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#334155"
-              >
-                SPL
-              </text>
-              <text
-                x={cx + boxW / 2 - 22}
-                y={analysisResult.tunnelSplY - 3}
-                fontSize="7"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#334155"
-              >
-                SPL
-              </text>
-            </g>
-          )}
-
-          {/* 5B. Deformed Excavation Profile (Exaggerated Radial Convergence Curve inside Fed Tunnel Cavity) */}
-          {showDeformedBoundary && (
-            <polygon
-              points={deformedBoundaryPoints}
-              fill={isAfter ? 'rgba(5, 150, 105, 0.06)' : 'rgba(220, 38, 38, 0.08)'}
-              stroke={isAfter ? '#059669' : '#dc2626'}
-              strokeWidth="1.8"
-              strokeDasharray="5 3"
-              pointerEvents="none"
-            />
-          )}
-
-          {/* 6. AFTER SUPPORT ONLY: Render Actual Recorded ESWA Support on Exact Fed Tunnel Shape */}
-          {isAfter && isSupportInstalled && (
-            <g pointerEvents="none">
-              {/* Shotcrete Arch / Wall Lining Ring */}
-              {sup?.shotcreteEnabled && (
+              {/* Semicircular / Horseshoe Reinforced Arch & EDZ Envelope Reference Arc */}
+              {showPlasticBoundary && !isVertShaft && (
                 <path
-                  d={analysisResult.tunnelClosedPathD}
+                  d={`M ${cx - boxW * 0.45} ${splY + 24} L ${cx - boxW * 0.86} ${splY + 24} A ${boxW * 0.86} ${boxH * 0.88} 0 0 1 ${cx + boxW * 0.86} ${splY + 24} L ${cx + boxW * 0.45} ${splY + 24}`}
                   fill="none"
-                  stroke="#0284c7"
-                  strokeWidth={Math.max(
-                    3.8,
-                    Math.min(7.5, (analysisResult.supportBreakdown.shotcreteThicknessMm || 100) / 22)
-                  )}
-                  strokeLinejoin="round"
-                  opacity="0.92"
+                  stroke="#94a3b8"
+                  strokeWidth="1.1"
+                  strokeOpacity="0.88"
                 />
               )}
+            </g>
 
-              {/* Steel Rib / Lattice Girder Inner Ring */}
-              {(sup?.latticeGirderEnabled || sup?.ismbEnabled) && (
-                <polygon
-                  points={(analysisResult.tunnelOutlineSvgPoints || [])
-                    .map((p) => {
-                      const dx = p.x - cx;
-                      const dy = p.y - cy;
-                      return `${(cx + dx * 0.95).toFixed(1)},${(cy + dy * 0.95).toFixed(1)}`;
-                    })
-                    .join(' ')}
-                  fill="none"
-                  stroke="#7c3aed"
-                  strokeWidth="2.4"
-                  strokeDasharray="5 2.5"
+            {/* =====================================================================
+                4. RADIAL ROCKBOLT ARRAY (12 Radial Bolts Fanning Around Crown & Haunches)
+                ===================================================================== */}
+            <g pointerEvents="none">
+              {(analysisResult.supportBoltVectorsSvg || []).map((bv, bIdx) => (
+                <line
+                  key={`rb-mesh-${bIdx}`}
+                  x1={bv.x1}
+                  y1={bv.y1}
+                  x2={bv.x2}
+                  y2={bv.y2}
+                  stroke={isAfter && isSupportInstalled ? '#374151' : '#4b5563'}
+                  strokeWidth={isAfter && isSupportInstalled ? '2.1' : '1.4'}
+                  strokeDasharray={!isAfter ? '4 2.5' : undefined}
+                  strokeOpacity={isAfter ? 0.96 : 0.72}
+                  strokeLinecap="round"
                 />
-              )}
+              ))}
+            </g>
 
-              {/* Boundary-Fitted Rock Bolts / Soil Nails Anchored on Exact Fed Tunnel Walls & Crown */}
-              {(sup?.rockBoltsEnabled || sup?.soilNailsEnabled) &&
-                (analysisResult.supportBoltVectorsSvg || []).map((bv, bIdx) => (
-                  <g key={`rb-${bIdx}`}>
+            {/* =====================================================================
+                5. DEM DISCONTINUUM JOINT NETWORK & KEY-BLOCK WEDGES
+                ===================================================================== */}
+            {showDemLayers &&
+              showJointNetwork &&
+              (analysisResult.demJointPlanes || []).map((jp) => {
+                const isSliding = (isAfter ? jp.jointFosAfter : jp.jointFosBefore) < 1.15;
+                return (
+                  <g key={jp.id} pointerEvents="none">
                     <line
-                      x1={bv.x1}
-                      y1={bv.y1}
-                      x2={bv.x2}
-                      y2={bv.y2}
-                      stroke="#ffffff"
-                      strokeWidth="3.6"
-                      strokeLinecap="round"
+                      x1={jp.x1Svg}
+                      y1={jp.y1Svg}
+                      x2={jp.x2Svg}
+                      y2={jp.y2Svg}
+                      stroke="#111827"
+                      strokeWidth={isSliding ? '3.2' : '2.2'}
+                      opacity="0.75"
                     />
                     <line
-                      x1={bv.x1}
-                      y1={bv.y1}
-                      x2={bv.x2}
-                      y2={bv.y2}
-                      stroke="#0284c7"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                    />
-                    <circle
-                      cx={bv.x1}
-                      cy={bv.y1}
-                      r="3.2"
-                      fill="#d97706"
-                      stroke="#0f172a"
-                      strokeWidth="1"
+                      x1={jp.x1Svg}
+                      y1={jp.y1Svg}
+                      x2={jp.x2Svg}
+                      y2={jp.y2Svg}
+                      stroke={jp.color}
+                      strokeWidth={isSliding ? '2.0' : '1.4'}
+                      strokeDasharray={isSliding ? '5 2.5' : undefined}
                     />
                   </g>
-                ))}
-            </g>
-          )}
+                );
+              })}
 
-          {/* 7. Radial Convergence Vectors at Crown & Sidewalls (or 4 Shaft Quadrants in Vertical Shaft Mode) */}
-          {showDeformationVectors && (
-            <g pointerEvents="none">
-              {isVertShaft ? (
-                [45, 135, 225, 315].map((azDeg) => {
-                  const rad = ((azDeg - 90) * Math.PI) / 180;
-                  const rOuter = boxW / 2 - 3;
-                  const rInner = boxW / 2 - (isAfter ? 18 : 28);
-                  return (
-                    <line
-                      key={`shaft-conv-${azDeg}`}
-                      x1={cx + rOuter * Math.cos(rad)}
-                      y1={cy + rOuter * Math.sin(rad)}
-                      x2={cx + rInner * Math.cos(rad)}
-                      y2={cy + rInner * Math.sin(rad)}
-                      stroke={isAfter ? '#059669' : '#dc2626'}
-                      strokeWidth="2.1"
-                      markerEnd={`url(#vec-arrow-${stageType})`}
+            {showDemLayers &&
+              showKeyBlocks &&
+              (analysisResult.demKeyBlocks || []).map((kb) => {
+                const fos = isAfter ? kb.fosAfter : kb.fosBefore;
+                const isSelected = selectedBlock?.id === kb.id;
+                const blockColor =
+                  fos < 1.05
+                    ? '#dc2626'
+                    : fos < 1.45
+                    ? '#d97706'
+                    : '#10b981';
+
+                const shiftScale = !isAfter && fos < 1.15 ? 0.2 : 0.04;
+                const tx = kb.moveVectorSvg.dx * shiftScale;
+                const ty = kb.moveVectorSvg.dy * shiftScale;
+
+                return (
+                  <g
+                    key={kb.id}
+                    transform={`translate(${tx.toFixed(1)}, ${ty.toFixed(1)})`}
+                    onClick={() => setSelectedBlockId(kb.id)}
+                    className="cursor-pointer"
+                  >
+                    <polygon
+                      points={(kb.polygonSvg || []).map((p) => `${p.x},${p.y}`).join(' ')}
+                      fill={blockColor}
+                      fillOpacity={
+                        activeMode === 'dem'
+                          ? isSelected
+                            ? 0.68
+                            : 0.48
+                          : isSelected
+                          ? 0.45
+                          : 0.26
+                      }
+                      stroke={isSelected ? '#ffffff' : '#111827'}
+                      strokeWidth={isSelected ? '2.2' : '1.4'}
+                      strokeDasharray={activeMode === 'combined' ? '4 2' : undefined}
                     />
-                  );
-                })
-              ) : (
-                <>
-                  {/* Crown top vertical sag vector */}
-                  <line
-                    x1={cx}
-                    y1={cy - boxH / 2 + 3}
-                    x2={cx}
-                    y2={cy - boxH / 2 + (isAfter ? 18 : 30)}
-                    stroke={isAfter ? '#059669' : '#dc2626'}
-                    strokeWidth="2.1"
-                    markerEnd={`url(#vec-arrow-${stageType})`}
-                  />
-                  {/* Left vertical wall inward vector */}
-                  <line
-                    x1={cx - boxW / 2 + 3}
-                    y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                    x2={cx - boxW / 2 + (isAfter ? 18 : 28)}
-                    y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                    stroke={isAfter ? '#059669' : '#dc2626'}
-                    strokeWidth="2.1"
-                    markerEnd={`url(#vec-arrow-${stageType})`}
-                  />
-                  {/* Right vertical wall inward vector */}
-                  <line
-                    x1={cx + boxW / 2 - 3}
-                    y1={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                    x2={cx + boxW / 2 - (isAfter ? 18 : 28)}
-                    y2={(analysisResult.tunnelSplY + (cy + boxH / 2)) / 2}
-                    stroke={isAfter ? '#059669' : '#dc2626'}
-                    strokeWidth="2.1"
-                    markerEnd={`url(#vec-arrow-${stageType})`}
-                  />
-                </>
-              )}
-            </g>
-          )}
+                    {showDeformationVectors && activeMode === 'dem' && (
+                      <line
+                        x1={kb.centroidSvg.x}
+                        y1={kb.centroidSvg.y}
+                        x2={kb.centroidSvg.x + kb.moveVectorSvg.dx * (isAfter ? 0.55 : 1.05)}
+                        y2={kb.centroidSvg.y + kb.moveVectorSvg.dy * (isAfter ? 0.55 : 1.05)}
+                        stroke={isAfter ? '#10b981' : '#fde047'}
+                        strokeWidth="1.8"
+                        markerEnd={`url(#vec-arrow-${stageType})`}
+                      />
+                    )}
+                    <rect
+                      x={kb.centroidSvg.x - 32}
+                      y={kb.centroidSvg.y - 7}
+                      width="64"
+                      height="13"
+                      rx="3"
+                      fill="#0f172a"
+                      fillOpacity="0.88"
+                      stroke={blockColor}
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={kb.centroidSvg.x}
+                      y={kb.centroidSvg.y + 2}
+                      textAnchor="middle"
+                      fontSize="7.4"
+                      fontFamily="IBM Plex Mono, monospace"
+                      fontWeight="bold"
+                      fill="#ffffff"
+                    >
+                      {kb.id.replace('KB-', '')} FoS:{fos.toFixed(2)}
+                    </text>
+                  </g>
+                );
+              })}
 
-          {/* Compact Telemetry Readout Inside Fed Tunnel Cavity */}
-          <g pointerEvents="none">
-            <rect
-              x={cx - 74}
-              y={cy - 18}
-              width="148"
-              height="44"
-              rx="6"
+            {/* =====================================================================
+                6. EXCAVATED TUNNEL CAVITY (PURE WHITE INTERIOR + STEPPED INVERT + DENSE BOUNDARY MESH TEETH)
+                ===================================================================== */}
+            <path
+              d={analysisResult.tunnelClosedPathD}
               fill="#ffffff"
-              fillOpacity="0.96"
-              stroke="#cbd5e1"
-              strokeWidth="1.2"
+              stroke="#334155"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
             />
-            <text
-              x={cx}
-              y={cy - 6}
-              textAnchor="middle"
-              fontSize="8.2"
-              fontFamily="IBM Plex Mono, monospace"
-              fontWeight="bold"
-              fill="#334155"
-            >
-              {analysisResult.excavationShapeLabel} ({analysisResult.spanWidthM}×
-              {analysisResult.totalHeightM}m)
-            </text>
-            <text
-              x={cx}
-              y={cy + 7}
-              textAnchor="middle"
-              fontSize="9.2"
-              fontFamily="IBM Plex Mono, monospace"
-              fontWeight="bold"
-              fill={isAfter ? '#047857' : '#b91c1c'}
-            >
-              u_max = {femState.maxDisplacementMm.toFixed(2)} mm
-            </text>
-            <text
-              x={cx}
-              y={cy + 20}
-              textAnchor="middle"
-              fontSize="8.2"
-              fontFamily="IBM Plex Mono, monospace"
-              fontWeight="bold"
-              fill="#0f172a"
-            >
-              FoS(FEM):{femState.continuumFactorOfSafety.toFixed(2)} | DEM:
-              {(isAfter
-                ? analysisResult.minBlockFosAfter
-                : analysisResult.minBlockFosBefore
-              ).toFixed(2)}
-            </text>
+
+            {/* Stepped Invert Floor Recess at Bottom of White Tunnel Cavity (Matching Plaxis/RS2 Reference Image) */}
+            {!isVertShaft && activeLocation.shape !== 'circular' && contourMode !== 'lithology' && (
+              <rect
+                x={cx - boxW * 0.25}
+                y={invertY - 12}
+                width={boxW * 0.5}
+                height={13}
+                fill="#00008b"
+              />
+            )}
+
+            {/* Dense Boundary-Fitted Triangular FEM Liner / Interface Elements Along Tunnel Perimeter */}
+            <g pointerEvents="none">
+              {boundaryTeethTriangles.map((pts, tIdx) => (
+                <polygon
+                  key={`btooth-${tIdx}`}
+                  points={pts}
+                  fill="#ffffff"
+                  fillOpacity="0.82"
+                  stroke="#374151"
+                  strokeWidth="0.85"
+                  strokeLinejoin="round"
+                />
+              ))}
+            </g>
+
+            {/* Dotted Bench Line & Hatched Bench / Top Heading Portion inside Tunnel Cavity */}
+            {mappingDomain === 'TUNNEL' && !isVertShaft && (
+              <FieldTunnelBenchHatchAndLineSvg
+                location={activeLocation}
+                round={activeRound}
+                boxX={cx - boxW / 2}
+                boxY={cy - boxH / 2}
+                boxW={boxW}
+                boxH={boxH}
+                clipPathD={analysisResult.tunnelClosedPathD}
+                darkBackground={false}
+                idSuffix={`fem-${stageType}-${activeRound.id}`}
+              />
+            )}
+
+            {/* Circular Vertical Shaft 4-Quadrant Crosshairs & Half-Face Center Median */}
+            {isVertShaft && (
+              <g pointerEvents="none">
+                <defs>
+                  <pattern
+                    id={`fem-shaft-half-hatch-${stageType}-${activeRound.id}`}
+                    width="8"
+                    height="8"
+                    patternTransform="rotate(45 0 0)"
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <line
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="8"
+                      stroke="#64748b"
+                      strokeWidth="1.6"
+                      strokeOpacity="0.4"
+                    />
+                  </pattern>
+                </defs>
+                {isShaftHalfFace && (
+                  <>
+                    <path
+                      d={
+                        shaftHalfSide === 'right_half'
+                          ? `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 0 ${cx} ${cy + boxW / 2} Z`
+                          : `M ${cx} ${cy - boxW / 2} A ${boxW / 2} ${boxW / 2} 0 0 1 ${cx} ${cy + boxW / 2} Z`
+                      }
+                      fill={`url(#fem-shaft-half-hatch-${stageType}-${activeRound.id})`}
+                    />
+                    <line
+                      x1={cx}
+                      y1={cy - boxW / 2}
+                      x2={cx}
+                      y2={cy + boxW / 2}
+                      stroke={shaftMedianStatus === 'closed' ? '#dc2626' : '#0284c7'}
+                      strokeWidth="2.2"
+                      strokeDasharray={shaftMedianStatus === 'closed' ? undefined : '5 3'}
+                    />
+                  </>
+                )}
+                <line
+                  x1={cx}
+                  y1={cy - boxW / 2 + 4}
+                  x2={cx}
+                  y2={cy + boxW / 2 - 4}
+                  stroke="#94a3b8"
+                  strokeWidth="0.9"
+                  strokeDasharray="4 3"
+                />
+                <line
+                  x1={cx - boxW / 2 + 4}
+                  y1={cy}
+                  x2={cx + boxW / 2 - 4}
+                  y2={cy}
+                  stroke="#94a3b8"
+                  strokeWidth="0.9"
+                  strokeDasharray="4 3"
+                />
+              </g>
+            )}
+
+            {/* Deformed Excavation Profile (Optional Overlay) */}
+            {showDeformedBoundary && (
+              <polygon
+                points={deformedBoundaryPoints}
+                fill={isAfter ? 'rgba(5, 150, 105, 0.06)' : 'rgba(220, 38, 38, 0.08)'}
+                stroke={isAfter ? '#059669' : '#dc2626'}
+                strokeWidth="1.6"
+                strokeDasharray="5 3"
+                pointerEvents="none"
+              />
+            )}
+
+            {/* Compact Telemetry Badge in Top-Left Corner so White Tunnel Cavity Stays Clean Like Plaxis/RS2 */}
+            <g transform="translate(10, 10)" pointerEvents="none">
+              <rect
+                x="0"
+                y="0"
+                width="172"
+                height="42"
+                rx="5"
+                fill="#0f172a"
+                fillOpacity="0.84"
+                stroke="#334155"
+                strokeWidth="1"
+              />
+              <text
+                x="8"
+                y="13"
+                fontSize="8"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#e2e8f0"
+              >
+                {analysisResult.excavationShapeLabel} ({analysisResult.spanWidthM}×
+                {analysisResult.totalHeightM}m)
+              </text>
+              <text
+                x="8"
+                y="25"
+                fontSize="8.8"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill={isAfter ? '#34d399' : '#fca5a5'}
+              >
+                u_max = {femState.maxDisplacementMm.toFixed(2)} mm | dp ={' '}
+                {femState.plasticZoneDepthMeters.toFixed(2)}m
+              </text>
+              <text
+                x="8"
+                y="36"
+                fontSize="7.8"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="bold"
+                fill="#38bdf8"
+              >
+                FoS(FEM): {femState.continuumFactorOfSafety.toFixed(2)} | DEM:{' '}
+                {(isAfter
+                  ? analysisResult.minBlockFosAfter
+                  : analysisResult.minBlockFosBefore
+                ).toFixed(2)}
+              </text>
+            </g>
           </g>
 
-          {/* 8. On-Canvas Vertical Colorbar Legend (Right Edge) */}
-          {showFemLayers && contourMode !== 'lithology' && (
-            <g transform={`translate(${svgW - 42}, 52)`} pointerEvents="none">
-              <rect
-                x="-8"
-                y="-16"
-                width="44"
-                height="182"
-                rx="6"
-                fill="#ffffff"
-                fillOpacity="0.95"
-                stroke="#cbd5e1"
-                strokeWidth="1.2"
-              />
-              <text
-                x="14"
-                y="-4"
-                textAnchor="middle"
-                fontSize="7.5"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0f172a"
-              >
-                {legendMeta.title}
-              </text>
-              <rect
-                x="2"
-                y="4"
-                width="10"
-                height="148"
-                rx="2"
-                fill={`url(#legend-grad-${stageType})`}
-                stroke="#475569"
-                strokeWidth="0.8"
-              />
-              <text
-                x="15"
-                y="12"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#0f172a"
-              >
-                {legendMeta.maxLabel}
-              </text>
-              <text
-                x="15"
-                y="80"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#334155"
-              >
-                {legendMeta.midLabel}
-              </text>
-              <text
-                x="15"
-                y="151"
-                fontSize="7.2"
-                fontFamily="IBM Plex Mono, monospace"
-                fontWeight="bold"
-                fill="#475569"
-              >
-                {legendMeta.minLabel}
-              </text>
-            </g>
-          )}
+          {/* =====================================================================
+              7. RIGHT-HAND WHITE SIDEBAR WITH 11-BAND STEPPED COLORBAR & "UNIFORM" FOOTER
+              ===================================================================== */}
+          <g transform={`translate(${plotW}, 0)`} pointerEvents="none">
+            <rect x="0" y="0" width={svgW - plotW} height={svgH} fill="#ffffff" />
+            <line x1="0" y1="0" x2="0" y2={svgH} stroke="#1e293b" strokeWidth="1" />
 
-          {/* 9. Bottom Scale Bar & Mesh Badge */}
-          <g transform={`translate(18, ${svgH - 20})`} pointerEvents="none">
-            <line
-              x1="0"
-              y1="0"
-              x2={Math.round(scalePxPerM * 2)}
-              y2="0"
-              stroke="#0f172a"
-              strokeWidth="2"
-            />
-            <line x1="0" y1="-4" x2="0" y2="4" stroke="#0f172a" strokeWidth="1.5" />
-            <line
-              x1={Math.round(scalePxPerM * 2)}
-              y1="-4"
-              x2={Math.round(scalePxPerM * 2)}
-              y2="4"
-              stroke="#0f172a"
-              strokeWidth="1.5"
-            />
+            {/* 11 Discrete Stacked Colorbar Boxes at Top Right */}
+            {CONTOUR_RAMP_COLORS.map((cHex, idx) => (
+              <rect
+                key={`cb-step-${idx}`}
+                x="5"
+                y={2 + idx * 13}
+                width={svgW - plotW - 7}
+                height="13"
+                fill={cHex}
+                stroke="#111827"
+                strokeWidth="0.85"
+              />
+            ))}
+
+            {/* Bottom "Uniform" Scale Controls & Range Readout (Matching Plaxis/RS2 Sidebar) */}
             <text
-              x={Math.round(scalePxPerM)}
-              y="-5"
-              textAnchor="middle"
-              fontSize="7.8"
-              fontFamily="IBM Plex Mono, monospace"
-              fontWeight="bold"
-              fill="#0f172a"
+              x="6"
+              y={svgH - 44}
+              fontSize="8.5"
+              fontFamily="Arial, sans-serif"
+              fill="#111827"
             >
-              2.0 m
+              Uniform
+            </text>
+
+            {/* Wrench Icon */}
+            <path
+              d={`M 10 ${svgH - 28} L 16 ${svgH - 34} M 15 ${svgH - 35} A 2.5 2.5 0 1 1 18 ${svgH - 32}`}
+              stroke="#1d4ed8"
+              strokeWidth="1.5"
+              fill="none"
+              strokeLinecap="round"
+            />
+            {/* Plus Box Icon */}
+            <rect
+              x="28"
+              y={svgH - 36}
+              width="8"
+              height="8"
+              fill="#ecfccb"
+              stroke="#15803d"
+              strokeWidth="1"
+            />
+            <line
+              x1="32"
+              y1={svgH - 34.5}
+              x2="32"
+              y2={svgH - 29.5}
+              stroke="#15803d"
+              strokeWidth="1.2"
+            />
+            <line
+              x1="29.5"
+              y1={svgH - 32}
+              x2="34.5"
+              y2={svgH - 32}
+              stroke="#15803d"
+              strokeWidth="1.2"
+            />
+
+            <text
+              x="4"
+              y={svgH - 14}
+              fontSize="7.8"
+              fontFamily="Arial, sans-serif"
+              fill="#111827"
+            >
+              {minReadoutLabel}
             </text>
             <text
-              x={Math.round(scalePxPerM * 2) + 10}
-              y="3"
-              fontSize="8"
-              fontFamily="IBM Plex Mono, monospace"
+              x={svgW - plotW - 4}
+              y={svgH - 3}
+              textAnchor="end"
+              fontSize="7.8"
+              fontFamily="Arial, sans-serif"
               fontWeight="bold"
-              fill="#334155"
+              fill="#111827"
             >
-              3-Node Triangular Mesh ({analysisResult.meshElements.length} CST Elements) • K0=
-              {k0Param?.value ?? 1.15}
+              .. {maxReadoutLabel}
             </text>
           </g>
         </svg>

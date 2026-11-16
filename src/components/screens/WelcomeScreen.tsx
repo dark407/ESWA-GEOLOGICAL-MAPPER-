@@ -108,6 +108,7 @@ export interface WelcomeScreenProps {
   onOpenProbeHoleDrilling?: () => void;
   onOpenGrouting?: () => void;
   onOpenDigitalTwinTunnelBeta?: (resume?: boolean) => void;
+  onOpenDigitalTwinContinuousLog?: () => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
   tunnelMonitoringModalNode?: React.ReactNode;
@@ -157,6 +158,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenProbeHoleDrilling,
   onOpenGrouting,
   onOpenDigitalTwinTunnelBeta,
+  onOpenDigitalTwinContinuousLog,
   projectMemoryModalNode,
   natmRockMechanicsModalNode,
   tunnelMonitoringModalNode,
@@ -437,6 +439,74 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     color: palette.isLightBg ? '#FFFFFF' : '#000000',
                   }}
                   title="Resume 3D Digital Twin Tunnel (BETA) where you stopped"
+                >
+                  <Play
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{
+                      color: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                      fill: palette.isLightBg ? palette.accentHex : palette.primaryHex,
+                    }}
+                  />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 1C. 3D Digital Twin Continuous Tunnel Log — Multi-Round Stitched 3D Corridor & One-Way 3D➔2D Auto-Sync */}
+          <div
+            className="w-full bg-white/95 rounded-xl border-2 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.18)] p-2.5 transition-colors"
+            style={{
+              borderColor: palette.primaryHex,
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2.5 text-left min-w-0">
+                <span
+                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{
+                    backgroundColor: palette.primaryHex + '20',
+                    color: palette.accentIconColor,
+                  }}
+                >
+                  <Compass className="w-4 h-4 shrink-0" />
+                </span>
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-black font-extrabold text-sm sm:text-base truncate">
+                    3D Digital Twin Continuous Tunnel Log
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-mono font-black text-[10px] uppercase tracking-wider shrink-0 shadow-xs">
+                    3D➔2D SYNC
+                  </span>
+                </span>
+              </span>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenDigitalTwinContinuousLog?.();
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-all cursor-pointer active:scale-95"
+                  title="Open 3D Digital Twin Continuous Tunnel Log — Multi-Round Stitched 3D Corridor, Cross-Round 3D Continuity & One-Way 3D➔2D Auto-Sync"
+                >
+                  <span>Open</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFirstOpening(false);
+                    onOpenDigitalTwinContinuousLog?.();
+                  }}
+                  className="px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-[0_8px_24px_-4px_rgba(0,0,0,0.28)] transition-all cursor-pointer border-2 shrink-0 active:scale-95"
+                  style={{
+                    backgroundColor: palette.isLightBg ? '#0F172A' : '#FFFFFF',
+                    borderColor: palette.accentHex,
+                    color: palette.isLightBg ? '#FFFFFF' : '#000000',
+                  }}
+                  title="Resume 3D Digital Twin Continuous Tunnel Log"
                 >
                   <Play
                     className="w-3.5 h-3.5 shrink-0"

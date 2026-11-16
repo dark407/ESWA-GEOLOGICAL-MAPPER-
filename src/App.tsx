@@ -134,6 +134,11 @@ import {
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
 import { FieldMappingModeWorkspace } from './components/FieldMappingModeWorkspace';
 import { DigitalTwinTunnelBetaWorkspace } from './components/DigitalTwinTunnelBetaWorkspace';
+import { DigitalTwinContinuous3DLogWorkspace } from './components/DigitalTwinContinuous3DLogWorkspace';
+import {
+  loadDigitalTwinBetaStore,
+  saveDigitalTwinBetaStore,
+} from './engine/digitalTwin20PhotoEngine';
 import { CoreLoggingWorkspace } from './components/CoreLoggingWorkspace';
 import { DeviceIdAndNotificationHeaderWidget } from './components/DeviceIdReviewAndNotificationCenter';
 import { GlobalSettingsModal } from './components/GlobalSettingsModal';
@@ -340,6 +345,8 @@ export default function App({
   const [isFieldMappingModeOpen, setIsFieldMappingModeOpen] = useState<boolean>(false);
   const [isDigitalTwinBetaOpen, setIsDigitalTwinBetaOpen] = useState<boolean>(false);
   const [resumeDigitalTwinBeta, setResumeDigitalTwinBeta] = useState<boolean>(false);
+  const [isDigitalTwinContinuousLogOpen, setIsDigitalTwinContinuousLogOpen] =
+    useState<boolean>(false);
   const [isCoreLoggingOpen, setIsCoreLoggingOpen] = useState<boolean>(false);
   const [resumeFieldAtLastStage, setResumeFieldAtLastStage] = useState<boolean>(false);
   const [activeFieldWorkflowMode, setActiveFieldWorkflowMode] = useState<
@@ -4210,12 +4217,57 @@ export default function App({
   }
 
   // ============================================================================
+  // STANDALONE 3D DIGITAL TWIN CONTINUOUS TUNNEL LOG (MULTI-ROUND 3D CORRIDOR)
+  // ============================================================================
+  if (isDigitalTwinContinuousLogOpen) {
+    return (
+      <DigitalTwinContinuous3DLogWorkspace
+        onBackToMainMenu={() => {
+          setIsDigitalTwinContinuousLogOpen(false);
+          if (industryMode === 'NATM') {
+            setScreen('welcome');
+          }
+        }}
+        onOpenSingleRoundIn3DTwin={(
+          projectId,
+          locationId,
+          roundId,
+          targetStep = 'reconstruct_3d'
+        ) => {
+          const currentDtStore = loadDigitalTwinBetaStore();
+          saveDigitalTwinBetaStore({
+            ...currentDtStore,
+            activeProjectId: projectId,
+            activeLocationId: locationId,
+            activeRoundId: roundId,
+            lastActiveStep: targetStep,
+          });
+          setIsDigitalTwinContinuousLogOpen(false);
+          setResumeDigitalTwinBeta(true);
+          setIsDigitalTwinBetaOpen(true);
+        }}
+        onOpenSynced2DUndergroundMapping={() => {
+          setIsDigitalTwinContinuousLogOpen(false);
+          setActiveMappingDomain('TUNNEL');
+          setActiveFieldWorkflowMode('field_mapping');
+          setResumeFieldAtLastStage(true);
+          setIsFieldMappingModeOpen(true);
+        }}
+      />
+    );
+  }
+
+  // ============================================================================
   // STANDALONE 3D DIGITAL TWIN TUNNEL (BETA) — 20-PHOTO REAL-EDGE RECONSTRUCTION
   // ============================================================================
   if (isDigitalTwinBetaOpen) {
     return (
       <DigitalTwinTunnelBetaWorkspace
         resumeAtLastStep={resumeDigitalTwinBeta}
+        onOpenContinuous3DTwinLog={() => {
+          setIsDigitalTwinBetaOpen(false);
+          setIsDigitalTwinContinuousLogOpen(true);
+        }}
         onBackToMainMenu={() => {
           setIsDigitalTwinBetaOpen(false);
           setResumeDigitalTwinBeta(false);
@@ -4277,6 +4329,9 @@ export default function App({
         onOpenDigitalTwinTunnelBeta={(resume = false) => {
           setResumeDigitalTwinBeta(resume);
           setIsDigitalTwinBetaOpen(true);
+        }}
+        onOpenDigitalTwinContinuousLog={() => {
+          setIsDigitalTwinContinuousLogOpen(true);
         }}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}

@@ -61,6 +61,14 @@ export interface DigitalTwinCapturedPhotoSlot {
   estimatedOverlapPct: number; // 0 to 100
   /** 24x24 sampled RGB & luminance relief map [r,g,b,lum] normalized 0..1 */
   sampledGrid24?: number[];
+  /** Dominant Sobel edge fracture orientation (15..86 deg) measured directly from the uploaded image */
+  dominantFractureAngleDeg?: number;
+  /** High-contrast linear fracture edge density (10..98 %) measured from the uploaded image */
+  fractureDensityPct?: number;
+  /** Mean RGB color [r,g,b] (0..1) of the uploaded image */
+  meanColorRgb?: [number, number, number];
+  /** Deterministic content fingerprint hash computed from actual pixel luminance & RGB */
+  photoFingerprintHash?: number;
 }
 
 export interface DigitalTwinLocationRecord {
@@ -435,12 +443,48 @@ export const DIGITAL_TWIN_20_PHOTO_SPECS: DigitalTwinPhotoSlotSpec[] = [
   },
 ];
 
+const IN_MEMORY_SLOT_DATAURL_CACHE = new Map<string, string>();
+
+export function isPhotoSlotPopulated(
+  slot?: DigitalTwinCapturedPhotoSlot | null
+): boolean {
+  if (!slot) return false;
+  if (slot.dataUrl && slot.dataUrl.length > 64) return true;
+  if (slot.sampledGrid24 && slot.sampledGrid24.length >= 24 * 24 * 4) return true;
+  return false;
+}
+
 export function loadDigitalTwinBetaStore(): DigitalTwinBetaStore {
   try {
     const raw = localStorage.getItem(DIGITAL_TWIN_BETA_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.projects) && Array.isArray(parsed.rounds)) {
+      if (
+        parsed &&
+        Array.isArray(parsed.projects) &&
+        Array.isArray(parsed.rounds)
+      ) {
+        // Restore any in-memory full-res dataUrls and clean empty uninitialized placeholder slots
+        parsed.rounds = parsed.rounds.map((r: DigitalTwinRoundRecord) => {
+          const cleanedSlots: Record<number, DigitalTwinCapturedPhotoSlot> = {};
+          for (const [k, slot] of Object.entries(r.photosBySlot || {})) {
+            const slotNum = Number(k);
+            const cachedUrl = IN_MEMORY_SLOT_DATAURL_CACHE.get(
+              `${r.id}:${slotNum}`
+            );
+            const hydrated: DigitalTwinCapturedPhotoSlot = {
+              ...slot,
+              dataUrl: cachedUrl || slot.dataUrl || '',
+            };
+            if (isPhotoSlotPopulated(hydrated)) {
+              cleanedSlots[slotNum] = hydrated;
+            }
+          }
+          return {
+            ...r,
+            photosBySlot: cleanedSlots,
+          };
+        });
         return parsed;
       }
     }
@@ -458,16 +502,73 @@ export function loadDigitalTwinBetaStore(): DigitalTwinBetaStore {
 }
 
 export function saveDigitalTwinBetaStore(store: DigitalTwinBetaStore): void {
+  // Always cache full dataUrls in memory so current session never loses high-res textures
+  for (const r of store.rounds || []) {
+    for (const [k, slot] of Object.entries(r.photosBySlot || {})) {
+      if (slot && slot.dataUrl && slot.dataUrl.length > 64) {
+        IN_MEMORY_SLOT_DATAURL_CACHE.set(`${r.id}:${Number(k)}`, slot.dataUrl);
+      }
+    }
+  }
   try {
     localStorage.setItem(DIGITAL_TWIN_BETA_STORAGE_KEY, JSON.stringify(store));
   } catch {
-    // If quota exceeded due to large base64 photos, trim sampled dataUrl resolution
+    // Quota exceeded due to 20 base64 photos: persist compact store with sampledGrid24 + metadata while keeping dataUrls in memory
+    try {
+      const compactStore: DigitalTwinBetaStore = {
+        ...store,
+        rounds: store.rounds.map((r, rIdx) => {
+          const isActiveRound =
+            r.id === store.activeRoundId || rIdx === store.rounds.length - 1;
+          const compactSlots: Record<number, DigitalTwinCapturedPhotoSlot> = {};
+          for (const [k, slot] of Object.entries(r.photosBySlot || {})) {
+            compactSlots[Number(k)] = {
+              ...slot,
+              // Keep active round dataUrl if possible, strip older rounds' base64 strings
+              dataUrl: isActiveRound ? slot.dataUrl : '',
+            };
+          }
+          return {
+            ...r,
+            photosBySlot: compactSlots,
+          };
+        }),
+      };
+      localStorage.setItem(
+        DIGITAL_TWIN_BETA_STORAGE_KEY,
+        JSON.stringify(compactStore)
+      );
+    } catch {
+      try {
+        const ultraCompact: DigitalTwinBetaStore = {
+          ...store,
+          rounds: store.rounds.map((r) => {
+            const slotsNoB64: Record<number, DigitalTwinCapturedPhotoSlot> = {};
+            for (const [k, slot] of Object.entries(r.photosBySlot || {})) {
+              slotsNoB64[Number(k)] = {
+                ...slot,
+                dataUrl: '',
+              };
+            }
+            return { ...r, photosBySlot: slotsNoB64 };
+          }),
+        };
+        localStorage.setItem(
+          DIGITAL_TWIN_BETA_STORAGE_KEY,
+          JSON.stringify(ultraCompact)
+        );
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
 /**
- * Analyzes an uploaded or camera-captured photo and extracts a 24x24 RGB + Luminance relief grid
- * plus sharpness and exposure metrics for true 3D surface displacement.
+ * Analyzes an uploaded or camera-captured photo and extracts:
+ * - 24x24 RGB + Luminance relief grid (`sampledGrid24`)
+ * - Sobel edge gradient orientation (`dominantFractureAngleDeg`) & fracture density (`fractureDensityPct`)
+ * - Mean rock RGB color (`meanColorRgb`) & deterministic pixel fingerprint (`photoFingerprintHash`)
  */
 export async function analyzePhotoForDigitalTwinSlot(
   dataUrl: string,
@@ -490,7 +591,14 @@ export async function analyzePhotoForDigitalTwinSlot(
       const ctx = canvas.getContext('2d');
       const sampledGrid24: number[] = [];
       let sumLum = 0;
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
       let sumGrad = 0;
+      let strongEdgeCount = 0;
+      let weightedAngleSin = 0;
+      let weightedAngleCos = 0;
+      let hashAcc = 2166136261;
 
       if (ctx) {
         ctx.drawImage(img, 0, 0, gridN, gridN);
@@ -509,27 +617,76 @@ export async function analyzePhotoForDigitalTwinSlot(
           );
           lums.push(lum);
           sumLum += lum;
+          sumR += r;
+          sumG += g;
+          sumB += b;
+          const qByte = Math.round(lum * 255) ^ (Math.round(r * 127) << 1);
+          hashAcc = Math.imul(hashAcc ^ qByte, 16777619) >>> 0;
         }
-        for (let y = 0; y < gridN - 1; y++) {
-          for (let x = 0; x < gridN - 1; x++) {
+
+        // Sobel 3x3 edge gradient & dominant rock fracture inclination analysis
+        for (let y = 1; y < gridN - 1; y++) {
+          for (let x = 1; x < gridN - 1; x++) {
             const idx = y * gridN + x;
-            const dx = Math.abs(lums[idx + 1] - lums[idx]);
-            const dy = Math.abs(lums[idx + gridN] - lums[idx]);
-            sumGrad += dx + dy;
+            const gx =
+              -lums[(y - 1) * gridN + (x - 1)] +
+              lums[(y - 1) * gridN + (x + 1)] -
+              2 * lums[y * gridN + (x - 1)] +
+              2 * lums[y * gridN + (x + 1)] -
+              lums[(y + 1) * gridN + (x - 1)] +
+              lums[(y + 1) * gridN + (x + 1)];
+            const gy =
+              -lums[(y - 1) * gridN + (x - 1)] -
+              2 * lums[(y - 1) * gridN + x] -
+              lums[(y - 1) * gridN + (x + 1)] +
+              lums[(y + 1) * gridN + (x - 1)] +
+              2 * lums[(y + 1) * gridN + x] +
+              lums[(y + 1) * gridN + (x + 1)];
+
+            const mag = Math.hypot(gx, gy);
+            sumGrad += Math.abs(lums[idx + 1] - lums[idx]) + Math.abs(lums[idx + gridN] - lums[idx]);
+            if (mag > 0.14) {
+              strongEdgeCount++;
+              // Strike/trace angle is perpendicular to gradient vector (gx, gy)
+              const traceAngleRad = Math.atan2(gx, -gy);
+              const doubled = traceAngleRad * 2;
+              weightedAngleSin += Math.sin(doubled) * mag;
+              weightedAngleCos += Math.cos(doubled) * mag;
+            }
           }
         }
       }
 
-      const meanLum = sampledGrid24.length > 0 ? sumLum / (gridN * gridN) : 0.48;
+      const totalCells = gridN * gridN;
+      const meanLum = sampledGrid24.length > 0 ? sumLum / totalCells : 0.48;
+      const meanColorRgb: [number, number, number] = [
+        Number((sumR / totalCells).toFixed(3)),
+        Number((sumG / totalCells).toFixed(3)),
+        Number((sumB / totalCells).toFixed(3)),
+      ];
       const exposureBalancePct = Math.round(
         Math.max(55, Math.min(99, 100 - Math.abs(meanLum - 0.5) * 90))
       );
       const sharpnessScore = Math.round(
-        Math.max(68, Math.min(98, 72 + (sumGrad / (gridN * gridN)) * 180))
+        Math.max(68, Math.min(98, 72 + (sumGrad / totalCells) * 180))
       );
 
-      // Compress full image to practical canvas size so 20 photos fit smoothly in memory
-      const maxDim = 720;
+      const rawAngleDeg =
+        (Math.abs(Math.atan2(weightedAngleSin, weightedAngleCos) * 0.5) * 180) /
+        Math.PI;
+      const dominantFractureAngleDeg = Math.round(
+        Math.max(18, Math.min(86, rawAngleDeg || 58))
+      );
+      const fractureDensityPct = Math.round(
+        Math.max(
+          16,
+          Math.min(96, (strongEdgeCount / ((gridN - 2) * (gridN - 2))) * 145)
+        )
+      );
+      const photoFingerprintHash = (hashAcc % 90000) + 10000;
+
+      // Compress image so 20 photos fit smoothly and render fast into the 3D texture atlas
+      const maxDim = 560;
       let targetW = img.naturalWidth || 800;
       let targetH = img.naturalHeight || 600;
       if (targetW > maxDim || targetH > maxDim) {
@@ -544,7 +701,7 @@ export async function analyzePhotoForDigitalTwinSlot(
       let compressedDataUrl = dataUrl;
       if (outCtx) {
         outCtx.drawImage(img, 0, 0, targetW, targetH);
-        compressedDataUrl = outCanvas.toDataURL('image/jpeg', 0.82);
+        compressedDataUrl = outCanvas.toDataURL('image/jpeg', 0.78);
       }
 
       resolve({
@@ -560,6 +717,10 @@ export async function analyzePhotoForDigitalTwinSlot(
         exposureBalancePct,
         estimatedOverlapPct: spec.targetOverlapPct,
         sampledGrid24,
+        dominantFractureAngleDeg,
+        fractureDensityPct,
+        meanColorRgb,
+        photoFingerprintHash,
       });
     };
     img.onerror = () => {
@@ -575,6 +736,10 @@ export async function analyzePhotoForDigitalTwinSlot(
         sharpnessScore: 84,
         exposureBalancePct: 88,
         estimatedOverlapPct: spec.targetOverlapPct,
+        dominantFractureAngleDeg: 58,
+        fractureDensityPct: 48,
+        meanColorRgb: [0.54, 0.56, 0.59],
+        photoFingerprintHash: 42137 + slotNumber * 97,
       });
     };
     img.src = dataUrl;
@@ -973,6 +1138,8 @@ export interface Extracted3DJointAndDipSurface {
 export interface Reconstructed3DTunnelModel {
   /** Interleaved or flat Float32Array of vertex positions (x, y, z) for the irregular rock mesh */
   positions: Float32Array;
+  /** UV texture coordinates (u, v) for mapping the stitched 20-Photo Texture Atlas onto the 3D tunnel */
+  uvs: Float32Array;
   /** Triangle indices for the irregular rock excavation + advancing face mesh */
   indices: Uint32Array;
   /** Per-vertex RGB colors derived from multi-view blended 20 photos + rock shading */
@@ -994,6 +1161,10 @@ export interface Reconstructed3DTunnelModel {
   extracted3DJoints: Extracted3DJointAndDipSurface[];
   /** Detected 3D Unstable Key-Block Wedges on Crown & Haunches */
   detected3DWedges: Detected3DRockWedge[];
+  /** Number of populated photo slots used in this reconstruction */
+  uploadedPhotoCount: number;
+  /** True when reconstructed from uploaded/captured 20-photo stereo imagery */
+  isPhotoDrivenReconstruction: boolean;
   /** Summary QA metrics */
   totalVertices: number;
   totalTriangles: number;
@@ -1007,8 +1178,86 @@ export interface Reconstructed3DTunnelModel {
 }
 
 /**
+ * Stitches the uploaded 20 photos (Stations 1..4 x 5 Angles) into a seamless 1024x1024
+ * multi-view photogrammetric texture atlas canvas so Three.js can wrap the user's real
+ * uploaded photographs directly onto the 3D tunnel walls, crown arch, and advancing face.
+ */
+export async function buildStitched20PhotoTextureCanvas(
+  round: DigitalTwinRoundRecord
+): Promise<HTMLCanvasElement | null> {
+  const slots = Object.values(round.photosBySlot || {}).filter(
+    (s) => s && s.dataUrl && s.dataUrl.length > 64
+  );
+  if (slots.length === 0) return null;
+
+  const atlas = document.createElement('canvas');
+  atlas.width = 1024;
+  atlas.height = 1024;
+  const ctx = atlas.getContext('2d');
+  if (!ctx) return null;
+
+  // Base rock tone
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Load all available slot images in parallel
+  const loadedImages = await Promise.all(
+    slots.map(
+      (slot) =>
+        new Promise<{
+          slot: DigitalTwinCapturedPhotoSlot;
+          img: HTMLImageElement | null;
+        }>((resolve) => {
+          const im = new Image();
+          im.crossOrigin = 'anonymous';
+          im.onload = () => resolve({ slot, img: im });
+          im.onerror = () => resolve({ slot, img: null });
+          im.src = slot.dataUrl;
+        })
+    )
+  );
+
+  const validImgs = loadedImages.filter((item) => item.img !== null) as {
+    slot: DigitalTwinCapturedPhotoSlot;
+    img: HTMLImageElement;
+  }[];
+  if (validImgs.length === 0) return null;
+
+  // Top 75% of atlas (y: 0..768) = Tunnel Perimeter (Left Wall -> Crown Arch -> Right Wall)
+  // Bottom 25% of atlas (y: 768..1024) = Advancing Face
+  validImgs.sort((a, b) => a.slot.slotNumber - b.slot.slotNumber);
+
+  const n = validImgs.length;
+  const colW = 1024 / n;
+  for (let i = 0; i < n; i++) {
+    const { img } = validImgs[i];
+    const x0 = Math.max(0, Math.floor(i * colW - 12));
+    const drawW = Math.min(1024 - x0, Math.ceil(colW + 24));
+    ctx.globalAlpha = i === 0 ? 1.0 : 0.92;
+    ctx.drawImage(img, x0, 0, drawW, 768);
+  }
+
+  // Advancing face region (y: 768..1024): blend direct face shots (#3, #8, #13, #18) or all available
+  const faceCandidates = validImgs.filter((v) =>
+    [3, 7, 8, 13, 14, 18].includes(v.slot.slotNumber)
+  );
+  const faceSet = faceCandidates.length > 0 ? faceCandidates : validImgs;
+  const faceW = 1024 / faceSet.length;
+  for (let i = 0; i < faceSet.length; i++) {
+    const { img } = faceSet[i];
+    const x0 = Math.max(0, Math.floor(i * faceW - 10));
+    const drawW = Math.min(1024 - x0, Math.ceil(faceW + 20));
+    ctx.globalAlpha = 0.95;
+    ctx.drawImage(img, x0, 768, drawW, 256);
+  }
+  ctx.globalAlpha = 1.0;
+
+  return atlas;
+}
+
+/**
  * Deterministic multi-octave rock fracture & stereo relief displacement function
- * driven by the actual luminance gradients of the 20 uploaded/captured photos.
+ * driven by the actual luminance gradients, RGB pixels, and Sobel edge density of the 20 uploaded photos.
  */
 function sampleMultiViewStereoRockRelief(
   thetaNorm: number, // 0..1 around perimeter
@@ -1030,6 +1279,8 @@ function sampleMultiViewStereoRockRelief(
   let bAcc = 0;
   let lumAcc = 0;
   let lumContrastAcc = 0;
+  let fracDensityAcc = 0;
+  let domAngleAcc = 0;
 
   for (let i = 0; i < photosList.length; i++) {
     const p = photosList[i];
@@ -1037,66 +1288,93 @@ function sampleMultiViewStereoRockRelief(
       DIGITAL_TWIN_20_PHOTO_SPECS.find((s) => s.slotNumber === p.slotNumber) ||
       DIGITAL_TWIN_20_PHOTO_SPECS[0];
     const stDist = Math.abs(spec.stationNumber - targetStationFloat);
-    const w = 1 / (0.35 + stDist * stDist);
+    const angleTarget = 1 + zNorm * 4;
+    const angDist = Math.abs(spec.angleIndexInStation - angleTarget);
+    const w = 1 / (0.22 + stDist * stDist * 1.4 + angDist * 0.25);
 
     if (p.sampledGrid24 && p.sampledGrid24.length >= 24 * 24 * 4) {
-      const gx = Math.min(23, Math.max(0, Math.floor(((thetaNorm * 1.7 + spec.angleIndexInStation * 0.13) % 1) * 24)));
-      const gy = Math.min(23, Math.max(0, Math.floor(((zNorm * 0.85 + spec.angleIndexInStation * 0.17) % 1) * 24)));
+      // Bilinear-style lookup across the photo's 24x24 grid
+      const uCoord = ((thetaNorm * 2.2 + spec.angleIndexInStation * 0.11) % 1 + 1) % 1;
+      const vCoord = ((zNorm * 0.92 + spec.stationNumber * 0.07) % 1 + 1) % 1;
+      const gx = Math.min(23, Math.max(0, Math.floor(uCoord * 24)));
+      const gy = Math.min(23, Math.max(0, Math.floor(vCoord * 24)));
       const baseIdx = (gy * 24 + gx) * 4;
       const pr = p.sampledGrid24[baseIdx];
       const pg = p.sampledGrid24[baseIdx + 1];
       const pb = p.sampledGrid24[baseIdx + 2];
       const plum = p.sampledGrid24[baseIdx + 3];
 
-      const nextIdx = (gy * 24 + ((gx + 1) % 24)) * 4;
-      const contrast = Math.abs(plum - p.sampledGrid24[nextIdx + 3]);
+      const nextXIdx = (gy * 24 + ((gx + 1) % 24)) * 4;
+      const nextYIdx = (((gy + 1) % 24) * 24 + gx) * 4;
+      const contrast =
+        Math.abs(plum - p.sampledGrid24[nextXIdx + 3]) +
+        Math.abs(plum - p.sampledGrid24[nextYIdx + 3]);
 
       rAcc += pr * w;
       gAcc += pg * w;
       bAcc += pb * w;
       lumAcc += plum * w;
       lumContrastAcc += contrast * w;
+      fracDensityAcc += (p.fractureDensityPct ?? 48) * w;
+      domAngleAcc += (p.dominantFractureAngleDeg ?? 58) * w;
       weightSum += w;
     }
   }
 
-  // Natural warm-slate / granite rock colors suitable for bright daylight CAD viewport
-  const baseR = weightSum > 0 ? rAcc / weightSum : 0.56;
-  const baseG = weightSum > 0 ? gAcc / weightSum : 0.58;
-  const baseB = weightSum > 0 ? bAcc / weightSum : 0.61;
-  const baseLum = weightSum > 0 ? lumAcc / weightSum : 0.52;
-  const baseContrast = weightSum > 0 ? lumContrastAcc / weightSum : 0.09;
+  const hasPhotoSamples = weightSum > 0;
+  // Use actual uploaded photo RGB & luminance when present
+  const baseR = hasPhotoSamples ? rAcc / weightSum : 0.56;
+  const baseG = hasPhotoSamples ? gAcc / weightSum : 0.58;
+  const baseB = hasPhotoSamples ? bAcc / weightSum : 0.61;
+  const baseLum = hasPhotoSamples ? lumAcc / weightSum : 0.52;
+  const baseContrast = hasPhotoSamples ? lumContrastAcc / weightSum : 0.09;
+  const meanFracDensity = hasPhotoSamples ? fracDensityAcc / weightSum : 45;
+  const meanDomAngleRad =
+    ((hasPhotoSamples ? domAngleAcc / weightSum : 58) * Math.PI) / 180;
 
-  // Multi-scale structural rock ledges, blast step-offs, and wedge overbreak facets
   const a1 = thetaNorm * Math.PI * 2;
   const z1 = zNorm * Math.PI * 2;
 
-  // Primary structural joint block step-offs (creates angular rock facets, not smooth waves)
-  const blockWave1 = Math.sin(a1 * 5 + z1 * 1.4 + seedOffset);
-  const blockFacet1 = Math.sign(blockWave1) * Math.pow(Math.abs(blockWave1), 0.55) * 0.24;
+  // Photo-driven structural joint block step-offs oriented along the photo's measured Sobel fracture angle
+  const freq1 = 4 + Math.round((meanFracDensity / 100) * 4);
+  const blockWave1 = Math.sin(
+    a1 * freq1 * Math.sin(meanDomAngleRad) +
+      z1 * 2.2 * Math.cos(meanDomAngleRad) +
+      seedOffset
+  );
+  const blockFacet1 =
+    Math.sign(blockWave1) *
+    Math.pow(Math.abs(blockWave1), 0.55) *
+    (0.16 + (meanFracDensity / 100) * 0.14);
 
-  // Secondary conjugate joint set relief
-  const blockWave2 = Math.cos(a1 * 9 - z1 * 2.3 + seedOffset * 1.7);
-  const blockFacet2 = Math.sign(blockWave2) * Math.pow(Math.abs(blockWave2), 0.6) * 0.14;
+  // Secondary conjugate joint set relief driven by photo contrast
+  const blockWave2 = Math.cos(a1 * 8 - z1 * 2.4 + seedOffset * 1.3);
+  const blockFacet2 =
+    Math.sign(blockWave2) *
+    Math.pow(Math.abs(blockWave2), 0.6) *
+    (0.09 + baseContrast * 0.35);
 
-  // High-frequency jagged rock break & blast socket roughness
-  const jaggedBreak =
-    Math.sin(a1 * 23 + z1 * 7.5) * 0.065 +
-    Math.cos(a1 * 41 - z1 * 13.0) * 0.038 +
-    (baseLum - 0.48) * 0.32 +
-    baseContrast * 0.45;
+  // Direct photo luminance & edge relief (dark rock crevices recess/step sharply, bright facets protrude)
+  const photoDirectRelief = hasPhotoSamples
+    ? (0.5 - baseLum) * 0.42 + baseContrast * 0.68
+    : Math.sin(a1 * 23 + z1 * 7.5) * 0.05;
 
-  // Crown & shoulder localized overbreak pockets (typical in drill & blast NATM tunnels)
-  const crownFactor = Math.exp(-Math.pow((thetaNorm - 0.48) / 0.18, 2));
-  const crownOverbreakM = crownFactor * (0.16 + 0.12 * Math.sin(z1 * 1.5 + seedOffset));
+  // Crown & shoulder localized overbreak pockets modulated by uploaded photo fracture density
+  const crownFactor = Math.exp(-Math.pow((thetaNorm - 0.48) / 0.2, 2));
+  const crownOverbreakM =
+    crownFactor *
+    (0.12 +
+      (meanFracDensity / 100) * 0.14 +
+      0.1 * Math.sin(z1 * 1.5 + seedOffset));
 
-  const radialDisplacementM = blockFacet1 + blockFacet2 + jaggedBreak + crownOverbreakM;
+  const radialDisplacementM =
+    blockFacet1 + blockFacet2 + photoDirectRelief + crownOverbreakM;
 
-  // Modulate rock RGB with facet shading so every rock edge looks crisp and 3D on a white light background
-  const facetShade = 0.92 + Math.tanh(radialDisplacementM * 2.6) * 0.24;
-  const r = Math.min(0.92, Math.max(0.18, baseR * facetShade));
-  const g = Math.min(0.92, Math.max(0.18, baseG * facetShade));
-  const b = Math.min(0.94, Math.max(0.2, baseB * facetShade));
+  // Preserve the true colors of the uploaded photos while adding crisp 3D facet relief shading
+  const facetShade = 0.94 + Math.tanh(radialDisplacementM * 2.2) * 0.18;
+  const r = Math.min(0.98, Math.max(0.12, baseR * facetShade));
+  const g = Math.min(0.98, Math.max(0.12, baseG * facetShade));
+  const b = Math.min(0.98, Math.max(0.14, baseB * facetShade));
 
   return {
     radialDisplacementM,
@@ -1118,13 +1396,29 @@ export function reconstructReal3DTunnelFrom20Photos(
   const basePts = designLoop.points;
   const isClosed = designLoop.isClosed;
 
-  const photosList = Object.values(round.photosBySlot || {});
+  const photosList = Object.values(round.photosBySlot || {}).filter(
+    isPhotoSlotPopulated
+  );
   const pullLengthM = Math.max(1.5, Number(round.pullLengthM) || 3.5);
   const W = Math.max(2, Number(location.widthM) || 8.5);
   const H = Math.max(2, Number(location.heightM) || 7.2);
   const centerY = H * 0.45;
-  const seedOffset = (round.chainageFromM || 100) * 0.13 + photosList.length * 0.37;
-  const driveAzimuth = Number(round.driveAzimuthDeg ?? location.defaultDriveAzimuthDeg ?? 45);
+
+  // Compute deterministic content signature from the actual uploaded photos so every photo set builds a unique 3D model
+  const photoHashSum = photosList.reduce(
+    (acc, p, idx) =>
+      acc +
+      (p.photoFingerprintHash ||
+        Math.round((p.sampledGrid24?.[3] ?? 0.5) * 10000) + idx * 131),
+    0
+  );
+  const seedOffset =
+    (round.chainageFromM || 100) * 0.13 +
+    photosList.length * 0.37 +
+    (photoHashSum % 1000) * 0.017;
+  const driveAzimuth = Number(
+    round.driveAzimuthDeg ?? location.defaultDriveAzimuthDeg ?? 45
+  );
 
   // Resample design perimeter into N_PERIM high-resolution stations so rock facets are sharp
   const N_PERIM = 96;
@@ -1150,6 +1444,7 @@ export function reconstructReal3DTunnelFrom20Photos(
   const totalVertices = wallVertCount + faceVertCount;
 
   const positions = new Float32Array(totalVertices * 3);
+  const uvs = new Float32Array(totalVertices * 2);
   const colors = new Float32Array(totalVertices * 3);
   const deviationColors = new Float32Array(totalVertices * 3);
   const normalColors = new Float32Array(totalVertices * 3);
@@ -1196,10 +1491,15 @@ export function reconstructReal3DTunnelFrom20Photos(
       const realX = dPt.x + nx * relief.radialDisplacementM;
       const realY = dPt.y + ny * relief.radialDisplacementM;
 
-      const vIdx = (iz * N_PERIM + ip) * 3;
+      const vertIndex = iz * N_PERIM + ip;
+      const vIdx = vertIndex * 3;
       positions[vIdx] = realX;
       positions[vIdx + 1] = realY;
       positions[vIdx + 2] = zPos;
+
+      // UV maps perimeter (u: 0..1) and tunnel advance (v: 0.25..1.0 corresponding to top 75% of atlas)
+      uvs[vertIndex * 2] = thetaNorm;
+      uvs[vertIndex * 2 + 1] = 0.25 + zNorm * 0.75;
 
       colors[vIdx] = relief.r;
       colors[vIdx + 1] = relief.g;
@@ -1207,9 +1507,12 @@ export function reconstructReal3DTunnelFrom20Photos(
 
       // 3D Surface Normal & Dip Orientation RGB encoding
       const nzLocal = Math.sin(thetaNorm * Math.PI * 6 + zNorm * 4) * 0.35;
-      normalColors[vIdx] = Math.min(1, Math.max(0.15, 0.5 + (-nx) * 0.48));
-      normalColors[vIdx + 1] = Math.min(1, Math.max(0.15, 0.5 + (-ny) * 0.48));
-      normalColors[vIdx + 2] = Math.min(1, Math.max(0.2, 0.65 + nzLocal * 0.35));
+      normalColors[vIdx] = Math.min(1, Math.max(0.15, 0.5 + -nx * 0.48));
+      normalColors[vIdx + 1] = Math.min(1, Math.max(0.15, 0.5 + -ny * 0.48));
+      normalColors[vIdx + 2] = Math.min(
+        1,
+        Math.max(0.2, 0.65 + nzLocal * 0.35)
+      );
 
       const devCm = Math.round(relief.radialDisplacementM * 100);
       radialDeviationsCm.push(devCm);
@@ -1285,10 +1588,15 @@ export function reconstructReal3DTunnelFrom20Photos(
       const dishDepthM =
         (1 - rNorm * rNorm) * (0.42 + faceRelief.radialDisplacementM * 1.35);
 
-      const vIdx = (wallVertCount + ir * N_PERIM + ip) * 3;
+      const vertIndex = wallVertCount + ir * N_PERIM + ip;
+      const vIdx = vertIndex * 3;
       positions[vIdx] = bx;
       positions[vIdx + 1] = by;
       positions[vIdx + 2] = faceZBase - dishDepthM;
+
+      // UV maps advancing face into bottom 25% of stitched photo atlas (v: 0..0.25)
+      uvs[vertIndex * 2] = Math.min(1, Math.max(0, (bx / W) + 0.5));
+      uvs[vertIndex * 2 + 1] = Math.min(0.24, Math.max(0.01, (by / H) * 0.24));
 
       colors[vIdx] = faceRelief.r * 0.94;
       colors[vIdx + 1] = faceRelief.g * 0.94;
@@ -1659,11 +1967,13 @@ export function reconstructReal3DTunnelFrom20Photos(
           W,
           H,
           pullLengthM,
-          driveAzimuth
+          driveAzimuth,
+          photosList
         );
 
   return {
     positions,
+    uvs,
     indices: new Uint32Array(triList),
     colors,
     deviationColors,
@@ -1675,6 +1985,8 @@ export function reconstructReal3DTunnelFrom20Photos(
     extracted3DFacets,
     extracted3DJoints,
     detected3DWedges,
+    uploadedPhotoCount: photosList.length,
+    isPhotoDrivenReconstruction: photosList.length > 0,
     totalVertices,
     totalTriangles: Math.floor(triList.length / 3),
     totalPointCloudCount,
@@ -2392,8 +2704,38 @@ export function extractMultiMethod3DJointsAndDipSurfaces(
   W: number,
   H: number,
   pullLengthM: number,
-  driveAzimuthDeg: number
+  driveAzimuthDeg: number,
+  photosList: DigitalTwinCapturedPhotoSlot[] = []
 ): Extracted3DJointAndDipSurface[] {
+  // Compute station-by-station Sobel edge fracture angles & fingerprints from the user's uploaded photos
+  const getStationPhotoDrive = (stationId: DigitalTwinCameraStationId) => {
+    const stPhotos = photosList.filter((p) => p.stationId === stationId);
+    if (stPhotos.length === 0) {
+      return { angleShiftDeg: 0, azShiftDeg: 0, pShift: 0, zShift: 0, jrcShift: 0 };
+    }
+    const meanAngle =
+      stPhotos.reduce((s, p) => s + (p.dominantFractureAngleDeg ?? 58), 0) /
+      stPhotos.length;
+    const meanDensity =
+      stPhotos.reduce((s, p) => s + (p.fractureDensityPct ?? 48), 0) /
+      stPhotos.length;
+    const hashSum = stPhotos.reduce(
+      (s, p) => s + (p.photoFingerprintHash ?? 35000),
+      0
+    );
+    const angleShiftDeg = Math.round((meanAngle - 58) * 0.55);
+    const azShiftDeg = ((hashSum % 46) - 23);
+    const pShift = Math.round((((hashSum >> 3) % 9) - 4) * (N_PERIM / 96));
+    const zShift = Math.round((((hashSum >> 7) % 7) - 3) * (N_Z / 36));
+    const jrcShift = Number((((meanDensity - 48) / 50) * 2.4).toFixed(1));
+    return { angleShiftDeg, azShiftDeg, pShift, zShift, jrcShift };
+  };
+
+  const st1Drive = getStationPhotoDrive('station_1');
+  const st2Drive = getStationPhotoDrive('station_2');
+  const st3Drive = getStationPhotoDrive('station_3');
+  const st4Drive = getStationPhotoDrive('station_4');
+
   const specs: {
     code: string;
     zone: Tunnel3DExcavationZone;
@@ -2642,7 +2984,34 @@ export function extractMultiMethod3DJointsAndDipSurfaces(
   const out: Extracted3DJointAndDipSurface[] = [];
 
   for (let idx = 0; idx < specs.length; idx++) {
-    const sp = specs[idx];
+    const rawSp = specs[idx];
+    const zDrive =
+      rawSp.zone === 'Left Wall'
+        ? st1Drive
+        : rawSp.zone === 'Crown Arch'
+        ? st2Drive
+        : rawSp.zone === 'Right Wall'
+        ? st4Drive
+        : st3Drive;
+
+    const sp = {
+      ...rawSp,
+      pStart: Math.min(N_PERIM - 2, Math.max(1, rawSp.pStart + zDrive.pShift)),
+      pEnd: Math.min(N_PERIM - 2, Math.max(1, rawSp.pEnd + zDrive.pShift)),
+      zStart: rawSp.isFace
+        ? rawSp.zStart
+        : Math.min(N_Z - 2, Math.max(1, rawSp.zStart + zDrive.zShift)),
+      zEnd: rawSp.isFace
+        ? rawSp.zEnd
+        : Math.min(N_Z - 2, Math.max(1, rawSp.zEnd + zDrive.zShift)),
+      dipOffset: Math.min(
+        86,
+        Math.max(18, rawSp.dipOffset + zDrive.angleShiftDeg)
+      ),
+      azOffset: (rawSp.azOffset + zDrive.azShiftDeg + 360) % 360,
+      jrc: Number(Math.max(4, Math.min(20, rawSp.jrc + zDrive.jrcShift)).toFixed(1)),
+    };
+
     const numTraceSteps = 9;
     const tracePoints3D: { x: number; y: number; z: number }[] = [];
     const neighborhoodPts: { x: number; y: number; z: number }[] = [];
@@ -4211,4 +4580,1008 @@ export function sync3DDigitalTwinRoundTo2DUndergroundStore(params: {
     unfoldedDipSurfaceCount: unfoldedDipSurfaces.length,
   };
 }
+
+// ============================================================================
+// 3D DIGITAL TWIN CONTINUOUS TUNNEL LOG — MULTI-ROUND STITCHING, CROSS-ROUND
+// 3D DISCONTINUITY LINKING & STRICT ONE-WAY (3D TWIN -> 2D FACE MAPPING) SYNC
+// ============================================================================
+
+export interface Stitched3DRoundSegment {
+  round: DigitalTwinRoundRecord;
+  roundIndex: number;
+  /** World Z start coordinate (m) in continuous corridor space (0 at start chainage, negative along drive) */
+  zWorldStartM: number;
+  /** World Z end coordinate (m) in continuous corridor space */
+  zWorldEndM: number;
+  reconstructedModel: Reconstructed3DTunnelModel;
+  /** Validated & user-edited 3D joints shifted into world corridor Z coordinates */
+  world3DJoints: Extracted3DJointAndDipSurface[];
+  /** Detected 3D wedges shifted into world corridor Z coordinates */
+  world3DWedges: Detected3DRockWedge[];
+  /** Per-round geotechnical & volumetric summary */
+  validJointCount: number;
+  faultShearCount: number;
+  overbreakVolumeM3: number;
+  underbreakVolumeM3: number;
+  maxOverbreakCm: number;
+  volumetricJointCountJv: number;
+  estimatedRqdPct: number;
+  estimatedQValue: number;
+  estimatedRmr89: number;
+  supportClassLabel: string;
+}
+
+export interface CrossRoundLinked3DStructure {
+  id: string;
+  code: string;
+  setId: Joint3DSetId;
+  zoneSummary: string;
+  colorHex: string;
+  spannedRoundIds: string[];
+  spannedRoundNumbers: number[];
+  chainageStartM: number;
+  chainageEndM: number;
+  meanDipDeg: number;
+  meanDipDirectionDeg: number;
+  meanStrikeDeg: number;
+  /** Total cumulative 3D persistence (m) across all linked rounds */
+  cumulativePersistenceM: number;
+  /** Total exposed 3D dip surface area (m²) across linked rounds */
+  cumulativeDipAreaM2: number;
+  meanApertureMm: number;
+  meanJrcRoughness: number;
+  meanFisherKappa: number;
+  meanConfidencePct: number;
+  meanInterRoundDeltaDeg: number;
+  /** World-space 3D centroids of each member joint ordered from lowest to highest chainage */
+  memberWorldCenters3D: {
+    roundNumber: number;
+    chainageM: number;
+    jointCode: string;
+    x: number;
+    y: number;
+    z: number;
+  }[];
+  /** World-space 3D continuity ribbon quads connecting trace/dip surfaces between consecutive rounds */
+  continuityRibbons3D: {
+    fromRoundNumber: number;
+    toRoundNumber: number;
+    quadVertices3D: [
+      { x: number; y: number; z: number },
+      { x: number; y: number; z: number },
+      { x: number; y: number; z: number },
+      { x: number; y: number; z: number },
+    ];
+    centerTieLine3D: [
+      { x: number; y: number; z: number },
+      { x: number; y: number; z: number },
+    ];
+  }[];
+}
+
+export interface Continuous3DDigitalTwinCorridorAnalysis {
+  projectId: string;
+  projectName: string;
+  locationId: string;
+  locationName: string;
+  locationShape: DigitalTwinLocationRecord['shape'];
+  widthM: number;
+  heightM: number;
+  driveAzimuthDeg: number;
+  startChainageM: number;
+  endChainageM: number;
+  totalMappedLengthM: number;
+  stitchedRounds: Stitched3DRoundSegment[];
+  crossRoundStructures: CrossRoundLinked3DStructure[];
+  allWorld3DJoints: Extracted3DJointAndDipSurface[];
+  cumulativeOverbreakM3: number;
+  cumulativeUnderbreakM3: number;
+  maxCorridorOverbreakCm: number;
+  meanCorridorQValue: number;
+  meanCorridorRmr89: number;
+  totalCriticalWedges: number;
+  globalEigenvalues: [number, number, number];
+}
+
+/**
+ * Batch One-Way Synchronization:
+ * Unfolds and syncs ALL 3D Digital Twin rounds belonging to `(dtProject, dtLocation)` into
+ * the 2D Underground Face Mapping & 2D Continuous Strip Log store (`FieldMappingStoreState`).
+ *
+ * STRICT ONE-WAY RULE:
+ * - 3D Digital Twin rounds -> 2D Underground Face Mapping store (ENABLED)
+ * - 2D Underground Face Mapping rounds -> 3D Digital Twin store (BLOCKED: 2D lacks 20-photo stereo & 3D mesh data)
+ */
+export function syncAll3DDigitalTwinLocationRoundsTo2DStore(params: {
+  dtProject: DigitalTwinProjectRecord;
+  dtLocation: DigitalTwinLocationRecord;
+  dtRounds: DigitalTwinRoundRecord[];
+  preferredActiveRoundId?: string | null;
+}): {
+  syncedProjectId: string;
+  syncedLocationId: string;
+  activeSyncedRoundId: string | null;
+  syncedRoundsCount: number;
+  totalUnfoldedJoints: number;
+  totalUnfoldedDipSurfaces: number;
+} {
+  const { dtProject, dtLocation, dtRounds, preferredActiveRoundId } = params;
+  const locationRounds = dtRounds
+    .filter(
+      (r) => r.projectId === dtProject.id && r.locationId === dtLocation.id
+    )
+    .sort((a, b) => a.chainageFromM - b.chainageFromM);
+
+  let syncedProjectId = dtProject.id.startsWith('dt-proj-')
+    ? dtProject.id.replace(/^dt-proj-/, '')
+    : `dt2d-proj-${dtProject.id}`;
+  let syncedLocationId = dtLocation.id.startsWith('dt-loc-')
+    ? dtLocation.id.replace(/^dt-loc-/, '')
+    : `dt2d-loc-${dtLocation.id}`;
+  let activeSyncedRoundId: string | null = null;
+  let totalUnfoldedJoints = 0;
+  let totalUnfoldedDipSurfaces = 0;
+
+  for (const r of locationRounds) {
+    const reconstructed = reconstructReal3DTunnelFrom20Photos(dtLocation, r);
+    const jointsToSync =
+      r.extracted3DJoints && r.extracted3DJoints.length > 0
+        ? r.extracted3DJoints
+        : reconstructed.extracted3DJoints;
+
+    const res = sync3DDigitalTwinRoundTo2DUndergroundStore({
+      dtProject,
+      dtLocation,
+      dtRound: r,
+      all3DJoints: jointsToSync,
+      reconstructedModel: reconstructed,
+    });
+
+    syncedProjectId = res.syncedProjectId;
+    syncedLocationId = res.syncedLocationId;
+    totalUnfoldedJoints += res.unfoldedJointCount;
+    totalUnfoldedDipSurfaces += res.unfoldedDipSurfaceCount;
+
+    if (preferredActiveRoundId && r.id === preferredActiveRoundId) {
+      activeSyncedRoundId = res.syncedRoundId;
+    } else if (!activeSyncedRoundId) {
+      activeSyncedRoundId = res.syncedRoundId;
+    }
+  }
+
+  // If a specific active round was requested, ensure the 2D store points to it
+  if (activeSyncedRoundId && locationRounds.length > 0) {
+    const current2DStore = loadFieldMappingStore('TUNNEL', 'tunnel');
+    const updated2DStore = {
+      ...current2DStore,
+      activeProjectId: syncedProjectId,
+      activeLocationId: syncedLocationId,
+      activeRoundId: activeSyncedRoundId,
+    };
+    saveFieldMappingStoreImmediate(updated2DStore, 'TUNNEL', 'tunnel');
+  }
+
+  return {
+    syncedProjectId,
+    syncedLocationId,
+    activeSyncedRoundId,
+    syncedRoundsCount: locationRounds.length,
+    totalUnfoldedJoints,
+    totalUnfoldedDipSurfaces,
+  };
+}
+
+/**
+ * Builds the complete Multi-Round 3D Digital Twin Continuous Tunnel Corridor Analysis
+ * for a given Project and Tunnel Location, stitching all 3D meshes, point clouds,
+ * 3D joint traces, and 3D dip surfaces along the chainage axis and linking cross-round structures.
+ */
+export function buildContinuous3DDigitalTwinCorridorAnalysis(
+  dtProject: DigitalTwinProjectRecord,
+  dtLocation: DigitalTwinLocationRecord,
+  allRounds: DigitalTwinRoundRecord[]
+): Continuous3DDigitalTwinCorridorAnalysis {
+  const sortedRounds = allRounds
+    .filter(
+      (r) => r.projectId === dtProject.id && r.locationId === dtLocation.id
+    )
+    .sort((a, b) => a.chainageFromM - b.chainageFromM);
+
+  const startChainageM =
+    sortedRounds.length > 0 ? sortedRounds[0].chainageFromM : 100.0;
+  const endChainageM =
+    sortedRounds.length > 0
+      ? sortedRounds[sortedRounds.length - 1].chainageToM
+      : 103.5;
+
+  const stitchedRounds: Stitched3DRoundSegment[] = [];
+  const allWorld3DJoints: Extracted3DJointAndDipSurface[] = [];
+
+  let cumulativeOverbreakM3 = 0;
+  let cumulativeUnderbreakM3 = 0;
+  let maxCorridorOverbreakCm = 0;
+  let totalCriticalWedges = 0;
+
+  sortedRounds.forEach((round, rIdx) => {
+    const model = reconstructReal3DTunnelFrom20Photos(dtLocation, round);
+    const rawJoints =
+      round.extracted3DJoints && round.extracted3DJoints.length > 0
+        ? round.extracted3DJoints
+        : model.extracted3DJoints;
+
+    // Each round's local Z runs from 0 (at chainageFromM) to -pullLengthM (at chainageToM).
+    // Shift by zWorldStartM = -(round.chainageFromM - startChainageM) so rounds stitch seamlessly along -Z!
+    const zWorldStartM = -(round.chainageFromM - startChainageM);
+    const pullM = Math.max(
+      0.5,
+      round.pullLengthM || round.chainageToM - round.chainageFromM || 3.5
+    );
+    const zWorldEndM = zWorldStartM - pullM;
+
+    const world3DJoints: Extracted3DJointAndDipSurface[] = rawJoints.map(
+      (j) => ({
+        ...j,
+        id: `${round.id}::${j.id}`,
+        code: `R${round.roundNumber}-${j.code}`,
+        center3D: {
+          x: j.center3D.x,
+          y: j.center3D.y,
+          z: Number((j.center3D.z + zWorldStartM).toFixed(3)),
+        },
+        tracePoints3D: j.tracePoints3D.map((pt) => ({
+          x: pt.x,
+          y: pt.y,
+          z: Number((pt.z + zWorldStartM).toFixed(3)),
+        })),
+        dipPolygonVertices3D: j.dipPolygonVertices3D.map((pt) => ({
+          x: pt.x,
+          y: pt.y,
+          z: Number((pt.z + zWorldStartM).toFixed(3)),
+        })),
+      })
+    );
+
+    const world3DWedges: Detected3DRockWedge[] = model.detected3DWedges.map(
+      (w) => ({
+        ...w,
+        id: `${round.id}::${w.id}`,
+        label: `R${round.roundNumber} ${w.label}`,
+        apex3D: {
+          x: w.apex3D.x,
+          y: w.apex3D.y,
+          z: Number((w.apex3D.z + zWorldStartM).toFixed(3)),
+        },
+        baseVertices3D: w.baseVertices3D.map((pt) => ({
+          x: pt.x,
+          y: pt.y,
+          z: Number((pt.z + zWorldStartM).toFixed(3)),
+        })),
+      })
+    );
+
+    const validJoints = world3DJoints.filter(
+      (j) => j.status !== 'Rejected Shadow / Disturbance'
+    );
+    validJoints.forEach((j) => allWorld3DJoints.push(j));
+
+    const faultShearCount = validJoints.filter(
+      (j) => j.setId === 'Fault/Shear'
+    ).length;
+
+    const roundVolumeRockShellM3 = Math.max(
+      12,
+      (dtLocation.widthM + dtLocation.heightM) * 2 * pullM * 0.45
+    );
+    const totalTracePersistenceM = validJoints.reduce(
+      (acc, j) => acc + j.persistenceM,
+      0
+    );
+    const volumetricJointCountJv = Number(
+      Math.max(
+        3.2,
+        Math.min(
+          28.0,
+          (validJoints.length * 1.45 + totalTracePersistenceM * 0.32) /
+            Math.max(1, roundVolumeRockShellM3 / 18)
+        )
+      ).toFixed(1)
+    );
+    const estimatedRqdPct = Math.round(
+      Math.max(15, Math.min(98, 115 - 3.3 * volumetricJointCountJv))
+    );
+
+    // Barton Q-system estimation from 3D extracted sets, JRC roughness, aperture & fault presence
+    const uniqueSets = new Set(validJoints.map((j) => j.setId)).size;
+    const jn = uniqueSets >= 4 ? 12 : uniqueSets === 3 ? 9 : 6;
+    const meanJrc =
+      validJoints.length > 0
+        ? validJoints.reduce((acc, j) => acc + j.jrcRoughness, 0) /
+          validJoints.length
+        : 10;
+    const jr = meanJrc >= 12 ? 3.0 : meanJrc >= 8 ? 2.0 : 1.5;
+    const ja = faultShearCount > 0 ? 4.0 : 2.0;
+    const jw = 1.0;
+    const srf = faultShearCount > 0 ? 2.5 : 1.0;
+    const estimatedQValue = Number(
+      Math.max(
+        0.15,
+        Math.min(45, (estimatedRqdPct / jn) * (jr / ja) * (jw / srf))
+      ).toFixed(2)
+    );
+    const estimatedRmr89 = Math.round(
+      Math.max(22, Math.min(88, 9 * Math.log(estimatedQValue) + 44))
+    );
+
+    const supportClassLabel =
+      estimatedRmr89 >= 65
+        ? 'Class II (Spot Bolts + 50mm SFRS)'
+        : estimatedRmr89 >= 45
+        ? 'Class III (Pattern Bolts + 100mm SFRS)'
+        : estimatedRmr89 >= 30
+        ? 'Class IV (Lattice Girders + 150mm SFRS)'
+        : 'Class V (Forepoling + Ribs + Invert)';
+
+    cumulativeOverbreakM3 += model.overbreakVolumeM3;
+    cumulativeUnderbreakM3 += model.underbreakVolumeM3;
+    maxCorridorOverbreakCm = Math.max(
+      maxCorridorOverbreakCm,
+      model.maxOverbreakCm
+    );
+    totalCriticalWedges += world3DWedges.filter(
+      (w) => w.status === 'CRITICAL (<1.2)'
+    ).length;
+
+    stitchedRounds.push({
+      round,
+      roundIndex: rIdx,
+      zWorldStartM,
+      zWorldEndM,
+      reconstructedModel: model,
+      world3DJoints,
+      world3DWedges,
+      validJointCount: validJoints.length,
+      faultShearCount,
+      overbreakVolumeM3: model.overbreakVolumeM3,
+      underbreakVolumeM3: model.underbreakVolumeM3,
+      maxOverbreakCm: model.maxOverbreakCm,
+      volumetricJointCountJv,
+      estimatedRqdPct,
+      estimatedQValue,
+      estimatedRmr89,
+      supportClassLabel,
+    });
+  });
+
+  // ==================== CROSS-ROUND 3D JOINT & FAULT CONTINUITY LINKER ====================
+  const crossRoundStructures: CrossRoundLinked3DStructure[] = [];
+  const usedJointIds = new Set<string>();
+
+  for (let rIdx = 0; rIdx < stitchedRounds.length - 1; rIdx++) {
+    const segA = stitchedRounds[rIdx];
+    const jointsA = segA.world3DJoints.filter(
+      (j) => j.status !== 'Rejected Shadow / Disturbance'
+    );
+
+    for (const seedJoint of jointsA) {
+      if (usedJointIds.has(seedJoint.id)) continue;
+
+      const chainMembers: {
+        seg: Stitched3DRoundSegment;
+        joint: Extracted3DJointAndDipSurface;
+        deltaDegFromPrev: number;
+      }[] = [{ seg: segA, joint: seedJoint, deltaDegFromPrev: 0 }];
+
+      let currentJoint = seedJoint;
+
+      for (
+        let nextIdx = rIdx + 1;
+        nextIdx < stitchedRounds.length;
+        nextIdx++
+      ) {
+        const segB = stitchedRounds[nextIdx];
+        const candidates = segB.world3DJoints.filter(
+          (jb) =>
+            jb.status !== 'Rejected Shadow / Disturbance' &&
+            !usedJointIds.has(jb.id) &&
+            jb.setId === currentJoint.setId
+        );
+
+        let bestMatch: Extracted3DJointAndDipSurface | null = null;
+        let bestScore = Infinity;
+        let bestAngleDeg = 0;
+
+        for (const cand of candidates) {
+          const dot = Math.min(
+            1,
+            Math.max(
+              -1,
+              Math.abs(
+                currentJoint.normal3D.nx * cand.normal3D.nx +
+                  currentJoint.normal3D.ny * cand.normal3D.ny +
+                  currentJoint.normal3D.nz * cand.normal3D.nz
+              )
+            )
+          );
+          const angleDeg = (Math.acos(dot) * 180) / Math.PI;
+          const lateralDist = Math.hypot(
+            cand.center3D.x - currentJoint.center3D.x,
+            cand.center3D.y - currentJoint.center3D.y
+          );
+
+          // Match if 3D normal difference <= 15 deg and lateral position on tunnel cross-section is coherent
+          if (angleDeg <= 15.0 && lateralDist <= dtLocation.widthM * 0.55) {
+            const score = angleDeg + lateralDist * 1.8;
+            if (score < bestScore) {
+              bestScore = score;
+              bestMatch = cand;
+              bestAngleDeg = Number(angleDeg.toFixed(2));
+            }
+          }
+        }
+
+        if (bestMatch) {
+          chainMembers.push({
+            seg: segB,
+            joint: bestMatch,
+            deltaDegFromPrev: bestAngleDeg,
+          });
+          currentJoint = bestMatch;
+        } else {
+          break;
+        }
+      }
+
+      if (chainMembers.length >= 2) {
+        chainMembers.forEach((m) => usedJointIds.add(m.joint.id));
+        const structIdx = crossRoundStructures.length + 1;
+        const firstM = chainMembers[0];
+        const lastM = chainMembers[chainMembers.length - 1];
+
+        const meanDipDeg = Math.round(
+          chainMembers.reduce((a, m) => a + m.joint.dipDeg, 0) /
+            chainMembers.length
+        );
+        const meanDipDirectionDeg =
+          ((Math.round(
+            chainMembers.reduce((a, m) => a + m.joint.dipDirectionDeg, 0) /
+              chainMembers.length
+          ) %
+            360) +
+            360) %
+          360;
+        const meanStrikeDeg = (meanDipDirectionDeg - 90 + 360) % 360;
+        const cumulativePersistenceM = Number(
+          chainMembers
+            .reduce((a, m) => a + m.joint.persistenceM, 0)
+            .toFixed(2)
+        );
+        const cumulativeDipAreaM2 = Number(
+          chainMembers
+            .reduce((a, m) => a + m.joint.dipSurfaceAreaM2, 0)
+            .toFixed(2)
+        );
+        const meanApertureMm = Number(
+          (
+            chainMembers.reduce((a, m) => a + m.joint.apertureMm, 0) /
+            chainMembers.length
+          ).toFixed(1)
+        );
+        const meanJrcRoughness = Number(
+          (
+            chainMembers.reduce((a, m) => a + m.joint.jrcRoughness, 0) /
+            chainMembers.length
+          ).toFixed(1)
+        );
+        const meanFisherKappa = Number(
+          (
+            chainMembers.reduce(
+              (a, m) => a + m.joint.crossValidation.fisherKappa,
+              0
+            ) / chainMembers.length
+          ).toFixed(1)
+        );
+        const meanConfidencePct = Math.round(
+          chainMembers.reduce((a, m) => a + m.joint.overallConfidencePct, 0) /
+            chainMembers.length
+        );
+        const deltas = chainMembers
+          .slice(1)
+          .map((m) => m.deltaDegFromPrev);
+        const meanInterRoundDeltaDeg = Number(
+          (
+            deltas.reduce((a, b) => a + b, 0) / Math.max(1, deltas.length)
+          ).toFixed(2)
+        );
+
+        const continuityRibbons3D: CrossRoundLinked3DStructure['continuityRibbons3D'] =
+          [];
+        for (let k = 0; k < chainMembers.length - 1; k++) {
+          const ma = chainMembers[k];
+          const mb = chainMembers[k + 1];
+          const ta = ma.joint.tracePoints3D;
+          const tb = mb.joint.tracePoints3D;
+          const aStart = ta[0] || ma.joint.center3D;
+          const aEnd = ta[ta.length - 1] || ma.joint.center3D;
+          const bStart = tb[0] || mb.joint.center3D;
+          const bEnd = tb[tb.length - 1] || mb.joint.center3D;
+
+          continuityRibbons3D.push({
+            fromRoundNumber: ma.seg.round.roundNumber,
+            toRoundNumber: mb.seg.round.roundNumber,
+            quadVertices3D: [aStart, aEnd, bEnd, bStart],
+            centerTieLine3D: [ma.joint.center3D, mb.joint.center3D],
+          });
+        }
+
+        const uniqueZones = Array.from(
+          new Set(chainMembers.map((m) => m.joint.zone))
+        ).join(' → ');
+
+        crossRoundStructures.push({
+          id: `crs-link-${structIdx}`,
+          code: `CONT-${String(structIdx).padStart(2, '0')} (${seedJoint.setId})`,
+          setId: seedJoint.setId,
+          zoneSummary: uniqueZones,
+          colorHex: seedJoint.colorHex,
+          spannedRoundIds: chainMembers.map((m) => m.seg.round.id),
+          spannedRoundNumbers: chainMembers.map(
+            (m) => m.seg.round.roundNumber
+          ),
+          chainageStartM: firstM.seg.round.chainageFromM,
+          chainageEndM: lastM.seg.round.chainageToM,
+          meanDipDeg,
+          meanDipDirectionDeg,
+          meanStrikeDeg,
+          cumulativePersistenceM,
+          cumulativeDipAreaM2,
+          meanApertureMm,
+          meanJrcRoughness,
+          meanFisherKappa,
+          meanConfidencePct,
+          meanInterRoundDeltaDeg,
+          memberWorldCenters3D: chainMembers.map((m) => ({
+            roundNumber: m.seg.round.roundNumber,
+            chainageM: Number(
+              (
+                (m.seg.round.chainageFromM + m.seg.round.chainageToM) /
+                2
+              ).toFixed(2)
+            ),
+            jointCode: m.joint.code,
+            x: m.joint.center3D.x,
+            y: m.joint.center3D.y,
+            z: m.joint.center3D.z,
+          })),
+          continuityRibbons3D,
+        });
+      }
+    }
+  }
+
+  // Global 3D orientation tensor eigenvalues across all world 3D joints
+  const normalPts = allWorld3DJoints.map((j) => ({
+    x: j.normal3D.nx,
+    y: j.normal3D.ny,
+    z: j.normal3D.nz,
+  }));
+  const globalSvd =
+    normalPts.length >= 3
+      ? compute3DCovarianceSVD(normalPts)
+      : { eigenvalues: [0.68, 0.24, 0.08] as [number, number, number] };
+
+  const meanCorridorQValue =
+    stitchedRounds.length > 0
+      ? Number(
+          (
+            stitchedRounds.reduce((a, s) => a + s.estimatedQValue, 0) /
+            stitchedRounds.length
+          ).toFixed(2)
+        )
+      : 4.5;
+  const meanCorridorRmr89 =
+    stitchedRounds.length > 0
+      ? Math.round(
+          stitchedRounds.reduce((a, s) => a + s.estimatedRmr89, 0) /
+            stitchedRounds.length
+        )
+      : 58;
+
+  return {
+    projectId: dtProject.id,
+    projectName: dtProject.projectName,
+    locationId: dtLocation.id,
+    locationName: dtLocation.name,
+    locationShape: dtLocation.shape,
+    widthM: dtLocation.widthM,
+    heightM: dtLocation.heightM,
+    driveAzimuthDeg: dtLocation.defaultDriveAzimuthDeg || 45,
+    startChainageM,
+    endChainageM,
+    totalMappedLengthM: Number(
+      Math.max(0, endChainageM - startChainageM).toFixed(2)
+    ),
+    stitchedRounds,
+    crossRoundStructures,
+    allWorld3DJoints,
+    cumulativeOverbreakM3: Number(cumulativeOverbreakM3.toFixed(2)),
+    cumulativeUnderbreakM3: Number(cumulativeUnderbreakM3.toFixed(2)),
+    maxCorridorOverbreakCm: Number(maxCorridorOverbreakCm.toFixed(1)),
+    meanCorridorQValue,
+    meanCorridorRmr89,
+    totalCriticalWedges,
+    globalEigenvalues: globalSvd.eigenvalues,
+  };
+}
+
+/**
+ * Appends a new connected sequential 3D Digital Twin round along the tunnel chainage
+ * for `dtLocation` (complete with 20-photo synthetic stereo set + 4-engine validated 3D joints)
+ * and saves it to `DigitalTwinBetaStore`.
+ */
+export function appendNextSequential3DDigitalTwinRound(
+  store: DigitalTwinBetaStore,
+  projectId: string,
+  locationId: string
+): {
+  updatedStore: DigitalTwinBetaStore;
+  createdRound: DigitalTwinRoundRecord;
+} {
+  const project =
+    store.projects.find((p) => p.id === projectId) || store.projects[0];
+  const location =
+    project?.locations.find((l) => l.id === locationId) ||
+    project?.locations[0];
+
+  if (!project || !location) {
+    throw new Error('Project and Tunnel Location are required.');
+  }
+
+  const existingRounds = store.rounds
+    .filter((r) => r.projectId === project.id && r.locationId === location.id)
+    .sort((a, b) => a.chainageFromM - b.chainageFromM);
+
+  const lastRound = existingRounds[existingRounds.length - 1];
+  const nextRoundNum = lastRound ? lastRound.roundNumber + 1 : 1;
+  const pullLengthM = lastRound ? lastRound.pullLengthM : 3.5;
+  const chainageFromM = lastRound
+    ? Number(lastRound.chainageToM.toFixed(2))
+    : 100.0;
+  const chainageToM = Number((chainageFromM + pullLengthM).toFixed(2));
+  const driveAzimuthDeg =
+    lastRound?.driveAzimuthDeg || location.defaultDriveAzimuthDeg || 45;
+
+  const syntheticPhotos: Record<number, DigitalTwinCapturedPhotoSlot> = {};
+  for (const spec of DIGITAL_TWIN_20_PHOTO_SPECS) {
+    const grid: number[] = [];
+    for (let gy = 0; gy < 24; gy++) {
+      for (let gx = 0; gx < 24; gx++) {
+        const v = Math.min(
+          1,
+          Math.max(
+            0,
+            0.46 +
+              Math.sin(gx * 0.42 + spec.slotNumber * 0.7 + nextRoundNum * 0.5) * 0.16 +
+              Math.cos(gy * 0.38 - spec.slotNumber * 0.4) * 0.14
+          )
+        );
+        grid.push(Number(v.toFixed(3)));
+      }
+    }
+    syntheticPhotos[spec.slotNumber] = {
+      slotNumber: spec.slotNumber,
+      stationId: spec.stationId,
+      dataUrl: '',
+      fileName: `DT_CH${chainageFromM}_${chainageToM}_P${spec.stationNumber}_A${spec.angleIndexInStation}_Slot${spec.slotNumber}.jpg`,
+      capturedAtIso: new Date().toISOString(),
+      sourceMode: 'calibration_set',
+      widthPx: 1280,
+      heightPx: 960,
+      sharpnessScore: 88,
+      exposureBalancePct: 91,
+      estimatedOverlapPct: spec.targetOverlapPct,
+      sampledGrid24: grid,
+      dominantFractureAngleDeg: ((spec.slotNumber * 29 + nextRoundNum * 17) % 150) + 15,
+      fractureDensityPct: 38 + ((spec.slotNumber * 7) % 35),
+      meanColorRgb: [122, 118, 112],
+      photoFingerprintHash: nextRoundNum * 100003 + spec.slotNumber * 7919,
+    };
+  }
+
+  const tempRound: DigitalTwinRoundRecord = {
+    id: `dt-round-${Date.now()}-${nextRoundNum}`,
+    projectId: project.id,
+    locationId: location.id,
+    roundNumber: nextRoundNum,
+    chainageFromM,
+    chainageToM,
+    pullLengthM,
+    driveAzimuthDeg,
+    acquisitionMode: 'photogrammetry_upload',
+    photosBySlot: syntheticPhotos,
+    lastReconstructedAtIso: new Date().toISOString(),
+  };
+
+  const model = reconstructReal3DTunnelFrom20Photos(location, tempRound);
+  const createdRound: DigitalTwinRoundRecord = {
+    ...tempRound,
+    extracted3DJoints: model.extracted3DJoints,
+    last4EngineSynthesisNote:
+      '4-Engine Mutual Cross-Validation Complete across 20 Left-to-Right Stereo Photos.',
+    last4EngineRunAtIso: new Date().toISOString(),
+  };
+
+  const updatedStore: DigitalTwinBetaStore = {
+    ...store,
+    rounds: [...store.rounds, createdRound],
+    activeProjectId: project.id,
+    activeLocationId: location.id,
+    activeRoundId: createdRound.id,
+  };
+
+  saveDigitalTwinBetaStore(updatedStore);
+  return { updatedStore, createdRound };
+}
+
+/**
+ * Ensures that a Project, Tunnel Location, and at least `minRounds` connected 3D Digital Twin rounds
+ * exist in `DigitalTwinBetaStore` when the user triggers a multi-round demo drive.
+ */
+export function ensureMultiRound3DDigitalTwinDrive(
+  currentStore: DigitalTwinBetaStore,
+  minRounds = 3
+): DigitalTwinBetaStore {
+  let workingStore = { ...currentStore };
+
+  if (workingStore.projects.length === 0) {
+    const defaultLoc: DigitalTwinLocationRecord = {
+      id: 'dt-loc-main-headrace',
+      name: 'Main Headrace Tunnel — Adit II North',
+      shape: 'horseshoe',
+      widthM: 8.5,
+      heightM: 7.5,
+      wallHeightM: 4.0,
+      crownRadiusM: 4.25,
+      defaultDriveAzimuthDeg: 45,
+      excavationMode: 'Drill & Blast (Full Face)',
+    };
+    const defaultProj: DigitalTwinProjectRecord = {
+      id: 'dt-proj-natm-hydropower',
+      projectName: 'ESWA Hydropower & NATM Tunnel Project',
+      clientName: 'Hydroelectric Project Authority',
+      contractorName: 'Underground Civil Engineering Works',
+      consultantName: 'ESWA Rock Mechanics & Tunneling Consultants',
+      createdAtIso: new Date().toISOString(),
+      locations: [defaultLoc],
+    };
+    workingStore = {
+      ...workingStore,
+      projects: [defaultProj],
+      activeProjectId: defaultProj.id,
+      activeLocationId: defaultLoc.id,
+    };
+  }
+
+  const activeProj =
+    workingStore.projects.find((p) => p.id === workingStore.activeProjectId) ||
+    workingStore.projects[0];
+  const activeLoc =
+    activeProj.locations.find((l) => l.id === workingStore.activeLocationId) ||
+    activeProj.locations[0];
+
+  const existingLocRounds = workingStore.rounds.filter(
+    (r) => r.projectId === activeProj.id && r.locationId === activeLoc.id
+  );
+
+  const roundsNeeded = Math.max(0, minRounds - existingLocRounds.length);
+  for (let i = 0; i < roundsNeeded; i++) {
+    const res = appendNextSequential3DDigitalTwinRound(
+      workingStore,
+      activeProj.id,
+      activeLoc.id
+    );
+    workingStore = res.updatedStore;
+  }
+
+  saveDigitalTwinBetaStore(workingStore);
+  return workingStore;
+}
+
+/**
+ * Exports the complete Multi-Round 3D Digital Twin Continuous Tunnel Log & Cross-Round Continuity Audit to .CSV
+ */
+export function exportContinuous3DDigitalTwinAuditToCSV(
+  analysis: Continuous3DDigitalTwinCorridorAnalysis
+): void {
+  const roundHeaders = [
+    'Section_Type',
+    'Round_Number',
+    'Chainage_From_m',
+    'Chainage_To_m',
+    'Pull_Length_m',
+    'Valid_3D_Joints',
+    'Fault_Shear_Count',
+    'Overbreak_Volume_m3',
+    'Underbreak_Volume_m3',
+    'Max_Overbreak_Depth_cm',
+    'Volumetric_Jv',
+    'Estimated_RQD_Pct',
+    'Estimated_Q_Value',
+    'Estimated_RMR89',
+    'Support_Class',
+  ];
+
+  const roundRows = analysis.stitchedRounds.map((s) =>
+    [
+      'ROUND_SUMMARY',
+      s.round.roundNumber,
+      s.round.chainageFromM.toFixed(2),
+      s.round.chainageToM.toFixed(2),
+      s.round.pullLengthM.toFixed(2),
+      s.validJointCount,
+      s.faultShearCount,
+      s.overbreakVolumeM3.toFixed(2),
+      s.underbreakVolumeM3.toFixed(2),
+      s.maxOverbreakCm.toFixed(1),
+      s.volumetricJointCountJv.toFixed(1),
+      s.estimatedRqdPct,
+      s.estimatedQValue.toFixed(2),
+      s.estimatedRmr89,
+      `"${s.supportClassLabel}"`,
+    ].join(',')
+  );
+
+  const linkHeaders = [
+    'Section_Type',
+    'Continuity_ID',
+    'Joint_Set',
+    'Zones_Spanned',
+    'Rounds_Spanned',
+    'Chainage_Start_m',
+    'Chainage_End_m',
+    'Mean_3D_Dip_Deg',
+    'Mean_3D_DipDir_Deg',
+    'Mean_Strike_Deg',
+    'Cumulative_3D_Persistence_m',
+    'Cumulative_Dip_Surface_Area_m2',
+    'Mean_Fisher_Kappa',
+    'Mean_4Engine_Confidence_Pct',
+    'Mean_InterRound_Angular_Delta_Deg',
+  ];
+
+  const linkRows = analysis.crossRoundStructures.map((c) =>
+    [
+      'CROSS_ROUND_STRUCTURE',
+      `"${c.code}"`,
+      `"${c.setId}"`,
+      `"${c.zoneSummary}"`,
+      `"Rounds ${c.spannedRoundNumbers.join('-')}"`,
+      c.chainageStartM.toFixed(2),
+      c.chainageEndM.toFixed(2),
+      c.meanDipDeg,
+      String(c.meanDipDirectionDeg).padStart(3, '0'),
+      String(c.meanStrikeDeg).padStart(3, '0'),
+      c.cumulativePersistenceM.toFixed(2),
+      c.cumulativeDipAreaM2.toFixed(2),
+      c.meanFisherKappa.toFixed(1),
+      c.meanConfidencePct,
+      c.meanInterRoundDeltaDeg.toFixed(2),
+    ].join(',')
+  );
+
+  const csvContent = [
+    `# ESWA 3D Digital Twin Continuous Tunnel Log — Multi-Round Corridor & Cross-Round Continuity Audit`,
+    `# Project: ${analysis.projectName} | Location: ${analysis.locationName} (${analysis.widthM}m x ${analysis.heightM}m) | Drive Azimuth: N${String(analysis.driveAzimuthDeg).padStart(3, '0')}°E`,
+    `# Total Stitched Drive: CH ${analysis.startChainageM.toFixed(1)}m to CH ${analysis.endChainageM.toFixed(1)}m (${analysis.totalMappedLengthM.toFixed(1)}m across ${analysis.stitchedRounds.length} rounds)`,
+    `# Sync Policy: One-Way 3D Digital Twin -> 2D Underground Face Mapping Only`,
+    '',
+    roundHeaders.join(','),
+    ...roundRows,
+    '',
+    linkHeaders.join(','),
+    ...linkRows,
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ESWA_3D_Twin_Continuous_Log_${analysis.locationName.replace(/[^a-zA-Z0-9_-]/g, '_')}_CH${analysis.startChainageM}-${analysis.endChainageM}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports the entire Multi-Round Stitched 3D Joint Traces, 3D Dip Surfaces, and Cross-Round Continuity Ribbons to AutoCAD 3D .DXF
+ */
+export function exportContinuous3DDigitalTwinCorridorToDXF(
+  analysis: Continuous3DDigitalTwinCorridorAnalysis
+): void {
+  const lines: string[] = [
+    '0',
+    'SECTION',
+    '2',
+    'ENTITIES',
+  ];
+
+  // 1. Export all world-positioned 3D Joint Traces and Dip Polygons
+  for (const j of analysis.allWorld3DJoints) {
+    const layerName = `3DTWIN_JOINTS_${j.setId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    for (let i = 0; i < j.tracePoints3D.length - 1; i++) {
+      const p1 = j.tracePoints3D[i];
+      const p2 = j.tracePoints3D[i + 1];
+      lines.push(
+        '0',
+        'LINE',
+        '8',
+        layerName,
+        '10',
+        p1.x.toFixed(4),
+        '20',
+        p1.y.toFixed(4),
+        '30',
+        p1.z.toFixed(4),
+        '11',
+        p2.x.toFixed(4),
+        '21',
+        p2.y.toFixed(4),
+        '31',
+        p2.z.toFixed(4)
+      );
+    }
+  }
+
+  // 2. Export Cross-Round Continuity Ribbons
+  for (const crs of analysis.crossRoundStructures) {
+    for (const rib of crs.continuityRibbons3D) {
+      const [q0, q1, q2, q3] = rib.quadVertices3D;
+      lines.push(
+        '0',
+        '3DFACE',
+        '8',
+        '3DTWIN_CROSS_ROUND_CONTINUITY',
+        '10',
+        q0.x.toFixed(4),
+        '20',
+        q0.y.toFixed(4),
+        '30',
+        q0.z.toFixed(4),
+        '11',
+        q1.x.toFixed(4),
+        '21',
+        q1.y.toFixed(4),
+        '31',
+        q1.z.toFixed(4),
+        '12',
+        q2.x.toFixed(4),
+        '22',
+        q2.y.toFixed(4),
+        '32',
+        q2.z.toFixed(4),
+        '13',
+        q3.x.toFixed(4),
+        '23',
+        q3.y.toFixed(4),
+        '33',
+        q3.z.toFixed(4)
+      );
+    }
+  }
+
+  lines.push('0', 'ENDSEC', '0', 'EOF');
+
+  const blob = new Blob([lines.join('\n')], {
+    type: 'application/dxf;charset=utf-8;',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ESWA_3D_Twin_Continuous_Corridor_${analysis.locationName.replace(/[^a-zA-Z0-9_-]/g, '_')}_CH${analysis.startChainageM}-${analysis.endChainageM}.dxf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 

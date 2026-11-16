@@ -1958,9 +1958,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
       const domain = tunnelGeometry.mappingDomain || 'BENCH';
       const isTrench = domain === 'TRENCH';
 
-      // 1. Main Surface Exposure Face / Bench Face / Slope Face / Trench End Face at z = pullL
+      // 1. Main Surface Exposure Face / Bench Face / Slope Face / Trench End Face at z = 0 (Back)
       const facePlaneGeo = new THREE.PlaneGeometry(w, h);
-      facePlaneGeo.translate(cx, h / 2, pullL);
+      facePlaneGeo.translate(cx, h / 2, 0);
       const isFaceActive = activePortionPanel === 'face';
       const facePlaneMat = new THREE.MeshStandardMaterial({
         color: isFaceActive ? 0xbae6fd : 0xe2e8f0,
@@ -1972,13 +1972,13 @@ const NatmJoint3DInspectorModalContent: React.FC<
       });
       tunnelGroup.add(new THREE.Mesh(facePlaneGeo, facePlaneMat));
 
-      // Face Contour Outline at z = pullL
+      // Face Contour Outline at z = 0 (Back)
       const faceRectPts = [
-        new THREE.Vector3(0, 0, pullL),
-        new THREE.Vector3(0, h, pullL),
-        new THREE.Vector3(w, h, pullL),
-        new THREE.Vector3(w, 0, pullL),
-        new THREE.Vector3(0, 0, pullL),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, h, 0),
+        new THREE.Vector3(w, h, 0),
+        new THREE.Vector3(w, 0, 0),
+        new THREE.Vector3(0, 0, 0),
       ];
       tunnelGroup.add(
         new THREE.Line(
@@ -2101,7 +2101,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           2.2,
           0.36
         );
-        faceBadge.position.set(cx, h + 0.45, pullL);
+        faceBadge.position.set(cx, h + 0.45, 0);
         tunnelGroup.add(faceBadge);
 
         if (tunnelGeometry.hasCrown !== false) {
@@ -2202,13 +2202,13 @@ const NatmJoint3DInspectorModalContent: React.FC<
       const tunnelMesh = new THREE.Mesh(tunnelGeo, tunnelMat);
       tunnelGroup.add(tunnelMesh);
 
-      // B. Excavation Face Rock Cap at z = pullL
+      // B. Excavation Face Rock Cap at z = 0 (at the BACK of the tunnel, with Crown & Walls in FRONT)
       if (numPts >= 3) {
         const facePositions: number[] = [];
         const faceIndices: number[] = [];
 
         for (let i = 0; i < numPts; i++) {
-          facePositions.push(profilePts[i].x, profilePts[i].y, pullL);
+          facePositions.push(profilePts[i].x, profilePts[i].y, 0);
         }
 
         try {
@@ -2220,7 +2220,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           } else {
             const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
             const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
-            facePositions.push(avgX, avgY, pullL);
+            facePositions.push(avgX, avgY, 0);
             for (let i = 0; i < segLimit; i++) {
               const next = (i + 1) % numPts;
               faceIndices.push(numPts, i, next);
@@ -2229,7 +2229,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         } catch {
           const avgX = profilePts.reduce((s, p) => s + p.x, 0) / numPts;
           const avgY = profilePts.reduce((s, p) => s + p.y, 0) / numPts;
-          facePositions.push(avgX, avgY, pullL);
+          facePositions.push(avgX, avgY, 0);
           for (let i = 0; i < segLimit; i++) {
             const next = (i + 1) % numPts;
             faceIndices.push(numPts, i, next);
@@ -2244,7 +2244,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const faceCapMat = new THREE.MeshStandardMaterial({
           color: 0xe0f2fe,
           transparent: true,
-          opacity: 0.22,
+          opacity: 0.24,
           roughness: 0.3,
           metalness: 0.05,
           side: THREE.DoubleSide,
@@ -2253,26 +2253,26 @@ const NatmJoint3DInspectorModalContent: React.FC<
         tunnelGroup.add(faceMesh);
       }
 
-      // C. Excavation Face Contour (z = pullL) in Electric Cyan/Blue
+      // C. Excavation Face Contour at z = 0 (BACK) in Electric Cyan/Blue
       const faceContourPoints: THREE.Vector3[] = [];
       for (const pt of profilePts) {
-        faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
+        faceContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
       }
       if (isProfileClosed && profilePts.length > 0) {
-        faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
+        faceContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
       }
       const faceContourGeo = new THREE.BufferGeometry().setFromPoints(faceContourPoints);
       const faceContourMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3 });
       const faceContourLine = new THREE.Line(faceContourGeo, faceContourMat);
       tunnelGroup.add(faceContourLine);
 
-      // D. Portal Entrance Outline at z = 0
+      // D. Portal / Collar Entrance Outline at z = pullL (FRONT)
       const prevContourPoints: THREE.Vector3[] = [];
       for (const pt of profilePts) {
-        prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, 0));
+        prevContourPoints.push(new THREE.Vector3(pt.x, pt.y, pullL));
       }
       if (isProfileClosed && profilePts.length > 0) {
-        prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, 0));
+        prevContourPoints.push(new THREE.Vector3(profilePts[0].x, profilePts[0].y, pullL));
       }
       const prevContourGeo = new THREE.BufferGeometry().setFromPoints(prevContourPoints);
       const prevContourMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, linewidth: 1.5 });
@@ -2334,26 +2334,33 @@ const NatmJoint3DInspectorModalContent: React.FC<
     }
 
     // Three.js anchor & orientation vectors:
-    // ax = width (anchorPoint.y), ay = elevation (anchorPoint.z), az = advance (anchorPoint.x)
+    // For horizontal tunnels, tunnel advance X in [0, pullL] maps to Three.js Z = pullL - X
+    // so the Excavation Face (X = pullL) is at the BACK (Z = 0) and the Crown & Left/Right Walls
+    // extend in FRONT (Z = 0 .. pullL, with Portal Entrance at Z = pullL).
+    const pullL3D = tunnelGeometry.pullLengthM || 3.0;
+    const isVertShaft3D = Boolean(tunnelGeometry.isVerticalShaft);
+    const toThreeZ = (xTunnel: number) => (isVertShaft3D ? xTunnel : pullL3D - xTunnel);
+    const toThreeVecZ = (vxTunnel: number) => (isVertShaft3D ? vxTunnel : -vxTunnel);
+
     const effectiveAnchor =
       planeDisplayMode === 'TRACED_LENGTH' && hingePlaneResult
         ? hingePlaneResult.traceMidPoint
         : anchorPoint;
     const ax = effectiveAnchor.y;
     const ay = effectiveAnchor.z;
-    const az = effectiveAnchor.x;
+    const az = toThreeZ(effectiveAnchor.x);
 
     const sx = plane.strikeVector.y;
     const sy = plane.strikeVector.z;
-    const sz = plane.strikeVector.x;
+    const sz = toThreeVecZ(plane.strikeVector.x);
 
     const dx = plane.dipVector.y;
     const dy = plane.dipVector.z;
-    const dz = plane.dipVector.x;
+    const dz = toThreeVecZ(plane.dipVector.x);
 
     const nx = plane.normal.y;
     const ny = plane.normal.z;
-    const nz = plane.normal.x;
+    const nz = toThreeVecZ(plane.normal.x);
 
     const tracedHalfLen = Math.max(0.15, currentTraceLengthM / 2);
     const isCrownNonPenetratingHinge =
@@ -2381,7 +2388,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           const surfPanel = currentDipSurface.panel || 'face';
           const surfPts3D = rawPoly2D.map((pt) => {
             const m = pointToTunnel3DMetric(pt, surfPanel, tunnelGeometry);
-            return new THREE.Vector3(m.y, m.z, m.x);
+            return new THREE.Vector3(m.y, m.z, toThreeZ(m.x));
           });
 
           if (surfPts3D.length >= 3) {
@@ -2562,7 +2569,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
             if (currentDipSurface.points && currentDipSurface.points.length >= 2) {
               const strokePts = currentDipSurface.points.map((pt) => {
                 const m = pointToTunnel3DMetric(pt, surfPanel, tunnelGeometry);
-                return new THREE.Vector3(m.y, m.z, m.x);
+                return new THREE.Vector3(m.y, m.z, toThreeZ(m.x));
               });
               const strokeGeo = new THREE.BufferGeometry().setFromPoints(strokePts);
               const strokeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 3.5 });
@@ -2613,11 +2620,11 @@ const NatmJoint3DInspectorModalContent: React.FC<
             const frac = scaled - idx;
             const p0 = pts[idx];
             const p1 = pts[idx + 1];
-            // Map tunnel metric (x=drive, y=transverse, z=elevation) -> Three.js (x=y, y=z, z=x)
+            // Map tunnel metric (x=drive, y=transverse, z=elevation) -> Three.js (x=y, y=z, z=toThreeZ(x))
             return [
               p0.y + (p1.y - p0.y) * frac,
               p0.z + (p1.z - p0.z) * frac,
-              p0.x + (p1.x - p0.x) * frac,
+              toThreeZ(p0.x + (p1.x - p0.x) * frac),
             ];
           };
 
@@ -2743,7 +2750,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           if (crownCurvedData && !isStrikeLineHingeLocked && crownCurvedData.editedCurve3D.length >= 2) {
             // 1. Live Edited Curved Crown Trace where the 3D plane cuts right through the crown arch
             const editedPts = crownCurvedData.editedCurve3D.map(
-              (m) => new THREE.Vector3(m.y, m.z, m.x)
+              (m) => new THREE.Vector3(m.y, m.z, toThreeZ(m.x))
             );
             const editedGeo = new THREE.BufferGeometry().setFromPoints(editedPts);
             const editedMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 4.5 });
@@ -2751,7 +2758,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
             // 2. Original Drawn Trace on Crown (for visual reference)
             const drawnPts = crownCurvedData.drawnCurve3D.map(
-              (m) => new THREE.Vector3(m.y, m.z + 0.015, m.x)
+              (m) => new THREE.Vector3(m.y, m.z + 0.015, toThreeZ(m.x))
             );
             const drawnGeo = new THREE.BufferGeometry().setFromPoints(drawnPts);
             const drawnMat = new THREE.LineBasicMaterial({
@@ -2764,7 +2771,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           } else if (activeTracePoints && activeTracePoints.length >= 2) {
             const polyPts = activeTracePoints.map((pt) => {
               const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
-              return new THREE.Vector3(m.y, m.z, m.x);
+              return new THREE.Vector3(m.y, m.z, toThreeZ(m.x));
             });
             const polyGeo = new THREE.BufferGeometry().setFromPoints(polyPts);
             const polyMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 4 });
@@ -2779,7 +2786,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
             ) {
               const origPts = currentJoint.points.map((pt) => {
                 const m = pointToTunnel3DMetric(pt, currentJoint.panel || 'face', tunnelGeometry);
-                return new THREE.Vector3(m.y, m.z, m.x);
+                return new THREE.Vector3(m.y, m.z, toThreeZ(m.x));
               });
               const origGeo = new THREE.BufferGeometry().setFromPoints(origPts);
               const origMat = new THREE.LineBasicMaterial({
@@ -2929,7 +2936,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
             const cyNext = isCrownNonPenetratingHinge
               ? Math.min(next.z, getCrownArchRoofY(next.y))
               : next.z;
-            cutPerim.push(curr.y, cyCurr, curr.x, next.y, cyNext, next.x);
+            cutPerim.push(curr.y, cyCurr, toThreeZ(curr.x), next.y, cyNext, toThreeZ(next.x));
           }
           const cutGeo = new THREE.BufferGeometry();
           cutGeo.setAttribute('position', new THREE.Float32BufferAttribute(cutPerim, 3));
@@ -2946,7 +2953,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           const clampedY = isCrownNonPenetratingHinge
             ? Math.min(v.z, getCrownArchRoofY(v.y))
             : v.z;
-          positions.push(v.y, clampedY, v.x);
+          positions.push(v.y, clampedY, toThreeZ(v.x));
         });
 
         for (let i = 1; i < clippedVertices.length - 1; i++) {
@@ -2979,7 +2986,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
           const cyNext = isCrownNonPenetratingHinge
             ? Math.min(next.z, getCrownArchRoofY(next.y))
             : next.z;
-          perimeterPositions.push(curr.y, cyCurr, curr.x, next.y, cyNext, next.x);
+          perimeterPositions.push(curr.y, cyCurr, toThreeZ(curr.x), next.y, cyNext, toThreeZ(next.x));
         }
         const perimGeo = new THREE.BufferGeometry();
         perimGeo.setAttribute('position', new THREE.Float32BufferAttribute(perimeterPositions, 3));
@@ -3020,24 +3027,24 @@ const NatmJoint3DInspectorModalContent: React.FC<
     const relDipRad =
       (((dipDirection - (tunnelGeometry.driveAzimuthDeg || 0)) % 360) * Math.PI) / 180;
     const dipRad = (Math.max(1, dipAmount) * Math.PI) / 180;
-    // Target 3D downward dip vector in Three.js coordinates (X = Y_tunnel = sin, Y = Z_tunnel = -sin(dip), Z = X_tunnel = cos)
+    // Target 3D downward dip vector in Three.js coordinates (X = Y_tunnel = sin, Y = Z_tunnel = -sin(dip), Z = toThreeVecZ(X_tunnel))
     const targetDip3D = new THREE.Vector3(
       Math.sin(relDipRad) * Math.cos(dipRad),
       -Math.sin(dipRad),
-      Math.cos(relDipRad) * Math.cos(dipRad)
+      toThreeVecZ(Math.cos(relDipRad) * Math.cos(dipRad))
     );
-    const planeNorm3D = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x).normalize();
+    const planeNorm3D = new THREE.Vector3(nx, ny, nz).normalize();
     const projDip3D = targetDip3D
       .clone()
       .sub(planeNorm3D.clone().multiplyScalar(targetDip3D.dot(planeNorm3D)));
     const rawDipDir =
       projDip3D.lengthSq() > 1e-4
         ? projDip3D
-        : new THREE.Vector3(plane.dipVector.y, plane.dipVector.z, plane.dipVector.x);
+        : new THREE.Vector3(dx, dy, dz);
     const dipArrowOrigin = new THREE.Vector3(
       isNaN(ax) ? 4.25 : ax,
       isNaN(ay) ? 3.75 : ay,
-      isNaN(az) ? 3.0 : az
+      isNaN(az) ? 0 : az
     );
     if (rawDipDir.length() > 0.001 && !isNaN(rawDipDir.x) && !isNaN(rawDipDir.y) && !isNaN(rawDipDir.z)) {
       const dipArrowDir = rawDipDir.clone().normalize();
@@ -3057,7 +3064,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
       planeDisplayMode === 'TRACED_LENGTH'
         ? Math.max(0.55, Math.min(1.8, tracedHalfLen * 0.95))
         : 1.9;
-    const rawNormalDir = new THREE.Vector3(plane.normal.y, plane.normal.z, plane.normal.x);
+    const rawNormalDir = new THREE.Vector3(nx, ny, nz);
     if (rawNormalDir.length() > 0.001 && !isNaN(rawNormalDir.x) && !isNaN(rawNormalDir.y) && !isNaN(rawNormalDir.z)) {
       const normalDir = rawNormalDir.clone().normalize();
       const normalArrow = new THREE.ArrowHelper(
@@ -3093,9 +3100,9 @@ const NatmJoint3DInspectorModalContent: React.FC<
     if (hingePlaneResult) {
       const p1 = hingePlaneResult.traceStartPoint;
       const p2 = hingePlaneResult.traceEndPoint;
-      // Coordinates in Three.js: X = Y_geom (width), Y = Z_geom (elevation), Z = X_geom (advance)
-      const v1 = new THREE.Vector3(p1.y, p1.z, p1.x);
-      const v2 = new THREE.Vector3(p2.y, p2.z, p2.x);
+      // Coordinates in Three.js: X = Y_geom (width), Y = Z_geom (elevation), Z = toThreeZ(X_geom)
+      const v1 = new THREE.Vector3(p1.y, p1.z, toThreeZ(p1.x));
+      const v2 = new THREE.Vector3(p2.y, p2.z, toThreeZ(p2.x));
       const hVec = new THREE.Vector3().subVectors(v2, v1);
       const hLen = hVec.length();
 
@@ -3218,20 +3225,19 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
     // 6. Clean Multi-Surface Intersection Traces in 3D (Shown for EXTENDED and CLIPPED full-tunnel modes)
     if (planeDisplayMode !== 'TRACED_LENGTH' && !tunnelGeometry.isVerticalShaft) {
-      const pullL = tunnelGeometry.pullLengthM || 3.0;
       const w = tunnelGeometry.widthM || 8.5;
       const hw = tunnelGeometry.wallHeightM || 4.2;
       const h = tunnelGeometry.heightM || 7.5;
       const cx = w / 2;
       const archRise = h - hw;
 
-      // Face Intersection Trace (at z = pullL) in Electric Blue
+      // Face Intersection Trace (at z = 0, Back) in Electric Blue
       if (surfaceIntersections.face) {
         const f1 = surfaceIntersections.face.p1;
         const f2 = surfaceIntersections.face.p2;
         const faceTraceGeo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(f1.x, f1.y, pullL),
-          new THREE.Vector3(f2.x, f2.y, pullL),
+          new THREE.Vector3(f1.x, f1.y, 0),
+          new THREE.Vector3(f2.x, f2.y, 0),
         ]);
         const faceTraceMat = new THREE.LineBasicMaterial({ color: 0x0284c7, linewidth: 3.5 });
         group.add(new THREE.Line(faceTraceGeo, faceTraceMat));
@@ -3242,8 +3248,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const l1 = surfaceIntersections.leftWall.p1;
         const l2 = surfaceIntersections.leftWall.p2;
         const leftTraceGeo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(0, l1.y, l1.x),
-          new THREE.Vector3(0, l2.y, l2.x),
+          new THREE.Vector3(0, l1.y, toThreeZ(l1.x)),
+          new THREE.Vector3(0, l2.y, toThreeZ(l2.x)),
         ]);
         const leftTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
         group.add(new THREE.Line(leftTraceGeo, leftTraceMat));
@@ -3254,8 +3260,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const r1 = surfaceIntersections.rightWall.p1;
         const r2 = surfaceIntersections.rightWall.p2;
         const rightTraceGeo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(w, r1.y, r1.x),
-          new THREE.Vector3(w, r2.y, r2.x),
+          new THREE.Vector3(w, r1.y, toThreeZ(r1.x)),
+          new THREE.Vector3(w, r2.y, toThreeZ(r2.x)),
         ]);
         const rightTraceMat = new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3.5 });
         group.add(new THREE.Line(rightTraceGeo, rightTraceMat));
@@ -3266,7 +3272,7 @@ const NatmJoint3DInspectorModalContent: React.FC<
         const curved3D = surfaceIntersections.crown.curvedPoints3D;
         if (curved3D && curved3D.length >= 2) {
           const crownTraceGeo = new THREE.BufferGeometry().setFromPoints(
-            curved3D.map((pt) => new THREE.Vector3(pt.y, pt.z, pt.x))
+            curved3D.map((pt) => new THREE.Vector3(pt.y, pt.z, toThreeZ(pt.x)))
           );
           const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.8 });
           group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
@@ -3279,8 +3285,8 @@ const NatmJoint3DInspectorModalContent: React.FC<
             return hw + archRise * Math.sqrt(Math.max(0, 1 - clamped * clamped));
           };
           const crownTraceGeo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(c1.y, getCrownY(c1.y), c1.x),
-            new THREE.Vector3(c2.y, getCrownY(c2.y), c2.x),
+            new THREE.Vector3(c1.y, getCrownY(c1.y), toThreeZ(c1.x)),
+            new THREE.Vector3(c2.y, getCrownY(c2.y), toThreeZ(c2.x)),
           ]);
           const crownTraceMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3.5 });
           group.add(new THREE.Line(crownTraceGeo, crownTraceMat));
@@ -6183,12 +6189,13 @@ const NatmJoint3DInspectorModalContent: React.FC<
                     {/* SVG Cross-Section & Projected Line */}
                     <div className="w-full bg-slate-950 rounded-xl border border-slate-800 p-4 flex items-center justify-center">
                       <svg viewBox="0 0 500 350" className="w-full max-w-lg h-auto">
-                        <rect x="50" y="30" width="400" height="280" rx="4" fill="#0b132b" stroke="#334155" strokeWidth="1.5" />
-
-                        {activeTab === 'VIEW_FACE' && (() => {
+                        {(() => {
                           const prof = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
                           const wProf = Math.max(0.5, tunnelGeometry.widthM || 8.0);
                           const hProf = Math.max(0.5, tunnelGeometry.heightM || 6.5);
+                          const pullProf = Math.max(0.5, tunnelGeometry.pullLengthM || 3.0);
+                          const lwH = Math.max(0.5, tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM || 3.8);
+                          const rwH = Math.max(0.5, tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM || 3.8);
                           const polyStr = prof.points
                             .map((pt) => {
                               const sx = 50 + (pt.y / wProf) * 400;
@@ -6196,70 +6203,129 @@ const NatmJoint3DInspectorModalContent: React.FC<
                               return `${sx.toFixed(1)},${sy.toFixed(1)}`;
                             })
                             .join(' ');
-                          return prof.isClosed ? (
-                            <polygon points={polyStr} fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
-                          ) : (
-                            <polyline points={polyStr} fill="none" stroke="#0ea5e9" strokeWidth="2.5" />
+                          const activePts = activeTracePoints && activeTracePoints.length >= 2 ? activeTracePoints : activeJoint.points;
+                          return (
+                            <>
+                              <defs>
+                                <clipPath id="single-surface-box-clip">
+                                  {activeTab === 'VIEW_FACE' && !tunnelGeometry.isVerticalShaft && prof.isClosed ? (
+                                    <polygon points={polyStr} />
+                                  ) : (
+                                    <rect x="50" y="30" width="400" height="280" rx="4" />
+                                  )}
+                                </clipPath>
+                              </defs>
+
+                              <rect x="50" y="30" width="400" height="280" rx="4" fill="#0b132b" stroke="#334155" strokeWidth="1.5" />
+
+                              {activeTab === 'VIEW_FACE' && (
+                                prof.isClosed ? (
+                                  <polygon points={polyStr} fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                                ) : (
+                                  <polyline points={polyStr} fill="none" stroke="#0ea5e9" strokeWidth="2.5" />
+                                )
+                              )}
+
+                              <g clipPath="url(#single-surface-box-clip)">
+                                {surfaceIntersections.face && activeTab === 'VIEW_FACE' && (
+                                  <g>
+                                    <line
+                                      x1={50 + (surfaceIntersections.face.p1.x / wProf) * 400}
+                                      y1={310 - (surfaceIntersections.face.p1.y / hProf) * 280}
+                                      x2={50 + (surfaceIntersections.face.p2.x / wProf) * 400}
+                                      y2={310 - (surfaceIntersections.face.p2.y / hProf) * 280}
+                                      stroke="#F59E0B"
+                                      strokeWidth="3"
+                                      strokeDasharray="6,4"
+                                    />
+                                    <text
+                                      x={50 + (surfaceIntersections.face.p1.x / wProf) * 400 + 8}
+                                      y={310 - (surfaceIntersections.face.p1.y / hProf) * 280}
+                                      fill="#F59E0B"
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                    >
+                                      Calc Intersection ({surfaceIntersections.face.lengthM}m)
+                                    </text>
+                                  </g>
+                                )}
+
+                                {surfaceIntersections.leftWall && activeTab === 'VIEW_LEFT_WALL' && (
+                                  <line
+                                    x1={50 + (surfaceIntersections.leftWall.p1.x / pullProf) * 400}
+                                    y1={310 - (surfaceIntersections.leftWall.p1.y / lwH) * 280}
+                                    x2={50 + (surfaceIntersections.leftWall.p2.x / pullProf) * 400}
+                                    y2={310 - (surfaceIntersections.leftWall.p2.y / lwH) * 280}
+                                    stroke="#F59E0B"
+                                    strokeWidth="3"
+                                    strokeDasharray="6,4"
+                                  />
+                                )}
+
+                                {surfaceIntersections.rightWall && activeTab === 'VIEW_RIGHT_WALL' && (
+                                  <line
+                                    x1={50 + (surfaceIntersections.rightWall.p1.x / pullProf) * 400}
+                                    y1={310 - (surfaceIntersections.rightWall.p1.y / rwH) * 280}
+                                    x2={50 + (surfaceIntersections.rightWall.p2.x / pullProf) * 400}
+                                    y2={310 - (surfaceIntersections.rightWall.p2.y / rwH) * 280}
+                                    stroke="#F59E0B"
+                                    strokeWidth="3"
+                                    strokeDasharray="6,4"
+                                  />
+                                )}
+
+                                {surfaceIntersections.crown && activeTab === 'VIEW_CROWN' && (
+                                  <line
+                                    x1={50 + (surfaceIntersections.crown.p1.y / wProf) * 400}
+                                    y1={310 - (surfaceIntersections.crown.p1.x / pullProf) * 280}
+                                    x2={50 + (surfaceIntersections.crown.p2.y / wProf) * 400}
+                                    y2={310 - (surfaceIntersections.crown.p2.x / pullProf) * 280}
+                                    stroke="#F59E0B"
+                                    strokeWidth="3"
+                                    strokeDasharray="6,4"
+                                  />
+                                )}
+
+                                {activeJoint.panel.toUpperCase() === activeTab.replace('VIEW_', '') && activePts.length >= 2 && (
+                                  <polyline
+                                    points={activePts
+                                      .map((p) => {
+                                        const m = pointToTunnel3DMetric(p, activeJoint.panel, tunnelGeometry);
+                                        if (activeTab === 'VIEW_FACE') {
+                                          const clampedZ = !tunnelGeometry.isVerticalShaft
+                                            ? Math.min(m.z, prof.getRoofZAtY(m.y))
+                                            : m.x;
+                                          const sx = 50 + (m.y / wProf) * 400;
+                                          const sy = tunnelGeometry.isVerticalShaft
+                                            ? 30 + (m.x / wProf) * 280
+                                            : 310 - (clampedZ / hProf) * 280;
+                                          return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                                        }
+                                        if (activeTab === 'VIEW_LEFT_WALL') {
+                                          const sx = 50 + (m.x / pullProf) * 400;
+                                          const sy = 310 - (m.z / lwH) * 280;
+                                          return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                                        }
+                                        if (activeTab === 'VIEW_RIGHT_WALL') {
+                                          const sx = 50 + (m.x / pullProf) * 400;
+                                          const sy = 310 - (m.z / rwH) * 280;
+                                          return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                                        }
+                                        const sx = 50 + (m.y / wProf) * 400;
+                                        const sy = 310 - (m.x / pullProf) * 280;
+                                        return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                                      })
+                                      .join(' ')}
+                                    fill="none"
+                                    stroke="#38BDF8"
+                                    strokeWidth="4"
+                                    strokeLinecap="round"
+                                  />
+                                )}
+                              </g>
+                            </>
                           );
                         })()}
-
-                        {surfaceIntersections.face && activeTab === 'VIEW_FACE' && (
-                          <g>
-                            <line
-                              x1={50 + (surfaceIntersections.face.p1.x / tunnelGeometry.widthM) * 400}
-                              y1={310 - (surfaceIntersections.face.p1.y / tunnelGeometry.heightM) * 280}
-                              x2={50 + (surfaceIntersections.face.p2.x / tunnelGeometry.widthM) * 400}
-                              y2={310 - (surfaceIntersections.face.p2.y / tunnelGeometry.heightM) * 280}
-                              stroke="#F59E0B"
-                              strokeWidth="3"
-                              strokeDasharray="6,4"
-                            />
-                            <text
-                              x={50 + (surfaceIntersections.face.p1.x / tunnelGeometry.widthM) * 400 + 8}
-                              y={310 - (surfaceIntersections.face.p1.y / tunnelGeometry.heightM) * 280}
-                              fill="#F59E0B"
-                              fontSize="11"
-                              fontWeight="bold"
-                            >
-                              Calc Intersection ({surfaceIntersections.face.lengthM}m)
-                            </text>
-                          </g>
-                        )}
-
-                        {surfaceIntersections.leftWall && activeTab === 'VIEW_LEFT_WALL' && (
-                          <line
-                            x1={50 + (surfaceIntersections.leftWall.p1.x / tunnelGeometry.pullLengthM) * 400}
-                            y1={310 - (surfaceIntersections.leftWall.p1.y / tunnelGeometry.wallHeightM) * 280}
-                            x2={50 + (surfaceIntersections.leftWall.p2.x / tunnelGeometry.pullLengthM) * 400}
-                            y2={310 - (surfaceIntersections.leftWall.p2.y / tunnelGeometry.wallHeightM) * 280}
-                            stroke="#F59E0B"
-                            strokeWidth="3"
-                            strokeDasharray="6,4"
-                          />
-                        )}
-
-                        {surfaceIntersections.rightWall && activeTab === 'VIEW_RIGHT_WALL' && (
-                          <line
-                            x1={50 + (surfaceIntersections.rightWall.p1.x / tunnelGeometry.pullLengthM) * 400}
-                            y1={310 - (surfaceIntersections.rightWall.p1.y / tunnelGeometry.wallHeightM) * 280}
-                            x2={50 + (surfaceIntersections.rightWall.p2.x / tunnelGeometry.pullLengthM) * 400}
-                            y2={310 - (surfaceIntersections.rightWall.p2.y / tunnelGeometry.wallHeightM) * 280}
-                            stroke="#F59E0B"
-                            strokeWidth="3"
-                            strokeDasharray="6,4"
-                          />
-                        )}
-
-                        {activeJoint.panel.toUpperCase() === activeTab.replace('VIEW_', '') && activeJoint.points.length >= 2 && (
-                          <polyline
-                            points={activeJoint.points
-                              .map((p) => `${50 + (p.x / 1000) * 400},${30 + (p.y / 800) * 280}`)
-                              .join(' ')}
-                            fill="none"
-                            stroke="#38BDF8"
-                            strokeWidth="4"
-                          />
-                        )}
                       </svg>
                     </div>
 
@@ -6356,323 +6422,408 @@ const NatmJoint3DInspectorModalContent: React.FC<
 
                     <div className="w-full bg-slate-950 rounded-xl border border-slate-800 p-4 overflow-x-auto">
                       <svg viewBox="0 0 940 280" className="w-full min-w-[780px] h-auto select-none">
-                        {/* 1. LEFT WALL / 1. NE WALL */}
-                        {tunnelGeometry.hasLeftWall !== false && (
-                          <g>
-                            <rect x="20" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                            <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? `1. NE WALL (0°–90° · Pull 0..${tunnelGeometry.pullLengthM}m)`
-                                : isSurfaceMapping
-                                ? `1. ${domainPanelMap.leftWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
-                                : `1. LEFT WALL (0..${tunnelGeometry.pullLengthM}m)`}
-                            </text>
-                            {/* Stationing ticks at 0m, 1m, 2m, pullL */}
-                            <line x1="20" y1="220" x2="200" y2="220" stroke="#64748b" strokeWidth="1" />
-                            <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '◀ 4.WN (0°N)' : '0m'}
-                            </text>
-                            <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '2.ES ▶ (90°E)' : `${tunnelGeometry.pullLengthM}m`}
-                            </text>
-                            <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? 'Pull 0m Bottom → Pull Top'
-                                : isSurfaceMapping
-                                ? `${domainPanelMap.leftWall.shortLabel} Span`
-                                : 'Drive Advance (+X)'}
-                            </text>
-
-                            {/* Observed traces on Left Wall */}
-                            {allRoundJoints
-                              .filter((j) => j.panel === 'left_wall' && j.points.length >= 2)
-                              .map((j) => (
-                                <polyline
-                                  key={`unrolled-obs-lw-${j.id}`}
-                                  points={j.points
-                                    .map((p) => `${20 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
-                                    .join(' ')}
-                                  fill="none"
-                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                                  strokeLinecap="round"
-                                />
-                              ))}
-
-                            {/* Calculated Plane Intersection on Left Wall */}
-                            {surfaceIntersections.leftWall && (
-                              <g>
-                                <line
-                                  x1={20 + (surfaceIntersections.leftWall.p1.x / tunnelGeometry.pullLengthM) * 180}
-                                  y1={220 - (surfaceIntersections.leftWall.p1.y / (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM)) * 180}
-                                  x2={20 + (surfaceIntersections.leftWall.p2.x / tunnelGeometry.pullLengthM) * 180}
-                                  y2={220 - (surfaceIntersections.leftWall.p2.y / (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM)) * 180}
-                                  stroke="#F59E0B"
-                                  strokeWidth="2.8"
-                                  strokeDasharray="6,3"
-                                />
-                                <text
-                                  x={20 + ((surfaceIntersections.leftWall.p1.x + surfaceIntersections.leftWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                                  y={215 - ((surfaceIntersections.leftWall.p1.y + surfaceIntersections.leftWall.p2.y) / (2 * (tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM))) * 180}
-                                  fill="#F59E0B"
-                                  fontSize="8"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  calc {surfaceIntersections.leftWall.lengthM}m
-                                </text>
-                              </g>
-                            )}
-                          </g>
-                        )}
-
-                        {/* 2. CROWN ARCH / 2. ES WALL */}
-                        {tunnelGeometry.hasCrown !== false && (
-                          <g>
-                            <rect x="220" y="40" width="220" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                            <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? `2. ES WALL (90°–180° · Pull 0..${tunnelGeometry.pullLengthM}m)`
-                                : isSurfaceMapping
-                                ? `2. ${domainPanelMap.crown.shortLabel.toUpperCase()} (${strikeInfo.strikePairLabel})`
-                                : `2. CROWN ARCH (${strikeInfo.strikePairLabel})`}
-                            </text>
-                            {/* Crown Centerline */}
-                            <line x1="330" y1="40" x2="330" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
-                            <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : `C/L (${(tunnelGeometry.widthM / 2).toFixed(1)}m)`}
-                            </text>
-                            <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? '◀ 1.NE (90°E)'
-                                : isSurfaceMapping
-                                ? '0m (Left)'
-                                : 'L-SPL'}
-                            </text>
-                            <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? '3.SW ▶ (180°S)'
-                                : isSurfaceMapping
-                                ? `${tunnelGeometry.widthM}m (Right)`
-                                : 'R-SPL'}
-                            </text>
-
-                            {/* Observed traces on Crown */}
-                            {allRoundJoints
-                              .filter((j) => j.panel === 'crown' && j.points.length >= 2)
-                              .map((j) => (
-                                <polyline
-                                  key={`unrolled-obs-cr-${j.id}`}
-                                  points={j.points
-                                    .map((p) => `${220 + (p.x / 1000) * 220},${40 + (p.y / 800) * 180}`)
-                                    .join(' ')}
-                                  fill="none"
-                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                                  strokeLinecap="round"
-                                />
-                              ))}
-
-                            {/* Calculated Plane Intersection on Crown */}
-                            {surfaceIntersections.crown && (
-                              <g>
-                                <line
-                                  x1={220 + (surfaceIntersections.crown.p1.y / tunnelGeometry.widthM) * 220}
-                                  y1={40 + (surfaceIntersections.crown.p1.x / tunnelGeometry.pullLengthM) * 180}
-                                  x2={220 + (surfaceIntersections.crown.p2.y / tunnelGeometry.widthM) * 220}
-                                  y2={40 + (surfaceIntersections.crown.p2.x / tunnelGeometry.pullLengthM) * 180}
-                                  stroke="#F59E0B"
-                                  strokeWidth="2.8"
-                                  strokeDasharray="6,3"
-                                />
-                                <text
-                                  x={220 + ((surfaceIntersections.crown.p1.y + surfaceIntersections.crown.p2.y) / (2 * tunnelGeometry.widthM)) * 220}
-                                  y={35 + ((surfaceIntersections.crown.p1.x + surfaceIntersections.crown.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                                  fill="#F59E0B"
-                                  fontSize="8"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  strike {surfaceIntersections.crown.lengthM}m
-                                </text>
-                              </g>
-                            )}
-                          </g>
-                        )}
-
-                        {/* 3. RIGHT WALL / 3. SW WALL */}
-                        {tunnelGeometry.hasRightWall !== false && (
-                          <g>
-                            <rect x="460" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                            <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? `3. SW WALL (180°–270° · Pull 0..${tunnelGeometry.pullLengthM}m)`
-                                : isSurfaceMapping
-                                ? `3. ${domainPanelMap.rightWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
-                                : `3. RIGHT WALL (0..${tunnelGeometry.pullLengthM}m)`}
-                            </text>
-                            <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
-                            <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '◀ 2.ES (180°S)' : '0m'}
-                            </text>
-                            <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft ? '4.WN ▶ (270°W)' : `${tunnelGeometry.pullLengthM}m`}
-                            </text>
-                            <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                              {tunnelGeometry.isVerticalShaft
-                                ? 'Pull 0m Bottom → Pull Top'
-                                : isSurfaceMapping
-                                ? `${domainPanelMap.rightWall.shortLabel} Span`
-                                : 'Drive Advance (+X)'}
-                            </text>
-
-                            {/* Observed traces on Right Wall */}
-                            {allRoundJoints
-                              .filter((j) => j.panel === 'right_wall' && j.points.length >= 2)
-                              .map((j) => (
-                                <polyline
-                                  key={`unrolled-obs-rw-${j.id}`}
-                                  points={j.points
-                                    .map((p) => `${460 + (p.x / 1000) * 180},${220 - (p.y / 800) * 180}`)
-                                    .join(' ')}
-                                  fill="none"
-                                  stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                                  strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                                  strokeLinecap="round"
-                                />
-                              ))}
-
-                            {/* Calculated Plane Intersection on Right Wall */}
-                            {surfaceIntersections.rightWall && (
-                              <g>
-                                <line
-                                  x1={460 + (surfaceIntersections.rightWall.p1.x / tunnelGeometry.pullLengthM) * 180}
-                                  y1={220 - (surfaceIntersections.rightWall.p1.y / (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM)) * 180}
-                                  x2={460 + (surfaceIntersections.rightWall.p2.x / tunnelGeometry.pullLengthM) * 180}
-                                  y2={220 - (surfaceIntersections.rightWall.p2.y / (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM)) * 180}
-                                  stroke="#F59E0B"
-                                  strokeWidth="2.8"
-                                  strokeDasharray="6,3"
-                                />
-                                <text
-                                  x={460 + ((surfaceIntersections.rightWall.p1.x + surfaceIntersections.rightWall.p2.x) / (2 * tunnelGeometry.pullLengthM)) * 180}
-                                  y={215 - ((surfaceIntersections.rightWall.p1.y + surfaceIntersections.rightWall.p2.y) / (2 * (tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM))) * 180}
-                                  fill="#F59E0B"
-                                  fontSize="8"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  calc {surfaceIntersections.rightWall.lengthM}m
-                                </text>
-                              </g>
-                            )}
-                          </g>
-                        )}
-
-                        {/* 4. TUNNEL FACE / SHAFT BOTTOM FACE */}
                         {(() => {
-                          if (tunnelGeometry.isVerticalShaft) {
-                            return (
-                              <g>
-                                <circle cx="790" cy="130" r="88" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
-                                {/* 1m North-to-South Reference Line */}
-                                <line x1="790" y1="42" x2="790" y2="218" stroke="#e11d48" strokeWidth="2" strokeDasharray="5,3" />
-                                <text x="790" y="54" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">0°N (0m REF)</text>
-                                <text x="790" y="214" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">180°S ({tunnelGeometry.widthM}m)</text>
-                              </g>
-                            );
-                          }
                           const prof = buildTunnelCrossSectionProfileMetric(tunnelGeometry);
                           const wProf = Math.max(0.5, tunnelGeometry.widthM || 8.0);
                           const hProf = Math.max(0.5, tunnelGeometry.heightM || 6.5);
-                          const polyPoints = prof.points
+                          const pullProf = Math.max(0.5, tunnelGeometry.pullLengthM || 3.0);
+                          const lwH = Math.max(0.5, tunnelGeometry.leftWallHeightM || tunnelGeometry.wallHeightM || 3.8);
+                          const rwH = Math.max(0.5, tunnelGeometry.rightWallHeightM || tunnelGeometry.wallHeightM || 3.8);
+                          const facePolyPoints = prof.points
                             .map((p) => {
                               const sx = 670 + (p.y / wProf) * 240;
                               const sy = 220 - (p.z / hProf) * 180;
                               return `${sx.toFixed(1)},${sy.toFixed(1)}`;
                             })
                             .join(' ');
-                          return prof.isClosed ? (
-                            <polygon
-                              points={polyPoints}
-                              fill="#1e293b"
-                              stroke="#0ea5e9"
-                              strokeWidth="2"
-                            />
-                          ) : (
-                            <polyline
-                              points={polyPoints}
-                              fill="none"
-                              stroke="#0ea5e9"
-                              strokeWidth="2.5"
-                            />
+
+                          const getJointTracePoints = (j: FieldJointTrace) =>
+                            j.id === activeJoint.id && activeTracePoints && activeTracePoints.length >= 2
+                              ? activeTracePoints
+                              : j.points;
+
+                          const mapPointToUnrolledPanel = (
+                            p: { x: number; y: number },
+                            panel: 'left_wall' | 'crown' | 'right_wall' | 'face',
+                            boxX: number,
+                            boxY: number,
+                            boxW: number,
+                            boxH: number
+                          ): string => {
+                            const m = pointToTunnel3DMetric(p, panel, tunnelGeometry);
+                            if (tunnelGeometry.isVerticalShaft) {
+                              if (panel === 'face') {
+                                const dx = (m.y - wProf / 2) / Math.max(0.25, wProf / 2);
+                                const dy = (m.x - wProf / 2) / Math.max(0.25, wProf / 2);
+                                const rDist = Math.hypot(dx, dy);
+                                const scale = rDist > 1 ? 1 / rDist : 1;
+                                const sx = 790 + dx * scale * 86;
+                                const sy = 130 + dy * scale * 86;
+                                return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                              }
+                              const deg =
+                                ((Math.atan2(m.y - wProf / 2, wProf / 2 - m.x) * 180) / Math.PI + 360) % 360;
+                              const startDeg = panel === 'left_wall' ? 0 : panel === 'crown' ? 90 : 180;
+                              const uFrac = Math.max(0, Math.min(1, (deg - startDeg) / 90));
+                              const vFrac = Math.max(0, Math.min(1, m.z / pullProf));
+                              const sx = boxX + uFrac * boxW;
+                              const sy = boxY + boxH - vFrac * boxH;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            }
+
+                            if (panel === 'left_wall') {
+                              const sx = boxX + Math.max(0, Math.min(1, m.x / pullProf)) * boxW;
+                              const sy = boxY + boxH - Math.max(0, Math.min(1, m.z / lwH)) * boxH;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            }
+                            if (panel === 'crown') {
+                              const sx = boxX + Math.max(0, Math.min(1, m.y / wProf)) * boxW;
+                              const sy = boxY + boxH - Math.max(0, Math.min(1, m.x / pullProf)) * boxH;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            }
+                            if (panel === 'right_wall') {
+                              const sx = boxX + Math.max(0, Math.min(1, m.x / pullProf)) * boxW;
+                              const sy = boxY + boxH - Math.max(0, Math.min(1, m.z / rwH)) * boxH;
+                              return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                            }
+                            const clampedZ = Math.min(m.z, prof.getRoofZAtY(m.y));
+                            const sx = boxX + Math.max(0, Math.min(1, m.y / wProf)) * boxW;
+                            const sy = boxY + boxH - Math.max(0, Math.min(1, clampedZ / hProf)) * boxH;
+                            return `${sx.toFixed(1)},${sy.toFixed(1)}`;
+                          };
+
+                          return (
+                            <>
+                              <defs>
+                                <clipPath id="unrolled-lw-clip">
+                                  <rect x="20" y="40" width="180" height="180" />
+                                </clipPath>
+                                <clipPath id="unrolled-cr-clip">
+                                  <rect x="220" y="40" width="220" height="180" />
+                                </clipPath>
+                                <clipPath id="unrolled-rw-clip">
+                                  <rect x="460" y="40" width="180" height="180" />
+                                </clipPath>
+                                <clipPath id="unrolled-fc-clip">
+                                  {tunnelGeometry.isVerticalShaft ? (
+                                    <circle cx="790" cy="130" r="88" />
+                                  ) : prof.isClosed ? (
+                                    <polygon points={facePolyPoints} />
+                                  ) : (
+                                    <rect x="670" y="40" width="240" height="180" />
+                                  )}
+                                </clipPath>
+                              </defs>
+
+                              {/* 1. LEFT WALL / 1. NE WALL */}
+                              {tunnelGeometry.hasLeftWall !== false && (
+                                <g>
+                                  <rect x="20" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                                  <text x="110" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? `1. NE WALL (0°–90° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                      : isSurfaceMapping
+                                      ? `1. ${domainPanelMap.leftWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
+                                      : `1. LEFT WALL (0..${tunnelGeometry.pullLengthM}m)`}
+                                  </text>
+                                  <line x1="20" y1="220" x2="200" y2="220" stroke="#64748b" strokeWidth="1" />
+                                  <text x="20" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft ? '◀ 4.WN (0°N)' : '0m'}
+                                  </text>
+                                  <text x="200" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft ? '2.ES ▶ (90°E)' : `${tunnelGeometry.pullLengthM}m`}
+                                  </text>
+                                  <text x="110" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? 'Pull 0m Bottom → Pull Top'
+                                      : isSurfaceMapping
+                                      ? `${domainPanelMap.leftWall.shortLabel} Span`
+                                      : 'Drive Advance (+X)'}
+                                  </text>
+
+                                  <g clipPath="url(#unrolled-lw-clip)">
+                                    {/* Observed traces on Left Wall */}
+                                    {allRoundJoints
+                                      .filter((j) => j.panel === 'left_wall' && getJointTracePoints(j).length >= 2)
+                                      .map((j) => (
+                                        <polyline
+                                          key={`unrolled-obs-lw-${j.id}`}
+                                          points={getJointTracePoints(j)
+                                            .map((p) => mapPointToUnrolledPanel(p, 'left_wall', 20, 40, 180, 180))
+                                            .join(' ')}
+                                          fill="none"
+                                          stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                          strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                          strokeLinecap="round"
+                                        />
+                                      ))}
+
+                                    {/* Calculated Plane Intersection on Left Wall */}
+                                    {surfaceIntersections.leftWall && (
+                                      <g>
+                                        <line
+                                          x1={20 + (surfaceIntersections.leftWall.p1.x / pullProf) * 180}
+                                          y1={220 - (surfaceIntersections.leftWall.p1.y / lwH) * 180}
+                                          x2={20 + (surfaceIntersections.leftWall.p2.x / pullProf) * 180}
+                                          y2={220 - (surfaceIntersections.leftWall.p2.y / lwH) * 180}
+                                          stroke="#F59E0B"
+                                          strokeWidth="2.8"
+                                          strokeDasharray="6,3"
+                                        />
+                                        <text
+                                          x={20 + ((surfaceIntersections.leftWall.p1.x + surfaceIntersections.leftWall.p2.x) / (2 * pullProf)) * 180}
+                                          y={215 - ((surfaceIntersections.leftWall.p1.y + surfaceIntersections.leftWall.p2.y) / (2 * lwH)) * 180}
+                                          fill="#F59E0B"
+                                          fontSize="8"
+                                          fontWeight="bold"
+                                          textAnchor="middle"
+                                        >
+                                          calc {surfaceIntersections.leftWall.lengthM}m
+                                        </text>
+                                      </g>
+                                    )}
+                                  </g>
+                                </g>
+                              )}
+
+                              {/* 2. CROWN ARCH / 2. ES WALL */}
+                              {tunnelGeometry.hasCrown !== false && (
+                                <g>
+                                  <rect x="220" y="40" width="220" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                                  <text x="330" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? `2. ES WALL (90°–180° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                      : isSurfaceMapping
+                                      ? `2. ${domainPanelMap.crown.shortLabel.toUpperCase()} (${strikeInfo.strikePairLabel})`
+                                      : `2. CROWN ARCH (${strikeInfo.strikePairLabel})`}
+                                  </text>
+                                  <line x1="330" y1="40" x2="330" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
+                                  <text x="330" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft ? 'Pull 0m Bottom → Pull Top' : `C/L (${(wProf / 2).toFixed(1)}m)`}
+                                  </text>
+                                  <text x="220" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? '◀ 1.NE (90°E)'
+                                      : isSurfaceMapping
+                                      ? '0m (Left)'
+                                      : 'L-SPL'}
+                                  </text>
+                                  <text x="440" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? '3.SW ▶ (180°S)'
+                                      : isSurfaceMapping
+                                      ? `${tunnelGeometry.widthM}m (Right)`
+                                      : 'R-SPL'}
+                                  </text>
+
+                                  <g clipPath="url(#unrolled-cr-clip)">
+                                    {/* Observed traces on Crown */}
+                                    {allRoundJoints
+                                      .filter((j) => j.panel === 'crown' && getJointTracePoints(j).length >= 2)
+                                      .map((j) => (
+                                        <polyline
+                                          key={`unrolled-obs-cr-${j.id}`}
+                                          points={getJointTracePoints(j)
+                                            .map((p) => mapPointToUnrolledPanel(p, 'crown', 220, 40, 220, 180))
+                                            .join(' ')}
+                                          fill="none"
+                                          stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                          strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                          strokeLinecap="round"
+                                        />
+                                      ))}
+
+                                    {/* Calculated Plane Intersection on Crown */}
+                                    {surfaceIntersections.crown && (
+                                      <g>
+                                        <line
+                                          x1={220 + (surfaceIntersections.crown.p1.y / wProf) * 220}
+                                          y1={220 - (surfaceIntersections.crown.p1.x / pullProf) * 180}
+                                          x2={220 + (surfaceIntersections.crown.p2.y / wProf) * 220}
+                                          y2={220 - (surfaceIntersections.crown.p2.x / pullProf) * 180}
+                                          stroke="#F59E0B"
+                                          strokeWidth="2.8"
+                                          strokeDasharray="6,3"
+                                        />
+                                        <text
+                                          x={220 + ((surfaceIntersections.crown.p1.y + surfaceIntersections.crown.p2.y) / (2 * wProf)) * 220}
+                                          y={215 - ((surfaceIntersections.crown.p1.x + surfaceIntersections.crown.p2.x) / (2 * pullProf)) * 180}
+                                          fill="#F59E0B"
+                                          fontSize="8"
+                                          fontWeight="bold"
+                                          textAnchor="middle"
+                                        >
+                                          strike {surfaceIntersections.crown.lengthM}m
+                                        </text>
+                                      </g>
+                                    )}
+                                  </g>
+                                </g>
+                              )}
+
+                              {/* 3. RIGHT WALL / 3. SW WALL */}
+                              {tunnelGeometry.hasRightWall !== false && (
+                                <g>
+                                  <rect x="460" y="40" width="180" height="180" fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                                  <text x="550" y="32" fill="#94a3b8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? `3. SW WALL (180°–270° · Pull 0..${tunnelGeometry.pullLengthM}m)`
+                                      : isSurfaceMapping
+                                      ? `3. ${domainPanelMap.rightWall.shortLabel.toUpperCase()} (0..${tunnelGeometry.pullLengthM}m)`
+                                      : `3. RIGHT WALL (0..${tunnelGeometry.pullLengthM}m)`}
+                                  </text>
+                                  <line x1="460" y1="220" x2="640" y2="220" stroke="#64748b" strokeWidth="1" />
+                                  <text x="460" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft ? '◀ 2.ES (180°S)' : '0m'}
+                                  </text>
+                                  <text x="640" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft ? '4.WN ▶ (270°W)' : `${tunnelGeometry.pullLengthM}m`}
+                                  </text>
+                                  <text x="550" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                    {tunnelGeometry.isVerticalShaft
+                                      ? 'Pull 0m Bottom → Pull Top'
+                                      : isSurfaceMapping
+                                      ? `${domainPanelMap.rightWall.shortLabel} Span`
+                                      : 'Drive Advance (+X)'}
+                                  </text>
+
+                                  <g clipPath="url(#unrolled-rw-clip)">
+                                    {/* Observed traces on Right Wall */}
+                                    {allRoundJoints
+                                      .filter((j) => j.panel === 'right_wall' && getJointTracePoints(j).length >= 2)
+                                      .map((j) => (
+                                        <polyline
+                                          key={`unrolled-obs-rw-${j.id}`}
+                                          points={getJointTracePoints(j)
+                                            .map((p) => mapPointToUnrolledPanel(p, 'right_wall', 460, 40, 180, 180))
+                                            .join(' ')}
+                                          fill="none"
+                                          stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                          strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                          strokeLinecap="round"
+                                        />
+                                      ))}
+
+                                    {/* Calculated Plane Intersection on Right Wall */}
+                                    {surfaceIntersections.rightWall && (
+                                      <g>
+                                        <line
+                                          x1={460 + (surfaceIntersections.rightWall.p1.x / pullProf) * 180}
+                                          y1={220 - (surfaceIntersections.rightWall.p1.y / rwH) * 180}
+                                          x2={460 + (surfaceIntersections.rightWall.p2.x / pullProf) * 180}
+                                          y2={220 - (surfaceIntersections.rightWall.p2.y / rwH) * 180}
+                                          stroke="#F59E0B"
+                                          strokeWidth="2.8"
+                                          strokeDasharray="6,3"
+                                        />
+                                        <text
+                                          x={460 + ((surfaceIntersections.rightWall.p1.x + surfaceIntersections.rightWall.p2.x) / (2 * pullProf)) * 180}
+                                          y={215 - ((surfaceIntersections.rightWall.p1.y + surfaceIntersections.rightWall.p2.y) / (2 * rwH)) * 180}
+                                          fill="#F59E0B"
+                                          fontSize="8"
+                                          fontWeight="bold"
+                                          textAnchor="middle"
+                                        >
+                                          calc {surfaceIntersections.rightWall.lengthM}m
+                                        </text>
+                                      </g>
+                                    )}
+                                  </g>
+                                </g>
+                              )}
+
+                              {/* 4. TUNNEL FACE / SHAFT BOTTOM FACE */}
+                              {tunnelGeometry.isVerticalShaft ? (
+                                <g>
+                                  <circle cx="790" cy="130" r="88" fill="#1e293b" stroke="#0ea5e9" strokeWidth="2" />
+                                  <line x1="790" y1="42" x2="790" y2="218" stroke="#e11d48" strokeWidth="2" strokeDasharray="5,3" />
+                                  <text x="790" y="54" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">0°N (0m REF)</text>
+                                  <text x="790" y="214" fill="#fda4af" fontSize="8" fontWeight="bold" textAnchor="middle">180°S ({tunnelGeometry.widthM}m)</text>
+                                </g>
+                              ) : prof.isClosed ? (
+                                <polygon
+                                  points={facePolyPoints}
+                                  fill="#1e293b"
+                                  stroke="#0ea5e9"
+                                  strokeWidth="2"
+                                />
+                              ) : (
+                                <polyline
+                                  points={facePolyPoints}
+                                  fill="none"
+                                  stroke="#0ea5e9"
+                                  strokeWidth="2.5"
+                                />
+                              )}
+                              <text x="790" y="32" fill="#38bdf8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
+                                {tunnelGeometry.isVerticalShaft
+                                  ? `4. SHAFT BOTTOM FACE (PULL 0m · 1m N→S REF)`
+                                  : isSurfaceMapping
+                                  ? `4. ${domainPanelMap.face.shortLabel.toUpperCase()} (${tunnelGeometry.widthM}m × ${tunnelGeometry.heightM}m)`
+                                  : `4. EXCAVATION FACE (X = ${tunnelGeometry.pullLengthM}m)`}
+                              </text>
+                              {!tunnelGeometry.isVerticalShaft && (
+                                <line x1="790" y1="40" x2="790" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
+                              )}
+                              <line x1="670" y1="220" x2="910" y2="220" stroke="#64748b" strokeWidth="1" />
+                              <text x="670" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                {tunnelGeometry.isVerticalShaft ? '270°W (0m)' : '0m (Left)'}
+                              </text>
+                              <text x="790" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
+                                {tunnelGeometry.isVerticalShaft ? '1m N→S REF' : 'C/L'}
+                              </text>
+                              <text x="910" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                {tunnelGeometry.isVerticalShaft ? `90°E (${tunnelGeometry.widthM}m)` : `${tunnelGeometry.widthM}m (Right)`}
+                              </text>
+                              <text x="790" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
+                                {tunnelGeometry.isVerticalShaft ? `Shaft Diameter Ø ${tunnelGeometry.widthM}m` : 'Transverse Span (+Y)'}
+                              </text>
+
+                              <g clipPath="url(#unrolled-fc-clip)">
+                                {/* Observed traces on Face */}
+                                {allRoundJoints
+                                  .filter((j) => j.panel === 'face' && getJointTracePoints(j).length >= 2)
+                                  .map((j) => (
+                                    <polyline
+                                      key={`unrolled-obs-fc-${j.id}`}
+                                      points={getJointTracePoints(j)
+                                        .map((p) => mapPointToUnrolledPanel(p, 'face', 670, 40, 240, 180))
+                                        .join(' ')}
+                                      fill="none"
+                                      stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
+                                      strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
+                                      strokeLinecap="round"
+                                    />
+                                  ))}
+
+                                {/* Calculated Plane Intersection on Face */}
+                                {surfaceIntersections.face && (
+                                  <g>
+                                    <line
+                                      x1={670 + (surfaceIntersections.face.p1.x / wProf) * 240}
+                                      y1={220 - (surfaceIntersections.face.p1.y / hProf) * 180}
+                                      x2={670 + (surfaceIntersections.face.p2.x / wProf) * 240}
+                                      y2={220 - (surfaceIntersections.face.p2.y / hProf) * 180}
+                                      stroke="#F59E0B"
+                                      strokeWidth="2.8"
+                                      strokeDasharray="6,3"
+                                    />
+                                    <text
+                                      x={670 + ((surfaceIntersections.face.p1.x + surfaceIntersections.face.p2.x) / (2 * wProf)) * 240}
+                                      y={215 - ((surfaceIntersections.face.p1.y + surfaceIntersections.face.p2.y) / (2 * hProf)) * 180}
+                                      fill="#F59E0B"
+                                      fontSize="8"
+                                      fontWeight="bold"
+                                      textAnchor="middle"
+                                    >
+                                      calc {surfaceIntersections.face.lengthM}m
+                                    </text>
+                                  </g>
+                                )}
+                              </g>
+                            </>
                           );
                         })()}
-                        <text x="790" y="32" fill="#38bdf8" fontSize="10.5" fontWeight="bold" textAnchor="middle">
-                          {tunnelGeometry.isVerticalShaft
-                            ? `4. SHAFT BOTTOM FACE (PULL 0m · 1m N→S REF)`
-                            : isSurfaceMapping
-                            ? `4. ${domainPanelMap.face.shortLabel.toUpperCase()} (${tunnelGeometry.widthM}m × ${tunnelGeometry.heightM}m)`
-                            : `4. EXCAVATION FACE (X = ${tunnelGeometry.pullLengthM}m)`}
-                        </text>
-                        {/* Centerline on Face */}
-                        {!tunnelGeometry.isVerticalShaft && (
-                          <line x1="790" y1="40" x2="790" y2="220" stroke="#0284c7" strokeWidth="1" strokeDasharray="4,4" />
-                        )}
-                        <line x1="670" y1="220" x2="910" y2="220" stroke="#64748b" strokeWidth="1" />
-                        <text x="670" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                          {tunnelGeometry.isVerticalShaft ? '270°W (0m)' : '0m (Left)'}
-                        </text>
-                        <text x="790" y="235" fill="#0284c7" fontSize="8.5" textAnchor="middle">
-                          {tunnelGeometry.isVerticalShaft ? '1m N→S REF' : 'C/L'}
-                        </text>
-                        <text x="910" y="235" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                          {tunnelGeometry.isVerticalShaft ? `90°E (${tunnelGeometry.widthM}m)` : `${tunnelGeometry.widthM}m (Right)`}
-                        </text>
-                        <text x="790" y="248" fill="#64748b" fontSize="8.5" textAnchor="middle">
-                          {tunnelGeometry.isVerticalShaft ? `Shaft Diameter Ø ${tunnelGeometry.widthM}m` : 'Transverse Span (+Y)'}
-                        </text>
-
-                        {/* Observed traces on Face */}
-                        {allRoundJoints
-                          .filter((j) => j.panel === 'face' && j.points.length >= 2)
-                          .map((j) => (
-                            <polyline
-                              key={`unrolled-obs-fc-${j.id}`}
-                              points={j.points
-                                .map((p) => `${670 + (p.x / 1000) * 240},${40 + (p.y / 800) * 180}`)
-                                .join(' ')}
-                              fill="none"
-                              stroke={j.id === activeJoint.id ? '#38BDF8' : '#64748b'}
-                              strokeWidth={j.id === activeJoint.id ? '3.5' : '2'}
-                              strokeLinecap="round"
-                            />
-                          ))}
-
-                        {/* Calculated Plane Intersection on Face */}
-                        {surfaceIntersections.face && (
-                          <g>
-                            <line
-                              x1={670 + (surfaceIntersections.face.p1.x / tunnelGeometry.widthM) * 240}
-                              y1={220 - (surfaceIntersections.face.p1.y / tunnelGeometry.heightM) * 180}
-                              x2={670 + (surfaceIntersections.face.p2.x / tunnelGeometry.widthM) * 240}
-                              y2={220 - (surfaceIntersections.face.p2.y / tunnelGeometry.heightM) * 180}
-                              stroke="#F59E0B"
-                              strokeWidth="2.8"
-                              strokeDasharray="6,3"
-                            />
-                            <text
-                              x={670 + ((surfaceIntersections.face.p1.x + surfaceIntersections.face.p2.x) / (2 * tunnelGeometry.widthM)) * 240}
-                              y={215 - ((surfaceIntersections.face.p1.y + surfaceIntersections.face.p2.y) / (2 * tunnelGeometry.heightM)) * 180}
-                              fill="#F59E0B"
-                              fontSize="8"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              calc {surfaceIntersections.face.lengthM}m
-                            </text>
-                          </g>
-                        )}
                       </svg>
                     </div>
 

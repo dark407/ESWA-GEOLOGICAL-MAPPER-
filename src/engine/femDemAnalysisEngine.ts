@@ -2846,10 +2846,12 @@ export function runCompleteFemDemAnalysis(
     return { x: px, y: py, angleRad: Math.atan2(py - cy, px - cx) };
   };
 
-  // Sample 36 boundary vertices evenly along the exact fed tunnel outline
-  const nSectors = 36;
-  const nRings = 6; // 6 concentric staggered rings -> 2 * 36 * 6 = 432 Triangular Finite Elements
-  const ringRadiiNorm = [1.0, 1.13, 1.29, 1.48, 1.72, 2.02, 2.38];
+  // Sample 48 boundary vertices evenly along the exact fed tunnel outline
+  // Ring 0 -> Ring 1 (1.0 -> 1.045) forms the dense boundary-hugging triangular liner/interface mesh
+  // Rings 1 -> 8 expand smoothly across the entire rock mass viewport
+  const nSectors = 48;
+  const nRings = 8; // 8 concentric staggered rings -> 2 * 48 * 8 = 768 Triangular Finite Elements
+  const ringRadiiNorm = [1.0, 1.045, 1.15, 1.29, 1.47, 1.72, 2.06, 2.58, 3.65];
 
   const boundarySamplePts: { x: number; y: number; angleRad: number }[] = [];
   for (let s = 0; s < nSectors; s++) {
@@ -2865,7 +2867,9 @@ export function runCompleteFemDemAnalysis(
 
   // Helper to expand any perimeter fraction uFrac outward to normalized radius rNorm
   // At rNorm = 1.0, point lies 100% on the exact fed tunnel boundary.
-  // As rNorm increases into the rock mass, blends smoothly with radial expansion so corners never self-intersect.
+  // As rNorm increases into the rock mass, blends smoothly with radial expansion and clamps to the full domain [0, 504] x [0, 440].
+  const domainPlotW = 504;
+  const domainPlotH = 440;
   const projectRingPoint = (uFrac: number, rNorm: number) => {
     const bPt = samplePerimeterAtFraction(uFrac);
     const dx0 = bPt.x - cx;
@@ -2873,17 +2877,19 @@ export function runCompleteFemDemAnalysis(
     const dist0 = Math.max(1, Math.hypot(dx0, dy0));
     const ux = dx0 / dist0;
     const uy = dy0 / dist0;
-    const radialStepPx = (rNorm - 1.0) * ((boxW + boxH) * 0.27);
+    const radialStepPx = (rNorm - 1.0) * ((boxW + boxH) * 0.28);
     // Slight smoothing of sharp invert corners in outer rings
-    const smoothBlend = Math.min(0.45, Math.max(0, (rNorm - 1.0) * 0.28));
-    const targetX =
+    const smoothBlend = Math.min(0.5, Math.max(0, (rNorm - 1.0) * 0.26));
+    const rawX =
       cx +
       dx0 * (1 - smoothBlend) * rNorm +
       (dx0 + ux * radialStepPx) * smoothBlend;
-    const targetY =
+    const rawY =
       cy +
       dy0 * (1 - smoothBlend) * rNorm +
       (dy0 + uy * radialStepPx) * smoothBlend;
+    const targetX = Math.max(0, Math.min(domainPlotW, rawX));
+    const targetY = Math.max(0, Math.min(domainPlotH, rawY));
     return {
       xSvg: Number(targetX.toFixed(1)),
       ySvg: Number(targetY.toFixed(1)),
@@ -2958,9 +2964,9 @@ export function runCompleteFemDemAnalysis(
     return { x: p.xSvg, y: p.ySvg };
   });
 
-  // Compute boundary-fitted Rock Bolt vectors along the fed tunnel or 360° radial around Circular Vertical Shaft
+  // Compute boundary-fitted Radial Rock Bolt vectors (12-14 radial bolts fanning around Crown & Haunches/Walls like RS2/Plaxis)
   const boltScalePx = boxW / Math.max(1, spanWidthM);
-  const boltLenPx = Math.min(92, Math.max(24, boltLenM * boltScalePx));
+  const boltLenPx = Math.min(118, Math.max(58, boltLenM * boltScalePx * 1.15));
   const supportBoltVectorsSvg: {
     x1: number;
     y1: number;
@@ -2970,12 +2976,11 @@ export function runCompleteFemDemAnalysis(
   }[] = [];
 
   if (isVertShaft) {
-    const stepS = Math.max(2, Math.round(nSectors / Math.max(8, Math.min(20, Math.round((Math.PI * spanWidthM) / boltSpInM)))));
+    const stepS = Math.max(2, Math.round(nSectors / Math.max(12, Math.min(20, Math.round((Math.PI * spanWidthM) / boltSpInM)))));
     for (let sIdx = 0; sIdx < nSectors; sIdx += stepS) {
       const bPt = boundarySamplePts[sIdx];
       const dx = bPt.x - cx;
       const dy = bPt.y - cy;
-      // In Half-Face Shaft mode with active scope only, skip unexcavated half
       if (isShaftHalfFace && sup.rockBoltScope === 'crown_only') {
         if (shaftHalfSide === 'right_half' && dx < -2) continue;
         if (shaftHalfSide === 'left_half' && dx > 2) continue;
@@ -2992,34 +2997,32 @@ export function runCompleteFemDemAnalysis(
       });
     }
   } else {
-    for (let sIdx = 0; sIdx < nSectors; sIdx += 3) {
-      const bPt = boundarySamplePts[sIdx];
-      // Skip flat bottom invert bolts unless circular
-      if (location?.shape !== 'circular' && bPt.y > cy + boxH * 0.42) {
+    // 12 radial rockbolt angles fanning symmetrically from left springline/haunch (-174°) across crown (-90°) to right haunch (-6°)
+    const targetAnglesDeg = [-174, -159, -143, -127, -112, -97, -83, -68, -53, -37, -21, -6];
+    for (const deg of targetAnglesDeg) {
+      const rad = (deg * Math.PI) / 180;
+      // Find closest perimeter point along the tunnel boundary in direction rad
+      let bestPt = boundarySamplePts[0];
+      let bestDiff = Infinity;
+      for (const cand of boundarySamplePts) {
+        let diff = Math.abs(cand.angleRad - rad);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestPt = cand;
+        }
+      }
+      const isCrownBolt = bestPt.y <= tunnelSplY + 8;
+      if (sup.rockBoltScope === 'crown_only' && !isCrownBolt && Math.abs(deg + 90) > 72) {
         continue;
       }
-      const isCrownBolt = bPt.y <= tunnelSplY + 4;
-      if (sup.rockBoltScope === 'crown_only' && !isCrownBolt) {
-        continue;
-      }
-      const dx = bPt.x - cx;
-      const dy = bPt.y - cy;
-      // Outward normal into rock mass: horizontal on vertical walls, radial on crown arch
-      let nx = 0;
-      let ny = -1;
-      if (isCrownBolt) {
-        const d = Math.max(1, Math.hypot(dx, dy));
-        nx = dx / d;
-        ny = dy / d;
-      } else {
-        nx = dx < 0 ? -1 : 1;
-        ny = 0;
-      }
+      const nx = Math.cos(rad);
+      const ny = Math.sin(rad);
       supportBoltVectorsSvg.push({
-        x1: Number(bPt.x.toFixed(1)),
-        y1: Number(bPt.y.toFixed(1)),
-        x2: Number((bPt.x + nx * boltLenPx).toFixed(1)),
-        y2: Number((bPt.y + ny * boltLenPx).toFixed(1)),
+        x1: Number(bestPt.x.toFixed(1)),
+        y1: Number(bestPt.y.toFixed(1)),
+        x2: Number((bestPt.x + nx * boltLenPx).toFixed(1)),
+        y2: Number((bestPt.y + ny * boltLenPx).toFixed(1)),
         zone: isCrownBolt ? 'crown' : 'wall',
       });
     }
@@ -3066,13 +3069,48 @@ export function runCompleteFemDemAnalysis(
           : 0.95
         : 1.0;
 
-    const directionalFactor =
-      (1 + 0.25 * (1 - pK0.value) * Math.cos(2 * angleRad)) * shaftHalfLocalFactor;
+    // Plaxis / RS2 Gravity-Loaded Chimney Plume Factor:
+    // - Maximum concentration in the parabolic settlement chimney above the crown (dy < 0, |dx| small)
+    // - Moderate in upper-mid flanks (green bands)
+    // - Low / rebound beneath the invert floor (dy > 0, |dx| < boxW * 0.55)
+    const dxNorm = (centroidSvg.x - cx) / Math.max(1, boxW * 0.5);
+    const dyNorm = (centroidSvg.y - cy) / Math.max(1, boxH * 0.5);
+    let plumeIntensity = 0.45;
+    if (isVertShaft) {
+      plumeIntensity =
+        (1 / Math.pow(Math.max(1, elemRNorm), 0.95)) *
+        (1 + 0.25 * (1 - pK0.value) * Math.cos(2 * angleRad)) *
+        shaftHalfLocalFactor;
+    } else if (dyNorm > 0.35 && Math.abs(dxNorm) < 1.15) {
+      // Invert rebound / floor zone (deep blue / royal blue)
+      const invCore = Math.max(0, 1 - Math.hypot(dxNorm * 1.1, (dyNorm - 0.95) * 0.9));
+      plumeIntensity = Math.max(0.03, 0.14 - 0.11 * invCore);
+    } else if (dyNorm <= 0.35) {
+      // Upper crown arch & flaring chimney settlement plume
+      const heightAboveCrown = Math.max(0, -dyNorm - 0.65);
+      const flareWidth = 0.72 + heightAboveCrown * 0.42;
+      const lateralGaussian = Math.exp(-Math.pow(dxNorm / flareWidth, 2) * 1.35);
+      const verticalDecay = Math.exp(-heightAboveCrown * 0.34);
+      const nearCrownBoost =
+        elemRNorm < 1.55 && dyNorm < -0.25
+          ? 0.28 * Math.exp(-Math.pow(dxNorm / 0.85, 2)) * (1.55 - elemRNorm)
+          : 0;
+      plumeIntensity = Math.min(
+        1.0,
+        Math.max(0.18, 0.22 + 0.72 * lateralGaussian * verticalDecay + nearCrownBoost)
+      );
+    } else {
+      // Lower lateral flanks (dark teal to forest green)
+      const flankDecay = Math.exp(-Math.pow((Math.abs(dxNorm) - 1.0) / 1.8, 2));
+      plumeIntensity = Math.max(0.16, Math.min(0.42, 0.18 + 0.22 * flankDecay));
+    }
+
+    const directionalFactor = plumeIntensity * 1.35;
 
     const isYieldedBefore =
-      elemRNorm <= rpBeforeNorm * (0.96 + 0.08 * directionalFactor);
+      elemRNorm <= rpBeforeNorm * (0.85 + 0.32 * plumeIntensity) && dyNorm < 0.25;
     const isYieldedAfter =
-      elemRNorm <= rpAfterNorm * (0.96 + 0.08 * directionalFactor);
+      elemRNorm <= rpAfterNorm * (0.85 + 0.28 * plumeIntensity) && dyNorm < 0.2;
 
     const sigmaRadialBeforeMpa = Number(
       (effectiveP0Mpa * (1 - 1 / Math.pow(elemRNorm, 2))).toFixed(2)
@@ -3088,7 +3126,8 @@ export function runCompleteFemDemAnalysis(
       (
         (isYieldedBefore
           ? sigmaCmEffective + kCoeff * sigmaRadialBeforeMpa
-          : effectiveP0Mpa * (1 + 1 / Math.pow(elemRNorm, 2))) * directionalFactor
+          : effectiveP0Mpa * (1 + 1 / Math.pow(elemRNorm, 2))) *
+        (0.65 + 0.55 * plumeIntensity)
       ).toFixed(2)
     );
     const sigmaThetaAfterMpa = Number(
@@ -3096,22 +3135,23 @@ export function runCompleteFemDemAnalysis(
         (isYieldedAfter
           ? sigmaCmEffective + kCoeff * sigmaRadialAfterMpa
           : effectiveP0Mpa * (1 + 1 / Math.pow(elemRNorm, 2)) -
-            effectiveSupportPressureMpa / Math.pow(elemRNorm, 2)) * directionalFactor
+            effectiveSupportPressureMpa / Math.pow(elemRNorm, 2)) *
+        (0.62 + 0.48 * plumeIntensity)
       ).toFixed(2)
     );
 
     const dispBeforeMm = Number(
-      ((femBefore.maxDisplacementMm / Math.pow(elemRNorm, 1.15)) * directionalFactor).toFixed(2)
+      (femBefore.maxDisplacementMm * plumeIntensity).toFixed(2)
     );
     const dispAfterMm = Number(
-      ((femAfter.maxDisplacementMm / Math.pow(elemRNorm, 1.25)) * directionalFactor).toFixed(2)
+      (femAfter.maxDisplacementMm * Math.pow(plumeIntensity, 1.08)).toFixed(2)
     );
 
     const strainBeforePct = Number(
-      ((femBefore.maxShearStrainPct / Math.pow(elemRNorm, 1.3)) * directionalFactor).toFixed(3)
+      (femBefore.maxShearStrainPct * plumeIntensity).toFixed(3)
     );
     const strainAfterPct = Number(
-      ((femAfter.maxShearStrainPct / Math.pow(elemRNorm, 1.4)) * directionalFactor).toFixed(3)
+      (femAfter.maxShearStrainPct * Math.pow(plumeIntensity, 1.1)).toFixed(3)
     );
 
     const localFosBefore = Number(

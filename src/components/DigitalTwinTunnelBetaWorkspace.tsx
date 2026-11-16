@@ -35,6 +35,7 @@ import { EswaTunnelLogo } from './EswaBrandIdentity';
 import { FieldMappingModeWorkspace } from './FieldMappingModeWorkspace';
 import {
   analyzePhotoForDigitalTwinSlot,
+  buildStitched20PhotoTextureCanvas,
   buildTheoreticalDesignReferenceLoop,
   buildUser3DJointFromClickedPoints,
   computeLocal3DFacetOrientationAtPoint,
@@ -52,6 +53,7 @@ import {
   Extracted3DJointAndDipSurface,
   Extracted3DRockFacet,
   generateSynthetic20PhotoSetForLocation,
+  isPhotoSlotPopulated,
   Joint3DSetId,
   Joint3DValidationStatus,
   loadDigitalTwinBetaStore,
@@ -61,17 +63,23 @@ import {
   saveDigitalTwinBetaStore,
   snapJointTo4EngineFisherConsensus,
   sync3DDigitalTwinRoundTo2DUndergroundStore,
+  syncAll3DDigitalTwinLocationRoundsTo2DStore,
   Tunnel3DExcavationZone,
 } from '../engine/digitalTwin20PhotoEngine';
 
 export interface DigitalTwinTunnelBetaWorkspaceProps {
   onBackToMainMenu: () => void;
   resumeAtLastStep?: boolean;
+  onOpenContinuous3DTwinLog?: () => void;
 }
 
 export const DigitalTwinTunnelBetaWorkspace: React.FC<
   DigitalTwinTunnelBetaWorkspaceProps
-> = ({ onBackToMainMenu, resumeAtLastStep = false }) => {
+> = ({
+  onBackToMainMenu,
+  resumeAtLastStep = false,
+  onOpenContinuous3DTwinLog,
+}) => {
   const [store, setStore] = useState<DigitalTwinBetaStore>(() =>
     loadDigitalTwinBetaStore()
   );
@@ -142,6 +150,28 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       null,
     [store.rounds, store.activeRoundId, activeProject?.id, activeLocation?.id]
   );
+
+  // Automatic One-Way Sync (3D Digital Twin Location Rounds ➔ 2D Underground Face Mapping Store)
+  useEffect(() => {
+    if (!activeProject || !activeLocation) return;
+    const locRounds = store.rounds.filter(
+      (r) =>
+        r.projectId === activeProject.id && r.locationId === activeLocation.id
+    );
+    if (locRounds.length === 0) return;
+    syncAll3DDigitalTwinLocationRoundsTo2DStore({
+      dtProject: activeProject,
+      dtLocation: activeLocation,
+      dtRounds: locRounds,
+      preferredActiveRoundId: activeRound?.id || store.activeRoundId,
+    });
+  }, [
+    activeProject,
+    activeLocation,
+    store.rounds,
+    activeRound?.id,
+    store.activeRoundId,
+  ]);
 
   // Project creation form state
   const [showNewProjForm, setShowNewProjForm] = useState(false);
@@ -479,6 +509,94 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     }
   };
 
+  // Live Photogrammetric 3D Reconstruction + 4-Engine Structural Analysis Pipeline
+  const runFullPhotoTo3DReconstructionAndAnalysis = useCallback(
+    async (targetRound: DigitalTwinRoundRecord) => {
+      if (!activeLocation) return;
+      const populatedCount = Object.values(targetRound.photosBySlot || {}).filter(
+        isPhotoSlotPopulated
+      ).length;
+
+      const cleanRound: DigitalTwinRoundRecord = {
+        ...targetRound,
+        extracted3DJoints: undefined,
+        lastReconstructedAtIso: new Date().toISOString(),
+      };
+
+      setActiveStep('reconstruct_3d');
+      setRenderSurfaceMode('rock_with_break_edges');
+      setIsRunning4EnginePipeline(true);
+
+      try {
+        setFourEngineStageInfo({
+          stageIndex: 1,
+          progressPct: 18,
+          label: `Photogrammetric Bundle Adjustment & Camera Pose Solving across ${populatedCount}/20 Uploaded Photos...`,
+        });
+        await new Promise((r) => setTimeout(r, 220));
+
+        setFourEngineStageInfo({
+          stageIndex: 1,
+          progressPct: 36,
+          label: `Multi-View Stereo (MVS) 3D Surface Relief Reconstruction & 20-Photo UV Texture Atlas Stitching...`,
+        });
+        await new Promise((r) => setTimeout(r, 240));
+
+        const freshModel = reconstructReal3DTunnelFrom20Photos(
+          activeLocation,
+          cleanRound
+        );
+
+        const res = await runFourEngineConsensus3DExtraction(
+          freshModel,
+          activeLocation,
+          cleanRound,
+          (stageIndex, progressPct, label) => {
+            setFourEngineStageInfo({
+              stageIndex,
+              progressPct: Math.max(40, progressPct),
+              label,
+            });
+          }
+        );
+
+        const nowIso = new Date().toISOString();
+        setStore((prev) => ({
+          ...prev,
+          rounds: prev.rounds.map((r) =>
+            r.id === cleanRound.id
+              ? {
+                  ...r,
+                  photosBySlot: cleanRound.photosBySlot,
+                  extracted3DJoints: res.joints,
+                  lastReconstructedAtIso: nowIso,
+                  last4EngineSynthesisNote: res.synthesisNote,
+                  last4EngineRunAtIso: nowIso,
+                }
+              : r
+          ),
+        }));
+
+        const validJoints = res.joints.filter(
+          (j) => j.status !== 'Rejected Shadow / Disturbance'
+        );
+        if (validJoints.length > 0) {
+          setSelected3DJointId(validJoints[0].id);
+        }
+        setShowJointAnalysisModal(true);
+        setStatusToast(
+          `3D Digital Twin Reconstructed & Analyzed from ${populatedCount}/20 Photos: ${validJoints.length} Validated 3D Joints & Dip Surfaces extracted across Walls, Crown & Face.`
+        );
+      } finally {
+        setTimeout(() => {
+          setIsRunning4EnginePipeline(false);
+          setFourEngineStageInfo(null);
+        }, 550);
+      }
+    },
+    [activeLocation]
+  );
+
   const handleCaptureLiveFrameToActiveSlot = async () => {
     if (!videoRef.current || !activeRound) return;
     const vid = videoRef.current;
@@ -497,26 +615,32 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       'field_camera'
     );
 
+    const nextPhotosBySlot = {
+      ...(activeRound.photosBySlot || {}),
+      [activeSlotNumber]: analyzed,
+    };
+    const updatedRound: DigitalTwinRoundRecord = {
+      ...activeRound,
+      photosBySlot: nextPhotosBySlot,
+      extracted3DJoints: undefined,
+      lastReconstructedAtIso: new Date().toISOString(),
+    };
+
     setStore((prev) => ({
       ...prev,
       rounds: prev.rounds.map((r) =>
-        r.id === activeRound.id
-          ? {
-              ...r,
-              photosBySlot: {
-                ...r.photosBySlot,
-                [activeSlotNumber]: analyzed,
-              },
-            }
-          : r
+        r.id === activeRound.id ? updatedRound : r
       ),
     }));
 
     if (activeSlotNumber < 20) {
       setActiveSlotNumber(activeSlotNumber + 1);
+      setStatusToast(
+        `Captured Slot #${activeSlotNumber}/20 (Fracture Dip Gradient ${analyzed.dominantFractureAngleDeg ?? 45}°). Ready for Slot #${activeSlotNumber + 1}.`
+      );
     } else {
       stopLiveCamera();
-      setStatusToast('All 20 overlapping photos captured! Ready for 3D Reconstruction.');
+      await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
     }
   };
 
@@ -528,19 +652,36 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     setIsBusyLoadingPhotos(true);
 
     try {
-      const updatedSlots = { ...(activeRound.photosBySlot || {}) };
+      const existingSlots = { ...(activeRound.photosBySlot || {}) };
+      const allExistingAreCalibration =
+        Object.values(existingSlots).length > 0 &&
+        Object.values(existingSlots).every(
+          (s) => !isPhotoSlotPopulated(s) || s.sourceMode === 'calibration_set'
+        );
+
+      const updatedSlots =
+        files.length >= 10 || allExistingAreCalibration ? {} : existingSlots;
+
       const sorted = [...files].sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { numeric: true })
       );
 
       let targetSlot =
-        sorted.length >= 15
+        sorted.length >= 10 || allExistingAreCalibration
           ? 1
-          : DIGITAL_TWIN_20_PHOTO_SPECS.find((s) => !updatedSlots[s.slotNumber])
-              ?.slotNumber || 1;
+          : DIGITAL_TWIN_20_PHOTO_SPECS.find(
+              (s) => !isPhotoSlotPopulated(updatedSlots[s.slotNumber])
+            )?.slotNumber || 1;
+
+      let loadedCount = 0;
+      const totalToProcess = Math.min(sorted.length, 20);
 
       for (const file of sorted) {
         if (targetSlot > 20) break;
+        loadedCount++;
+        setStatusToast(
+          `Analyzing Photo ${loadedCount}/${totalToProcess} (${file.name}) — Extracting 24×24 Stereo Relief & Sobel Fracture Angles...`
+        );
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result || ''));
@@ -557,15 +698,22 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         }
       }
 
+      const updatedRound: DigitalTwinRoundRecord = {
+        ...activeRound,
+        photosBySlot: updatedSlots,
+        extracted3DJoints: undefined,
+        lastReconstructedAtIso: new Date().toISOString(),
+      };
+
       setStore((prev) => ({
         ...prev,
         rounds: prev.rounds.map((r) =>
-          r.id === activeRound.id ? { ...r, photosBySlot: updatedSlots } : r
+          r.id === activeRound.id ? updatedRound : r
         ),
       }));
-      setStatusToast(
-        `Loaded ${Math.min(sorted.length, 20)} photo(s) Left-to-Right into the 4-Station × 5-Angle matrix.`
-      );
+
+      // Automatically execute the full 3D Reconstruction, 20-Photo UV Texture Stitching, and 4-Engine 3D Analysis!
+      await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
     } finally {
       setIsBusyLoadingPhotos(false);
       e.target.value = '';
@@ -591,22 +739,32 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
           file.name,
           activeRound.acquisitionMode
         );
+        const nextSlots = {
+          ...(activeRound.photosBySlot || {}),
+          [targetUploadSlot]: analyzed,
+        };
+        const updatedRound: DigitalTwinRoundRecord = {
+          ...activeRound,
+          photosBySlot: nextSlots,
+          extracted3DJoints: undefined,
+          lastReconstructedAtIso: new Date().toISOString(),
+        };
         setStore((prev) => ({
           ...prev,
           rounds: prev.rounds.map((r) =>
-            r.id === activeRound.id
-              ? {
-                  ...r,
-                  photosBySlot: {
-                    ...r.photosBySlot,
-                    [targetUploadSlot]: analyzed,
-                  },
-                }
-              : r
+            r.id === activeRound.id ? updatedRound : r
           ),
         }));
+        const totalPopulated = Object.values(nextSlots).filter(
+          isPhotoSlotPopulated
+        ).length;
+        setStatusToast(
+          `Loaded Slot #${targetUploadSlot}/20 (${file.name}) • Dominant Fracture Angle ${analyzed.dominantFractureAngleDeg ?? 45}° • ${totalPopulated}/20 Photos Ready.`
+        );
         if (targetUploadSlot < 20) {
           setActiveSlotNumber(targetUploadSlot + 1);
+        } else if (totalPopulated >= 20) {
+          await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
         }
       }
     } finally {
@@ -619,27 +777,37 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     if (!activeLocation || !activeRound) return;
     setIsBusyLoadingPhotos(true);
     try {
+      setStatusToast(
+        'Generating 20-Photo Stereo Calibration Set (4 Stations × 5 Angles) & Running 3D Reconstruction...'
+      );
       const synth = await generateSynthetic20PhotoSetForLocation(
         activeLocation,
         activeRound.chainageFromM,
         activeRound.chainageToM
       );
+      const updatedRound: DigitalTwinRoundRecord = {
+        ...activeRound,
+        photosBySlot: synth,
+        extracted3DJoints: undefined,
+        lastReconstructedAtIso: new Date().toISOString(),
+      };
       setStore((prev) => ({
         ...prev,
         rounds: prev.rounds.map((r) =>
-          r.id === activeRound.id ? { ...r, photosBySlot: synth } : r
+          r.id === activeRound.id ? updatedRound : r
         ),
       }));
-      setStatusToast(
-        'Loaded all 20 overlapping photos (4 Camera Positions × 5 Angles Left-to-Right).'
-      );
+      await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
     } finally {
       setIsBusyLoadingPhotos(false);
     }
   };
 
   const capturedCount = useMemo(
-    () => Object.keys(activeRound?.photosBySlot || {}).length,
+    () =>
+      Object.values(activeRound?.photosBySlot || {}).filter(
+        isPhotoSlotPopulated
+      ).length,
     [activeRound?.photosBySlot]
   );
 
@@ -1153,8 +1321,12 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         if (child.geometry) child.geometry.dispose();
         if (child.material) {
           if (Array.isArray(child.material)) {
-            child.material.forEach((m: any) => m.dispose());
+            child.material.forEach((m: any) => {
+              m.map?.dispose();
+              m.dispose();
+            });
           } else {
+            child.material.map?.dispose();
             child.material.dispose();
           }
         }
@@ -1173,11 +1345,15 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     removeAndDispose(ctx.slicePlaneGroup);
     removeAndDispose(ctx.rulerGroup);
 
-    // 1. Irregular 3D Rock Excavation Mesh
+    // 1. Irregular 3D Rock Excavation Mesh + Multi-View 20-Photo UV Texture Atlas
     const meshGeom = new THREE.BufferGeometry();
     meshGeom.setAttribute(
       'position',
       new THREE.BufferAttribute(reconstructedModel.positions, 3)
+    );
+    meshGeom.setAttribute(
+      'uv',
+      new THREE.BufferAttribute(reconstructedModel.uvs, 2)
     );
     meshGeom.setIndex(new THREE.BufferAttribute(reconstructedModel.indices, 1));
     const activeColorAttr =
@@ -1194,9 +1370,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
 
     const rockMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.78,
-      metalness: 0.08,
-      flatShading: true,
+      roughness: 0.76,
+      metalness: 0.06,
+      flatShading: renderSurfaceMode !== 'textured_rock_mesh',
       side: THREE.DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: 1,
@@ -1206,6 +1382,27 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     rockMesh.visible = renderSurfaceMode !== 'dense_point_cloud';
     scene.add(rockMesh);
     ctx.rockMesh = rockMesh;
+
+    // Bind stitched 20-Photo Texture Atlas onto the 3D tunnel walls, crown & face when photos are uploaded
+    let cancelledTextureLoad = false;
+    if (
+      renderSurfaceMode === 'textured_rock_mesh' ||
+      renderSurfaceMode === 'rock_with_break_edges'
+    ) {
+      buildStitched20PhotoTextureCanvas(activeRound).then((atlasCanvas) => {
+        if (cancelledTextureLoad || !atlasCanvas || ctx.rockMesh !== rockMesh) {
+          return;
+        }
+        const tex = new THREE.CanvasTexture(atlasCanvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        rockMat.map = tex;
+        rockMat.vertexColors = false;
+        rockMat.color.setHex(0xffffff);
+        rockMat.needsUpdate = true;
+        requestRenderRef.current?.();
+      });
+    }
 
     // 1B. Crisp Real-Edge Break-Line Overlay (EdgesGeometry on irregular rock facets)
     const breakEdgesGeom = new THREE.EdgesGeometry(meshGeom, 11);
@@ -1267,7 +1464,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     const faceZ = -pullLen / 2;
 
     for (const spec of DIGITAL_TWIN_20_PHOTO_SPECS) {
-      const hasPhoto = Boolean(activeRound.photosBySlot?.[spec.slotNumber]);
+      const hasPhoto = isPhotoSlotPopulated(
+        activeRound.photosBySlot?.[spec.slotNumber]
+      );
       const isSelectedSlot = inspectedPhotoSlot === spec.slotNumber;
       const camX = spec.normalizedCamX * W;
       const camY = spec.normalizedCamY * H;
@@ -1656,6 +1855,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     ctx.jointTracesGroup = jointTracesGroup;
 
     requestRenderRef.current?.();
+    return () => {
+      cancelledTextureLoad = true;
+    };
   }, [
     reconstructedModel,
     activeLocation,
@@ -1961,6 +2163,17 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
               <span className="px-2 py-0.5 rounded bg-sky-50 text-sky-900 border border-sky-300 font-bold shrink-0 whitespace-nowrap">
                 CH {activeRound.chainageFromM}m → {activeRound.chainageToM}m
               </span>
+            )}
+            {onOpenContinuous3DTwinLog && (
+              <button
+                type="button"
+                onClick={onOpenContinuous3DTwinLog}
+                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10.5px] flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+                title="Open 3D Digital Twin Continuous Tunnel Log (Multi-Round Stitched 3D Corridor & Cross-Round 3D Continuity)"
+              >
+                <Compass className="w-3 h-3 text-amber-300 shrink-0" />
+                <span className="whitespace-nowrap">Continuous 3D Twin Log</span>
+              </button>
             )}
             {is3DViewportStep &&
               reconstructedModel &&
@@ -2464,7 +2677,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                   )
                   .map((rd) => {
                     const isSel = activeRound?.id === rd.id;
-                    const count = Object.keys(rd.photosBySlot || {}).length;
+                    const count = Object.values(rd.photosBySlot || {}).filter(
+                      isPhotoSlotPopulated
+                    ).length;
                     return (
                       <div
                         key={rd.id}
@@ -2511,11 +2726,11 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                                 ...prev,
                                 activeRoundId: rd.id,
                               }));
-                              setActiveStep('reconstruct_3d');
+                              void runFullPhotoTo3DReconstructionAndAnalysis(rd);
                             }}
                             className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10.5px] cursor-pointer"
                           >
-                            Build 3D Model →
+                            Build &amp; Analyze 3D →
                           </button>
                         </div>
                       </div>
@@ -2608,14 +2823,15 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
 
               <button
                 type="button"
+                disabled={isBusyLoadingPhotos || isRunning4EnginePipeline}
                 onClick={() => {
                   stopLiveCamera();
-                  setActiveStep('reconstruct_3d');
+                  void runFullPhotoTo3DReconstructionAndAnalysis(activeRound);
                 }}
                 className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
               >
                 <Box className="w-3.5 h-3.5" />
-                <span>Build Real-Edge 3D Tunnel →</span>
+                <span>Build &amp; Analyze Real-Edge 3D Tunnel →</span>
               </button>
             </div>
           </div>
@@ -2731,7 +2947,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                   setStore((prev) => ({
                     ...prev,
                     rounds: prev.rounds.map((r) =>
-                      r.id === activeRound.id ? { ...r, photosBySlot: {} } : r
+                      r.id === activeRound.id
+                        ? { ...r, photosBySlot: {}, extracted3DJoints: undefined }
+                        : r
                     ),
                   }));
                 }}
@@ -2755,7 +2973,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                   (s) => s.stationId === stId
                 );
                 const stationCapturedCount = stationSlots.filter((s) =>
-                  Boolean(activeRound.photosBySlot?.[s.slotNumber])
+                  isPhotoSlotPopulated(activeRound.photosBySlot?.[s.slotNumber])
                 ).length;
 
                 return (
