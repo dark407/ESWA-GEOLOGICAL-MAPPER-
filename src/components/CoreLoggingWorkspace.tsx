@@ -1127,6 +1127,26 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
         <div className="flex items-center gap-3">
           <button
             type="button"
+            onClick={() => {
+              if (isReportOpen) {
+                setIsReportOpen(false);
+                return;
+              }
+              if (isStorageCenterOpen) {
+                setIsStorageCenterOpen(false);
+                return;
+              }
+              onBackToMain();
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-black text-slate-950 bg-amber-500 hover:bg-amber-400 border border-amber-600 transition-all cursor-pointer shadow-xs active:scale-95 shrink-0 whitespace-nowrap"
+            title="Go One Step Back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+            <span>Step Back</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onBackToMain}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer shadow-xs active:scale-95"
             title="Return to Main Window"

@@ -220,6 +220,11 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const batchInputRef = useRef<HTMLInputElement | null>(null);
   const singleSlotInputRef = useRef<HTMLInputElement | null>(null);
+  const deviceCameraSlotInputRef = useRef<HTMLInputElement | null>(null);
+  const batchStartSlotRef = useRef<number | null>(null);
+  const [uploadSequenceOrder, setUploadSequenceOrder] = useState<
+    'selection' | 'filename'
+  >('selection');
   const [targetUploadSlot, setTargetUploadSlot] = useState<number>(1);
   const [statusToast, setStatusToast] = useState<string | null>(null);
 
@@ -644,11 +649,11 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     }
   };
 
-  const handleBatchUploadFiles = async (
-    e: React.ChangeEvent<HTMLInputElement>
+  const processSequentialPhotoFiles = async (
+    rawFiles: File[],
+    explicitStartSlot?: number | null
   ) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length || !activeRound) return;
+    if (!rawFiles.length || !activeRound) return;
     setIsBusyLoadingPhotos(true);
 
     try {
@@ -659,28 +664,43 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
           (s) => !isPhotoSlotPopulated(s) || s.sourceMode === 'calibration_set'
         );
 
-      const updatedSlots =
-        files.length >= 10 || allExistingAreCalibration ? {} : existingSlots;
+      const orderedFiles =
+        uploadSequenceOrder === 'filename'
+          ? [...rawFiles].sort((a, b) =>
+              a.name.localeCompare(b.name, undefined, { numeric: true })
+            )
+          : [...rawFiles];
 
-      const sorted = [...files].sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true })
-      );
+      const isFull20Upload = orderedFiles.length >= 20;
+      const updatedSlots: typeof existingSlots =
+        isFull20Upload || allExistingAreCalibration ? {} : { ...existingSlots };
 
-      let targetSlot =
-        sorted.length >= 10 || allExistingAreCalibration
+      let startSlot =
+        explicitStartSlot && explicitStartSlot >= 1 && explicitStartSlot <= 20
+          ? explicitStartSlot
+          : orderedFiles.length >= 10 || allExistingAreCalibration
           ? 1
           : DIGITAL_TWIN_20_PHOTO_SPECS.find(
               (s) => !isPhotoSlotPopulated(updatedSlots[s.slotNumber])
             )?.slotNumber || 1;
 
-      let loadedCount = 0;
-      const totalToProcess = Math.min(sorted.length, 20);
+      // If user selected 20 files at once, always fill #1 -> #20 in exact sequence
+      if (orderedFiles.length >= 20) {
+        startSlot = 1;
+      }
 
-      for (const file of sorted) {
-        if (targetSlot > 20) break;
-        loadedCount++;
+      const totalToProcess = Math.min(orderedFiles.length, 20);
+      let firstLoadedSlot = startSlot;
+      let lastLoadedSlot = startSlot;
+
+      for (let i = 0; i < totalToProcess; i++) {
+        const file = orderedFiles[i];
+        const slotNum = ((startSlot - 1 + i) % 20) + 1;
+        if (i === 0) firstLoadedSlot = slotNum;
+        lastLoadedSlot = slotNum;
+
         setStatusToast(
-          `Analyzing Photo ${loadedCount}/${totalToProcess} (${file.name}) — Extracting 24×24 Stereo Relief & Sobel Fracture Angles...`
+          `Uploading in Sequence ${i + 1}/${totalToProcess} → Slot #${slotNum}/20 (${file.name})...`
         );
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -688,13 +708,12 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
           reader.readAsDataURL(file);
         });
         if (dataUrl) {
-          updatedSlots[targetSlot] = await analyzePhotoForDigitalTwinSlot(
+          updatedSlots[slotNum] = await analyzePhotoForDigitalTwinSlot(
             dataUrl,
-            targetSlot,
+            slotNum,
             file.name,
             'photogrammetry_upload'
           );
-          targetSlot++;
         }
       }
 
@@ -712,65 +731,53 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         ),
       }));
 
-      // Automatically execute the full 3D Reconstruction, 20-Photo UV Texture Stitching, and 4-Engine 3D Analysis!
-      await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
-    } finally {
-      setIsBusyLoadingPhotos(false);
-      e.target.value = '';
-    }
-  };
+      const totalPopulated = Object.values(updatedSlots).filter(
+        isPhotoSlotPopulated
+      ).length;
 
-  const handleSingleSlotUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeRound) return;
-    setIsBusyLoadingPhotos(true);
-    try {
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.readAsDataURL(file);
-      });
-      if (dataUrl) {
-        const analyzed = await analyzePhotoForDigitalTwinSlot(
-          dataUrl,
-          targetUploadSlot,
-          file.name,
-          activeRound.acquisitionMode
-        );
-        const nextSlots = {
-          ...(activeRound.photosBySlot || {}),
-          [targetUploadSlot]: analyzed,
-        };
-        const updatedRound: DigitalTwinRoundRecord = {
-          ...activeRound,
-          photosBySlot: nextSlots,
-          extracted3DJoints: undefined,
-          lastReconstructedAtIso: new Date().toISOString(),
-        };
-        setStore((prev) => ({
-          ...prev,
-          rounds: prev.rounds.map((r) =>
-            r.id === activeRound.id ? updatedRound : r
-          ),
-        }));
-        const totalPopulated = Object.values(nextSlots).filter(
-          isPhotoSlotPopulated
-        ).length;
+      if (totalToProcess === 1) {
         setStatusToast(
-          `Loaded Slot #${targetUploadSlot}/20 (${file.name}) • Dominant Fracture Angle ${analyzed.dominantFractureAngleDeg ?? 45}° • ${totalPopulated}/20 Photos Ready.`
+          `Loaded Photo #${firstLoadedSlot}/20 (${orderedFiles[0].name}) • ${totalPopulated}/20 Photos Ready.`
         );
-        if (targetUploadSlot < 20) {
-          setActiveSlotNumber(targetUploadSlot + 1);
-        } else if (totalPopulated >= 20) {
+        if (firstLoadedSlot < 20) {
+          setActiveSlotNumber(firstLoadedSlot + 1);
+        }
+        if (totalPopulated >= 20) {
+          await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
+        }
+      } else {
+        setStatusToast(
+          `Loaded ${totalToProcess} Photos in Sequence (Slot #${firstLoadedSlot} → Slot #${lastLoadedSlot}) • ${totalPopulated}/20 Photos Ready.`
+        );
+        if (lastLoadedSlot < 20) {
+          setActiveSlotNumber(lastLoadedSlot + 1);
+        }
+        // Automatically reconstruct & analyze when uploading a full set or >=10 photos
+        if (totalPopulated >= 20 || totalToProcess >= 10) {
           await runFullPhotoTo3DReconstructionAndAnalysis(updatedRound);
         }
       }
     } finally {
       setIsBusyLoadingPhotos(false);
-      e.target.value = '';
+      batchStartSlotRef.current = null;
     }
+  };
+
+  const handleBatchUploadFiles = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(e.target.files || []);
+    const startSlot = batchStartSlotRef.current ?? 1;
+    await processSequentialPhotoFiles(files, startSlot);
+    e.target.value = '';
+  };
+
+  const handleSingleSlotUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(e.target.files || []);
+    await processSequentialPhotoFiles(files, targetUploadSlot);
+    e.target.value = '';
   };
 
   const handleLoad20CalibrationSet = async () => {
@@ -2010,6 +2017,48 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
             <button
               type="button"
               onClick={() => {
+                if (inspectedPhotoSlot !== null) {
+                  setInspectedPhotoSlot(null);
+                  return;
+                }
+                if (showJointAnalysisModal) {
+                  setShowJointAnalysisModal(false);
+                  return;
+                }
+                if (customBuilderMode !== 'closed') {
+                  setCustomBuilderMode('closed');
+                  return;
+                }
+                if (isLiveCameraOpen) {
+                  stopLiveCamera();
+                  return;
+                }
+                const stepOrder: typeof activeStep[] = [
+                  'setup',
+                  'capture_20',
+                  'reconstruct_3d',
+                  'joint_dip_inspector_window',
+                  'unfold_3d_to_2d',
+                ];
+                const idx = stepOrder.indexOf(activeStep);
+                if (idx > 0) {
+                  stopLiveCamera();
+                  setActiveStep(stepOrder[idx - 1]);
+                  return;
+                }
+                stopLiveCamera();
+                onBackToMainMenu();
+              }}
+              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
+              title="Go One Step Back"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+              <span className="whitespace-nowrap">Step Back</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
                 stopLiveCamera();
                 onBackToMainMenu();
               }}
@@ -2757,6 +2806,14 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
             ref={singleSlotInputRef}
             type="file"
             accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleSingleSlotUpload}
+          />
+          <input
+            ref={deviceCameraSlotInputRef}
+            type="file"
+            accept="image/*"
             capture="environment"
             className="hidden"
             onChange={handleSingleSlotUpload}
@@ -2765,22 +2822,60 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
           {/* Top Control & Progress Banner */}
           <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-xs">
             <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs sm:text-sm font-black text-slate-900">
                   20-Photo Multi-Station Acquisition (Left-to-Right &amp; Cross-Angle Overlap)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-900 font-mono text-xs font-black">
                   {capturedCount} / 20 Captured
                 </span>
+                <div className="inline-flex items-center rounded-lg border border-slate-300 bg-slate-100 p-0.5 text-[10px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setUploadSequenceOrder('selection')}
+                    className={`px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+                      uploadSequenceOrder === 'selection'
+                        ? 'bg-sky-600 text-white font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Keep exact selection sequence (1st selected photo → Slot #1, 2nd → Slot #2, ... 20th → Slot #20)"
+                  >
+                    Sequence: Selection Order (1→20)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadSequenceOrder('filename')}
+                    className={`px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+                      uploadSequenceOrder === 'filename'
+                        ? 'bg-sky-600 text-white font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Sort uploaded files by filename numbers (IMG_01 → Slot #1 ... IMG_20 → Slot #20)"
+                  >
+                    Filename Order (A→Z)
+                  </button>
+                </div>
               </div>
               <p className="text-[11px] text-slate-600">
-                4 Camera Positions (Left → Right) × 5 Overlapping Angles per
-                Position = 20 Photos. No separate Wall/Crown bays—full-tunnel
-                stereo coverage.
+                Select all 20 pictures at once from your gallery/files to fill{' '}
+                <strong>Photo #1 → #20 in sequence</strong> automatically, or upload per station/slot without opening the camera.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  batchStartSlotRef.current = 1;
+                  batchInputRef.current?.click();
+                }}
+                disabled={isBusyLoadingPhotos}
+                className="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload All 20 Photos by Sequence (#1 → #20)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() =>
@@ -2789,25 +2884,15 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                 className={`px-3 py-1.5 rounded-lg font-extrabold text-xs flex items-center gap-1.5 cursor-pointer border ${
                   isLiveCameraOpen
                     ? 'bg-rose-600 text-white border-rose-700'
-                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-600'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
                 }`}
               >
                 <Video className="w-3.5 h-3.5" />
                 <span>
                   {isLiveCameraOpen
                     ? 'Close Field Camera'
-                    : 'Field Camera Capture (Slot #1→#20)'}
+                    : 'Live Camera Mode'}
                 </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => batchInputRef.current?.click()}
-                disabled={isBusyLoadingPhotos}
-                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload 20 Photos Left-to-Right</span>
               </button>
 
               <button
@@ -2992,9 +3077,28 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                           {stationSlots[4]?.slotNumber})
                         </span>
                       </div>
-                      <span className="text-xs font-mono font-bold text-sky-700">
-                        {stationCapturedCount} / 5 Angles Loaded
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            batchStartSlotRef.current =
+                              stationSlots[0]?.slotNumber || 1;
+                            batchInputRef.current?.click();
+                          }}
+                          disabled={isBusyLoadingPhotos}
+                          className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 text-[10.5px] font-extrabold flex items-center gap-1 cursor-pointer"
+                          title={`Select 5 (or up to 20) photos from gallery to fill starting at Slot #${stationSlots[0]?.slotNumber}`}
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>
+                            Upload Sequence (#{stationSlots[0]?.slotNumber}→#
+                            {stationSlots[4]?.slotNumber})
+                          </span>
+                        </button>
+                        <span className="text-xs font-mono font-bold text-sky-700">
+                          {stationCapturedCount} / 5 Angles Loaded
+                        </span>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
@@ -3037,7 +3141,15 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                             </div>
 
                             {captured ? (
-                              <div className="relative rounded-lg overflow-hidden border border-slate-300 aspect-4/3 bg-slate-900">
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTargetUploadSlot(spec.slotNumber);
+                                  singleSlotInputRef.current?.click();
+                                }}
+                                title="Click to replace this photo or select multiple photos in sequence from gallery"
+                                className="relative rounded-lg overflow-hidden border border-slate-300 aspect-4/3 bg-slate-900"
+                              >
                                 <img
                                   src={captured.dataUrl}
                                   alt={spec.angleLabel}
@@ -3051,14 +3163,22 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                                 </div>
                               </div>
                             ) : (
-                              <div className="rounded-lg border border-dashed border-slate-300 aspect-4/3 bg-white flex flex-col items-center justify-center p-2 text-center">
-                                <Camera className="w-5 h-5 text-slate-400 mb-1" />
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTargetUploadSlot(spec.slotNumber);
+                                  singleSlotInputRef.current?.click();
+                                }}
+                                title="Click to select 1 photo or all 20 photos in sequence from your gallery/files"
+                                className="rounded-lg border border-dashed border-slate-300 hover:border-sky-500 hover:bg-sky-50/40 aspect-4/3 bg-white flex flex-col items-center justify-center p-2 text-center transition-colors"
+                              >
+                                <Upload className="w-5 h-5 text-sky-500 mb-1" />
                                 <span className="text-[10px] font-mono text-slate-600">
                                   Yaw {spec.yawDeg > 0 ? `+${spec.yawDeg}°` : `${spec.yawDeg}°`}{' '}
                                   • Pitch {spec.pitchDeg > 0 ? `+${spec.pitchDeg}°` : `${spec.pitchDeg}°`}
                                 </span>
-                                <span className="text-[9.5px] text-slate-500">
-                                  Target Overlap {spec.targetOverlapPct}%
+                                <span className="text-[9.5px] text-sky-700 font-bold">
+                                  Tap to Upload (1 or 20 Sequence)
                                 </span>
                               </div>
                             )}
@@ -3071,12 +3191,25 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                                   setTargetUploadSlot(spec.slotNumber);
                                   singleSlotInputRef.current?.click();
                                 }}
-                                className="flex-1 py-1 rounded bg-white hover:bg-slate-100 text-sky-800 border border-slate-300 font-bold text-[10px] flex items-center justify-center gap-1 cursor-pointer"
+                                className="flex-1 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white border border-sky-700 font-bold text-[10px] flex items-center justify-center gap-1 cursor-pointer"
+                                title="Open photo gallery / file picker (select 1 photo for this slot, or select up to 20 photos to fill in sequence)"
                               >
                                 <Upload className="w-3 h-3" />
                                 <span>
-                                  {captured ? 'Replace' : 'Capture / Upload'}
+                                  {captured ? 'Replace / Sequence' : 'Upload Photo(s)'}
                                 </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTargetUploadSlot(spec.slotNumber);
+                                  deviceCameraSlotInputRef.current?.click();
+                                }}
+                                className="p-1 rounded bg-white hover:bg-amber-50 text-amber-700 border border-slate-300 cursor-pointer"
+                                title="Optional: Take single photo with device camera for this slot"
+                              >
+                                <Camera className="w-3 h-3" />
                               </button>
                               {captured && (
                                 <button

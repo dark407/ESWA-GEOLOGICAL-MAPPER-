@@ -5423,7 +5423,7 @@ export function computeFaceTunnelOutlineDetails(
   const clampedSplRatio = Math.max(0.18, Math.min(0.88, splHeightM / Math.max(0.5, tunnelH)));
   const springY = bottom - boxH * clampedSplRatio;
   const archRx = boxW / 2;
-  const archRy = Math.max(16, springY - top);
+  const archRy = Math.max(boxH * 0.02, springY - top);
 
   let leftWallPoly: { x: number; y: number }[] = [];
   let rightWallPoly: { x: number; y: number }[] = [];

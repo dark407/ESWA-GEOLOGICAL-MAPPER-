@@ -1507,6 +1507,31 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
         <div className="flex items-center gap-2.5">
           <button
             type="button"
+            onClick={() => {
+              const winOrder: MiningWorkingWindow[] = [
+                'CANVAS',
+                'GRADES',
+                'CHANNELS',
+                'STRUCTURE',
+                'GEOTECH',
+                'EXPORTS',
+              ];
+              const idx = winOrder.indexOf(activeWorkingWindow);
+              if (idx > 0) {
+                setActiveWorkingWindow(winOrder[idx - 1]);
+                return;
+              }
+              onBackToMainWindow();
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-black text-slate-950 border border-amber-600 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
+            title="Go One Step Back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+            <span>Step Back</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onBackToMainWindow}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-400 border border-slate-700 hover:border-amber-500/50 transition-all cursor-pointer shadow-sm active:scale-95"
             title="Return to Mining Main Window"

@@ -299,8 +299,39 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
 
       {/* ROW 2: DEDICATED 4 TUNNEL PORTIONS BAR + QUICK ACTION CONTROLS */}
       <div className="flex flex-nowrap overflow-x-auto no-scrollbar items-center justify-between gap-1.5 px-2 py-1 bg-slate-100 border-b border-slate-200">
-        {/* Left: Back to Setup + Save / Projects / Undo / Redo / Delete */}
+        {/* Left: Step Back + Back to Setup + Save / Projects / Undo / Redo / Delete */}
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              const tabOrder = [
+                'TUNNEL_PHOTO',
+                'HOME',
+                'GEOLOGY_3D',
+                'ADVANCED_ANALYSIS',
+                'SURVEY_OVERBREAK',
+                'CLASSIFICATION_SHEET',
+              ] as const;
+              const idx = tabOrder.indexOf(cadRibbonTab);
+              if (idx > 0) {
+                setCadRibbonTab(tabOrder[idx - 1]);
+                setCadRibbonCollapsed(false);
+                return;
+              }
+              onBackToSetup();
+            }}
+            data-window="cad-ribbon"
+            data-element-id="cad-btn-step-back"
+            data-tool="step-back"
+            data-role="button"
+            data-action="step-back"
+            className="flex items-center gap-1 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-[11px] font-black rounded-lg border border-amber-600 transition-colors cursor-pointer shadow-2xs"
+            title="Go One Step Back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-950" />
+            <span>Step Back</span>
+          </button>
+
           <button
             onClick={onBackToSetup}
             data-window="cad-ribbon"

@@ -817,6 +817,32 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
             <EswaTunnelLogo size="sm" />
             <button
               type="button"
+              onClick={() => {
+                if (selectedContinuityId) {
+                  setSelectedContinuityId(null);
+                  return;
+                }
+                const tabOrder: typeof activeRightTab[] = [
+                  'rounds_and_2d_sync',
+                  'cross_round_continuity',
+                  'longitudinal_analytics',
+                  'export_audit',
+                ];
+                const idx = tabOrder.indexOf(activeRightTab);
+                if (idx > 0) {
+                  setActiveRightTab(tabOrder[idx - 1]);
+                  return;
+                }
+                onBackToMainMenu();
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 font-black text-xs flex items-center gap-1 cursor-pointer transition-all shrink-0 whitespace-nowrap shadow-2xs"
+              title="Go One Step Back"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+              <span className="whitespace-nowrap">Step Back</span>
+            </button>
+            <button
+              type="button"
               onClick={onBackToMainMenu}
               className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shrink-0 whitespace-nowrap"
             >

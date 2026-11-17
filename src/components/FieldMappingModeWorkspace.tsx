@@ -6323,6 +6323,69 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
           <button
             type="button"
             onClick={() => {
+              if (pending2DTrace) {
+                commitPending2DTraceToRound(pending2DTrace);
+              }
+              if (stage === 'project_setup') {
+                if (setupWindowStep === 'face') {
+                  setSetupWindowStep('location');
+                  return;
+                }
+                if (setupWindowStep === 'location') {
+                  setSetupWindowStep('project');
+                  return;
+                }
+              }
+              const isSurface = mappingDomain !== 'TUNNEL';
+              const isSlopeOrBench =
+                mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
+              const orderedStages: FieldWorkflowStage[] = [
+                'project_setup',
+                'excavation_round',
+              ];
+              if (workflowMode === 'photo_mapping') {
+                orderedStages.push('camera_prompt', 'photo_fit');
+              }
+              orderedStages.push('field_canvas', 'joint_grouping');
+              if (!isSurface) {
+                orderedStages.push('strip_align');
+              }
+              orderedStages.push('discontinuity_sets', 'q_rmr_gsi');
+              if (isSlopeOrBench) {
+                orderedStages.push('support_system');
+              } else if (!isSurface) {
+                orderedStages.push('support_system', 'fem_dem_analysis');
+              }
+              if (!isSurface) {
+                orderedStages.push('survey_overbreak');
+              }
+              orderedStages.push('word_template_export', 'photo_2d_report');
+              if (!isSurface) {
+                orderedStages.push('advance_analysis');
+              }
+              const currIdx = orderedStages.indexOf(stage);
+              if (currIdx > 0) {
+                setStage(orderedStages[currIdx - 1]);
+                return;
+              }
+              if (embeddedInDigitalTwin3DTo2D) {
+                embeddedInDigitalTwin3DTo2D.onBackTo3DTwin();
+              } else if (onBackToWelcome) {
+                onBackToWelcome();
+              } else if (onExitToWelcome) {
+                onExitToWelcome();
+              }
+            }}
+            className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
+            title="Go One Step Back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+            <span>Step Back</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               if (embeddedInDigitalTwin3DTo2D) {
                 embeddedInDigitalTwin3DTo2D.onBackTo3DTwin();
               } else if (onBackToWelcome) {

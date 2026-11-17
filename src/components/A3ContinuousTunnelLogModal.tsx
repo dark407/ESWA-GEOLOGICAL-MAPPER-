@@ -11,12 +11,24 @@ import {
   Cpu,
   TrendingUp,
   FileText,
+  ArrowLeft,
   ArrowRight,
   RefreshCw,
   Download,
   Upload,
 } from 'lucide-react';
-import { exportContinuousTunnelLogAsA3Pdf } from '../engine/fieldMappingEngine';
+import {
+  computeFaceTunnelOutlineDetails,
+  exportContinuousTunnelLogAsA3Pdf,
+} from '../engine/fieldMappingEngine';
+import {
+  buildConformalTunnelMesh,
+  buildMarchingTriangleIsoBands,
+  FemBoltBarInput,
+  MetricPoint2D,
+  solveFemPlaneStrain2D,
+} from '../engine/femDemSolver2D';
+import { matchLithologyReference } from '../engine/femDemAnalysisEngine';
 import { SavedProjectRecord } from '../types/tunnel';
 import {
   ContinuousTunnelStripDataset,
@@ -322,6 +334,229 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
     femDemProfile.find((r) => r.status === 'MAPPED') ||
     femDemProfile[0];
 
+  const activeSliceRealFea = useMemo(() => {
+    if (!activeFemSlice) return null;
+    const spanW = Math.max(2, dataset.tunnelDiameterWidthM || dataset.shaftDiameterM || 8.0);
+    const totalH = isShaft
+      ? spanW
+      : Math.max(2, dataset.tunnelArchHeightM || dataset.leftWallHeightM || 6.5);
+    const shapeNorm = (dataset.tunnelShape || 'd_shaped') as any;
+
+    const SCALE_PX = 100;
+    const rawOutline = computeFaceTunnelOutlineDetails(
+      {
+        id: dataset.id,
+        name: dataset.tunnelLocationName || 'Heading',
+        shape: isShaft ? 'circular' : shapeNorm,
+        widthM: spanW,
+        heightM: totalH,
+        customOutlinePoints: dataset.customCrossSectionPoints,
+      } as any,
+      (-spanW / 2) * SCALE_PX,
+      (-totalH / 2) * SCALE_PX,
+      spanW * SCALE_PX,
+      totalH * SCALE_PX
+    );
+
+    const perimM: MetricPoint2D[] = [];
+    if (isShaft) {
+      for (let i = 0; i < 96; i++) {
+        const a = (i / 96) * Math.PI * 2;
+        perimM.push({ x: (spanW / 2) * Math.cos(a), y: (spanW / 2) * Math.sin(a) });
+      }
+    } else {
+      const pushSeg = (pts: { x: number; y: number }[]) => {
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = { x: pts[i].x / SCALE_PX, y: pts[i].y / SCALE_PX };
+          const p1 = { x: pts[i + 1].x / SCALE_PX, y: pts[i + 1].y / SCALE_PX };
+          const steps = Math.max(1, Math.ceil(Math.hypot(p1.x - p0.x, p1.y - p0.y) / 0.25));
+          for (let k = 0; k < steps; k++) {
+            const t = k / steps;
+            perimM.push({ x: p0.x + (p1.x - p0.x) * t, y: -(p0.y + (p1.y - p0.y) * t) });
+          }
+        }
+      };
+      if (rawOutline.leftWallPoly.length >= 2) pushSeg(rawOutline.leftWallPoly);
+      if (rawOutline.crownPoly.length >= 2) pushSeg(rawOutline.crownPoly);
+      if (rawOutline.rightWallPoly.length >= 2) pushSeg(rawOutline.rightWallPoly.slice().reverse());
+      if (rawOutline.invertPoly.length >= 2) pushSeg(rawOutline.invertPoly.slice().reverse());
+    }
+
+    const refLith = matchLithologyReference(activeFemSlice.rockType);
+    const eMpa = Math.max(200, (activeFemSlice.rockMassModulusGpa || 5) * 1000);
+    const gsi = Math.max(15, Math.min(95, activeFemSlice.gsiValue || 50));
+    const sigCm = Math.max(
+      0.25,
+      activeFemSlice.intactUcsMpa * Math.exp((gsi - 100) / 14)
+    );
+
+    const mesh = buildConformalTunnelMesh({
+      rawPerimeterMeters: perimM,
+      spanWidthM: spanW,
+      totalHeightM: totalH,
+      splHeightFromInvertM: isShaft ? spanW / 2 : totalH * 0.45,
+      overburdenDepthM: Math.max(5, activeFemSlice.overburdenDepthM || 90),
+      isVertShaft: isShaft,
+      lithologyAssigner: () => ({
+        lithologyName: activeFemSlice.rockType || refLith.rockFamily,
+        lithologyColor: refLith.colorHex,
+        eModulusMpa: eMpa,
+        poissonRatio: refLith.poissonRatio,
+        cohesionMpa: Math.max(0.08, sigCm * 0.28),
+        frictionDeg: Math.max(22, Math.min(52, 24 + gsi * 0.32)),
+        unitWeightKnM3: refLith.unitWeightKnM3,
+        ucsCmMpa: sigCm,
+      }),
+      plotW: 266,
+      svgH: 220,
+    });
+
+    const boltSp = Math.max(0.6, activeFemSlice.boltSpacingM || 1.5);
+    const boltL = Math.max(1.5, activeFemSlice.boltLengthM || 3.0);
+    const bolts: FemBoltBarInput[] = [];
+    let arcAcc = boltSp * 0.45;
+    for (const ed of mesh.boundaryEdges) {
+      if (!isShaft && ed.isInvert) continue;
+      arcAcc += ed.lenM;
+      if (arcAcc >= boltSp) {
+        arcAcc = 0;
+        bolts.push({
+          x1M: ed.midM.x,
+          y1M: ed.midM.y,
+          x2M: ed.midM.x - ed.nxIntoVoid * boltL,
+          y2M: ed.midM.y - ed.nyIntoVoid * boltL,
+          zone: ed.isCrown ? 'crown' : 'wall',
+          steelAreaM2: Math.PI * 0.0125 * 0.0125,
+          steelModulusMpa: 200000,
+          spacingLongM: boltSp,
+          tensileCapacityKn: 245,
+        });
+      }
+    }
+
+    const sv = Math.max(0.15, activeFemSlice.inSituStressMpa || 2.5);
+    const isHalf = Boolean(isShaft && dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE');
+    const halfSide = dataset.shaftSubMode === 'HALF_CIRCLE_LEFT' ? 'left_half' : 'right_half';
+    const medStatus = dataset.shaftCenterMedianStatus || 'closed';
+
+    const feaBefore = solveFemPlaneStrain2D({
+      mesh,
+      overburdenDepthM: activeFemSlice.overburdenDepthM || 90,
+      unitWeightKnM3: refLith.unitWeightKnM3,
+      k0: 1.15,
+      poreWaterKpa: 15,
+      sigmaV_Mpa: sv,
+      sigmaH_Mpa: sv * 1.15,
+      isVertShaft: isShaft,
+      isShaftHalfFace: isHalf,
+      shaftHalfSide: halfSide,
+      shaftMedianStatus: medStatus,
+      bolts: [],
+      liner: {
+        enabled: false,
+        scope: 'crown_wall',
+        thicknessM: 0,
+        linerModulusMpa: 0,
+        ribEquivalentPressureMpa: 0,
+        wireMeshRetentionMpa: 0,
+      },
+      hoekBrownMb: 2.5,
+      hoekBrownS: 0.004,
+      hoekBrownA: 0.505,
+      intactUcsMpa: activeFemSlice.intactUcsMpa || 65,
+    });
+
+    const feaAfter = solveFemPlaneStrain2D({
+      mesh,
+      overburdenDepthM: activeFemSlice.overburdenDepthM || 90,
+      unitWeightKnM3: refLith.unitWeightKnM3,
+      k0: 1.15,
+      poreWaterKpa: 15,
+      sigmaV_Mpa: sv,
+      sigmaH_Mpa: sv * 1.15,
+      isVertShaft: isShaft,
+      isShaftHalfFace: isHalf,
+      shaftHalfSide: halfSide,
+      shaftMedianStatus: medStatus,
+      bolts,
+      liner: {
+        enabled: true,
+        scope: isShaft ? 'full' : 'crown_wall',
+        thicknessM: Math.max(0.05, (activeFemSlice.shotcreteThicknessMm || 100) / 1000),
+        linerModulusMpa: 26000,
+        ribEquivalentPressureMpa: (activeFemSlice.installedSupportPressureMpa || 0.25) * 0.4,
+        wireMeshRetentionMpa: 0.035,
+      },
+      hoekBrownMb: 2.5,
+      hoekBrownS: 0.004,
+      hoekBrownA: 0.505,
+      intactUcsMpa: activeFemSlice.intactUcsMpa || 65,
+    });
+
+    const rampColors = [
+      '#00008b',
+      '#000f9e',
+      '#0b3b3c',
+      '#006d0a',
+      '#009e0f',
+      '#4ea800',
+      '#9ca300',
+      '#a84b00',
+      '#a82400',
+      '#990000',
+      '#780000',
+    ];
+    const maxDisp = Math.max(0.4, feaBefore.maxDispMm, feaAfter.maxDispMm);
+    const trisBefore = mesh.elements.map((el) => {
+      const [a, b, c] = el.nodeIndices;
+      const na = mesh.nodes[a];
+      const nb = mesh.nodes[b];
+      const nc = mesh.nodes[c];
+      return [
+        { x: na.xSvg, y: na.ySvg, v: feaBefore.nodeDispMm[a] },
+        { x: nb.xSvg, y: nb.ySvg, v: feaBefore.nodeDispMm[b] },
+        { x: nc.xSvg, y: nc.ySvg, v: feaBefore.nodeDispMm[c] },
+      ] as [{ x: number; y: number; v: number }, { x: number; y: number; v: number }, { x: number; y: number; v: number }];
+    });
+    const trisAfter = mesh.elements.map((el) => {
+      const [a, b, c] = el.nodeIndices;
+      const na = mesh.nodes[a];
+      const nb = mesh.nodes[b];
+      const nc = mesh.nodes[c];
+      return [
+        { x: na.xSvg, y: na.ySvg, v: feaAfter.nodeDispMm[a] },
+        { x: nb.xSvg, y: nb.ySvg, v: feaAfter.nodeDispMm[b] },
+        { x: nc.xSvg, y: nc.ySvg, v: feaAfter.nodeDispMm[c] },
+      ] as [{ x: number; y: number; v: number }, { x: number; y: number; v: number }, { x: number; y: number; v: number }];
+    });
+
+    const tunnelPathD =
+      mesh.nodeGrid[0]
+        .map((nd, idx) => `${idx === 0 ? 'M' : 'L'} ${nd.xSvg.toFixed(1)} ${nd.ySvg.toFixed(1)}`)
+        .join(' ') + ' Z';
+
+    const boltsSvg = bolts.map((b) => ({
+      x1: mesh.cxSvg + b.x1M * mesh.pxPerMeter,
+      y1: mesh.cySvg - b.y1M * mesh.pxPerMeter,
+      x2: mesh.cxSvg + b.x2M * mesh.pxPerMeter,
+      y2: mesh.cySvg - b.y2M * mesh.pxPerMeter,
+    }));
+
+    return {
+      mesh,
+      feaBefore,
+      feaAfter,
+      rampColors,
+      maxDisp,
+      bandsBefore: buildMarchingTriangleIsoBands(trisBefore, 0, maxDisp, rampColors),
+      bandsAfter: buildMarchingTriangleIsoBands(trisAfter, 0, maxDisp, rampColors),
+      tunnelPathD,
+      boltsSvg,
+      spanW,
+      totalH,
+    };
+  }, [activeFemSlice, dataset, isShaft]);
+
   const wizardSteps: Array<{
     stage: 1 | 2 | 3 | 4 | 5 | 6;
     title: string;
@@ -372,6 +607,23 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
       <div className="print:hidden bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-col gap-2 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (activeWizardStage > 1) {
+                  setActiveWizardStage(
+                    (activeWizardStage - 1) as 1 | 2 | 3 | 4 | 5 | 6
+                  );
+                } else {
+                  onClose();
+                }
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+              title="Go One Step Back"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+              <span>Step Back</span>
+            </button>
             <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <Layers className="w-5 h-5" />
             </div>
@@ -1414,17 +1666,34 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(['before', 'after'] as const).map((stageMode) => {
                     const isAfter = stageMode === 'after';
-                    const fosVal = isAfter
+                    const feaSol = activeSliceRealFea
+                      ? isAfter
+                        ? activeSliceRealFea.feaAfter
+                        : activeSliceRealFea.feaBefore
+                      : null;
+                    const fosVal = feaSol
+                      ? feaSol.continuumFos
+                      : isAfter
                       ? activeFemSlice.reinforcedContinuumFos
                       : activeFemSlice.unreinforcedContinuumFos;
-                    const dispVal = isAfter
+                    const dispVal = feaSol
+                      ? feaSol.maxDispMm
+                      : isAfter
                       ? activeFemSlice.reinforcedDispMm
                       : activeFemSlice.unreinforcedDispMm;
-                    const rpVal = isAfter
+                    const rpVal = feaSol
+                      ? feaSol.maxPlasticDepthM
+                      : isAfter
                       ? activeFemSlice.reinforcedPlasticRadiusM
                       : activeFemSlice.unreinforcedPlasticRadiusM;
-                    const plumeScale = isAfter ? 0.68 : 1.0;
-                    const rampColors = [
+
+                    const mesh = activeSliceRealFea?.mesh;
+                    const bands = activeSliceRealFea
+                      ? isAfter
+                        ? activeSliceRealFea.bandsAfter
+                        : activeSliceRealFea.bandsBefore
+                      : [];
+                    const rampColors = activeSliceRealFea?.rampColors || [
                       '#00008b',
                       '#000f9e',
                       '#0b3b3c',
@@ -1437,42 +1706,11 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                       '#990000',
                       '#780000',
                     ];
-                    const boltAngles = isShaft
-                      ? dataset.shaftSubMode && dataset.shaftSubMode !== 'FULL_CIRCLE'
-                        ? [-168, -148, -128, -108, -90, -72, -52, -32, -12]
-                        : [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
-                      : [-174, -158, -142, -126, -110, -96, -84, -70, -54, -38, -22, -6];
 
-                    // Generate boundary-hugging triangular mesh teeth around the tunnel/shaft perimeter
-                    const teethCount = 42;
-                    const boundaryPts: Array<{ x: number; y: number }> = [];
-                    for (let i = 0; i < teethCount; i++) {
-                      const t = i / teethCount;
-                      if (isShaft && (!dataset.shaftSubMode || dataset.shaftSubMode === 'FULL_CIRCLE')) {
-                        const ang = t * Math.PI * 2;
-                        boundaryPts.push({
-                          x: 135 + 42 * Math.cos(ang),
-                          y: 120 + 42 * Math.sin(ang),
-                        });
-                      } else {
-                        // Horseshoe / D-Shape tunnel perimeter (cx=135, arch cy=118, rx=40, floor y=156)
-                        const ang = -Math.PI * 1.18 + t * (Math.PI * 1.36);
-                        if (i < 32) {
-                          const a = -Math.PI * 1.12 + (i / 31) * (Math.PI * 1.24);
-                          boundaryPts.push({
-                            x: 135 + 40 * Math.cos(a),
-                            y: 120 + 42 * Math.sin(a),
-                          });
-                        } else {
-                          const fT = (i - 32) / Math.max(1, teethCount - 32);
-                          boundaryPts.push({
-                            x: 171 - fT * 72,
-                            y: 156,
-                          });
-                          void ang;
-                        }
-                      }
-                    }
+                    const domLeft = mesh ? mesh.cxSvg - mesh.domHalfW * mesh.pxPerMeter : 0;
+                    const domTop = mesh ? mesh.cySvg - mesh.domTopY * mesh.pxPerMeter : 0;
+                    const domW = mesh ? mesh.domHalfW * 2 * mesh.pxPerMeter : 266;
+                    const domH = mesh ? (mesh.domTopY + mesh.domBotY) * mesh.pxPerMeter : 220;
 
                     return (
                       <div
@@ -1495,211 +1733,112 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                         </div>
 
                         <svg
-                          viewBox="0 0 300 220"
-                          className="w-full h-52 rounded-lg overflow-hidden border border-slate-800"
+                          viewBox="0 0 310 220"
+                          preserveAspectRatio="xMidYMid meet"
+                          className="w-full h-56 rounded-lg overflow-hidden border border-slate-800 bg-[#0b1322]"
                         >
                           <defs>
                             <clipPath id={`a3-fem-clip-${stageMode}`}>
-                              <rect x={0} y={0} width={266} height={220} />
+                              <rect x={domLeft} y={domTop} width={domW} height={domH} />
                             </clipPath>
                           </defs>
 
-                          {/* 1. Full-Domain Plaxis 2D / RS2 11-Band Iso-Contour Plumes */}
+                          <rect x={0} y={0} width={266} height={220} fill="#0b1322" />
+
+                          {/* 1. Real 2D CST FEA Marching-Triangles Iso-Contours & Mesh */}
                           <g clipPath={`url(#a3-fem-clip-${stageMode})`}>
-                            {/* Base Band 2: Dark Slate-Teal far-field background */}
-                            <rect x={0} y={0} width={266} height={220} fill="#0b3b3c" />
-
-                            {/* Band 3: Deep Forest Green (#006d0a) broad lateral & upper plume */}
-                            <path
-                              d={`M -15 0 L 280 0 C 232 45, 224 115, 272 198 L 208 190 C 175 168, 168 152, 162 146 L 108 146 C 102 152, 95 168, 62 190 L -10 198 C 42 115, 34 45, -15 0 Z`}
-                              fill="#006d0a"
-                            />
-
-                            {/* Band 4: Medium Green (#009e0f) upward-flaring chimney */}
-                            <path
-                              d={`M ${135 - 86 * plumeScale} 0 L ${135 + 86 * plumeScale} 0 C ${135 + 78 * plumeScale} 52, ${135 + 62 * plumeScale} 108, ${135 + 42} 142 L ${135 - 42} 142 C ${135 - 62 * plumeScale} 108, ${135 - 78 * plumeScale} 52, ${135 - 86 * plumeScale} 0 Z`}
-                              fill="#009e0f"
-                            />
-
-                            {/* Band 5: Bright Lime Green (#4ea800) inner chimney */}
-                            <path
-                              d={`M ${135 - 64 * plumeScale} 0 L ${135 + 64 * plumeScale} 0 C ${135 + 60 * plumeScale} 50, ${135 + 50 * plumeScale} 102, ${135 + 39} 138 L ${135 - 39} 138 C ${135 - 50 * plumeScale} 102, ${135 - 60 * plumeScale} 50, ${135 - 64 * plumeScale} 0 Z`}
-                              fill="#4ea800"
-                            />
-
-                            {/* Band 6: Olive / Chartreuse Yellow-Green (#9ca300) central chimney */}
-                            <path
-                              d={`M ${135 - 39 * plumeScale} 0 L ${135 + 39 * plumeScale} 0 C ${135 + 43 * plumeScale} 48, ${135 + 41 * plumeScale} 98, ${135 + 36} 132 L ${135 - 36} 132 C ${135 - 41 * plumeScale} 98, ${135 - 43 * plumeScale} 48, ${135 - 39 * plumeScale} 0 Z`}
-                              fill="#9ca300"
-                            />
-
-                            {/* Band 7: Warm Golden Ochre (#a84b00) parabolic arch dome */}
-                            <path
-                              d={`M ${135 - 35} 126 C ${135 - 38 * plumeScale} ${86 - 24 * plumeScale}, ${135 - 22 * plumeScale} ${28 - 14 * plumeScale}, 135 ${22 - 12 * plumeScale} C ${135 + 22 * plumeScale} ${28 - 14 * plumeScale}, ${135 + 38 * plumeScale} ${86 - 24 * plumeScale}, ${135 + 35} 126 Z`}
-                              fill="#a84b00"
-                            />
-
-                            {/* Band 8: Rust Orange-Red (#a82400) inner crown arch */}
-                            <path
-                              d={`M ${135 - 31} 120 C ${135 - 26 * plumeScale} ${92 - 14 * plumeScale}, ${135 - 12 * plumeScale} ${58 - 12 * plumeScale}, 135 ${52 - 10 * plumeScale} C ${135 + 12 * plumeScale} ${58 - 12 * plumeScale}, ${135 + 26 * plumeScale} ${92 - 14 * plumeScale}, ${135 + 31} 120 Z`}
-                              fill="#a82400"
-                            />
-
-                            {/* Band 9: Crimson Red (#990000) high-displacement crown core */}
-                            <path
-                              d={`M ${135 - 25} 112 C ${135 - 19 * plumeScale} ${94 - 8 * plumeScale}, ${135 - 9 * plumeScale} ${74 - 6 * plumeScale}, 135 ${70 - 6 * plumeScale} C ${135 + 9 * plumeScale} ${74 - 6 * plumeScale}, ${135 + 19 * plumeScale} ${94 - 8 * plumeScale}, ${135 + 25} 112 Z`}
-                              fill="#990000"
-                            />
-
-                            {/* Band 10: Dark Maroon Red (#780000) immediate crown apex */}
-                            <path
-                              d={`M ${135 - 16} 98 C ${135 - 10} 84, ${135 + 10} 84, ${135 + 16} 98 Z`}
-                              fill="#780000"
-                            />
-
-                            {/* Band 1: Sub-invert Royal Blue (#000f9e) rebound column */}
-                            <path
-                              d="M 96 136 C 91 168, 92 198, 95 220 L 175 220 C 178 198, 179 168, 174 136 Z"
-                              fill="#000f9e"
-                            />
-
-                            {/* Band 0: Deep Navy Blue (#00008b) invert heave bowl */}
-                            <path
-                              d="M 106 154 C 109 188, 121 202, 135 202 C 149 202, 161 188, 164 154 Z"
-                              fill="#00008b"
-                            />
-
-                            {/* Horizontal Geological Stratum / Bench Reference Lines */}
-                            <line
-                              x1={0}
-                              y1={14}
-                              x2={266}
-                              y2={14}
-                              stroke="#527a68"
-                              strokeWidth={0.7}
-                              opacity={0.85}
-                            />
-                            <line
-                              x1={0}
-                              y1={56}
-                              x2={266}
-                              y2={56}
-                              stroke="#527a68"
-                              strokeWidth={0.7}
-                              opacity={0.85}
-                            />
-
-                            {/* Semicircular Reinforced Arch / EDZ Reference Arc */}
-                            <path
-                              d="M 68 134 A 67 67 0 0 1 202 134 L 68 134 Z"
-                              fill="none"
-                              stroke="#8a9ba8"
-                              strokeWidth={0.8}
-                              opacity={0.9}
-                            />
-
-                            {/* Radial Rockbolt Array */}
-                            {boltAngles.map((deg, idx) => {
-                              const rad = (deg * Math.PI) / 180;
-                              const r1 = 41;
-                              const r2 = isAfter ? 88 : 76;
-                              return (
-                                <line
-                                  key={idx}
-                                  x1={135 + r1 * Math.cos(rad)}
-                                  y1={120 + r1 * Math.sin(rad)}
-                                  x2={135 + r2 * Math.cos(rad)}
-                                  y2={120 + r2 * Math.sin(rad)}
-                                  stroke={isAfter ? '#334155' : '#475569'}
-                                  strokeWidth={isAfter ? 1.35 : 0.9}
-                                  strokeDasharray={isAfter ? undefined : '2,2'}
-                                />
-                              );
-                            })}
-
-                            {/* Pure White Excavated Tunnel Cavity (#ffffff) */}
-                            {isShaft &&
-                            (!dataset.shaftSubMode || dataset.shaftSubMode === 'FULL_CIRCLE') ? (
-                              <circle
-                                cx={135}
-                                cy={120}
-                                r={40}
-                                fill="#ffffff"
-                                stroke="#334155"
-                                strokeWidth={1.1}
+                            <rect x={domLeft} y={domTop} width={domW} height={domH} fill={rampColors[0]} />
+                            {bands.map((b, idx) => (
+                              <path
+                                key={`a3band-${idx}`}
+                                d={b.pathD}
+                                fill={b.color}
+                                stroke={b.color}
+                                strokeWidth={0.35}
+                                shapeRendering="crispEdges"
                               />
-                            ) : (
-                              <>
-                                <path
-                                  d="M 99 156 C 93 136, 95 112, 104 94 C 112 82, 123 78, 135 78 C 147 78, 158 82, 166 94 C 175 112, 177 136, 171 156 Z"
-                                  fill="#ffffff"
-                                  stroke="#334155"
-                                  strokeWidth={1.1}
-                                />
-                                {/* Stepped Invert Floor Recess */}
-                                <rect x={115} y={150} width={40} height={7} fill="#00008b" />
-                              </>
+                            ))}
+
+                            {/* Real Conformal Triangular Mesh Wireframe */}
+                            {mesh &&
+                              mesh.elements.map((el) => {
+                                const [i0, i1, i2] = el.nodeIndices;
+                                const p0 = mesh.nodes[i0];
+                                const p1 = mesh.nodes[i1];
+                                const p2 = mesh.nodes[i2];
+                                return (
+                                  <polygon
+                                    key={el.id}
+                                    points={`${p0.xSvg},${p0.ySvg} ${p1.xSvg},${p1.ySvg} ${p2.xSvg},${p2.ySvg}`}
+                                    fill="none"
+                                    stroke="rgba(15, 23, 42, 0.36)"
+                                    strokeWidth={0.42}
+                                  />
+                                );
+                              })}
+
+                            {/* Radial Rockbolt Array Anchored on Real Perimeter */}
+                            {(activeSliceRealFea?.boltsSvg || []).map((bv, idx) => (
+                              <line
+                                key={idx}
+                                x1={bv.x1}
+                                y1={bv.y1}
+                                x2={bv.x2}
+                                y2={bv.y2}
+                                stroke={isAfter ? '#1e293b' : '#475569'}
+                                strokeWidth={isAfter ? 1.4 : 0.9}
+                                strokeDasharray={isAfter ? undefined : '2,2'}
+                              />
+                            ))}
+
+                            {/* Exact 1:1 Original White Excavated Tunnel Cavity */}
+                            {activeSliceRealFea && (
+                              <path
+                                d={activeSliceRealFea.tunnelPathD}
+                                fill="#ffffff"
+                                stroke={isAfter ? '#0f766e' : '#1e293b'}
+                                strokeWidth={isAfter ? 1.8 : 1.1}
+                                strokeLinejoin="round"
+                              />
                             )}
-
-                            {/* Fine Boundary-Hugging Triangular Liner / Interface Mesh Teeth (◇/△) */}
-                            {boundaryPts.map((pt, i) => {
-                              const nextPt = boundaryPts[(i + 1) % boundaryPts.length];
-                              const midX = (pt.x + nextPt.x) * 0.5;
-                              const midY = (pt.y + nextPt.y) * 0.5;
-                              const dx = midX - 135;
-                              const dy = midY - 120;
-                              const dist = Math.max(1, Math.hypot(dx, dy));
-                              const nx = dx / dist;
-                              const ny = dy / dist;
-                              const outX = midX + nx * 2.8;
-                              const outY = midY + ny * 2.8;
-                              const inX = midX - nx * 1.8;
-                              const inY = midY - ny * 1.8;
-                              return (
-                                <g key={`tooth-${i}`}>
-                                  <polygon
-                                    points={`${pt.x.toFixed(1)},${pt.y.toFixed(1)} ${nextPt.x.toFixed(1)},${nextPt.y.toFixed(1)} ${outX.toFixed(1)},${outY.toFixed(1)}`}
-                                    fill="none"
-                                    stroke="#334155"
-                                    strokeWidth={0.55}
-                                  />
-                                  <polygon
-                                    points={`${pt.x.toFixed(1)},${pt.y.toFixed(1)} ${nextPt.x.toFixed(1)},${nextPt.y.toFixed(1)} ${inX.toFixed(1)},${inY.toFixed(1)}`}
-                                    fill="none"
-                                    stroke="#475569"
-                                    strokeWidth={0.45}
-                                  />
-                                </g>
-                              );
-                            })}
-
-                            {/* Compact Telemetry Caption */}
-                            <rect
-                              x={6}
-                              y={198}
-                              width={254}
-                              height={17}
-                              rx={3}
-                              fill="rgba(2, 6, 23, 0.82)"
-                            />
-                            <text
-                              x={133}
-                              y={209.5}
-                              fontSize={8.5}
-                              fill={isAfter ? '#6ee7b7' : '#fda4af'}
-                              textAnchor="middle"
-                              fontWeight={800}
-                              fontFamily="monospace"
-                            >
-                              {isAfter
-                                ? `u_sup = ${dispVal.toFixed(2)} mm (-${activeFemSlice.dispReductionPct}%) | R_p = ${rpVal.toFixed(2)} m`
-                                : `u_max = ${dispVal.toFixed(2)} mm | R_p = ${rpVal.toFixed(2)} m`}
-                            </text>
                           </g>
 
-                          {/* 2. Right-Hand White Sidebar Strip with 11-Stepped Uniform Colorbar */}
+                          <rect
+                            x={domLeft}
+                            y={domTop}
+                            width={domW}
+                            height={domH}
+                            fill="none"
+                            stroke="#64748b"
+                            strokeWidth={0.7}
+                          />
+
+                          {/* Compact Telemetry Caption */}
+                          <rect
+                            x={6}
+                            y={199}
+                            width={254}
+                            height={16}
+                            rx={3}
+                            fill="rgba(2, 6, 23, 0.85)"
+                          />
+                          <text
+                            x={133}
+                            y={210}
+                            fontSize={7.8}
+                            fill={isAfter ? '#6ee7b7' : '#fda4af'}
+                            textAnchor="middle"
+                            fontWeight={800}
+                            fontFamily="monospace"
+                          >
+                            {activeSliceRealFea
+                              ? `${activeSliceRealFea.spanW}×${activeSliceRealFea.totalH}m | u=${dispVal.toFixed(2)}mm | dp=${rpVal.toFixed(2)}m`
+                              : `u=${dispVal.toFixed(2)}mm`}
+                          </text>
+
+                          {/* 2. Right-Hand White Sidebar Strip with Calibrated 11-Band Colorbar */}
                           <g transform="translate(266, 0)">
-                            <rect x={0} y={0} width={34} height={220} fill="#ffffff" />
+                            <rect x={0} y={0} width={44} height={220} fill="#ffffff" />
                             <line
                               x1={0}
                               y1={0}
@@ -1708,45 +1847,51 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
                               stroke="#cbd5e1"
                               strokeWidth={1}
                             />
-                            {rampColors.map((col, idx) => (
-                              <rect
-                                key={col}
-                                x={3}
-                                y={2 + idx * 12}
-                                width={28}
-                                height={12}
-                                fill={col}
-                                stroke="#1e293b"
-                                strokeWidth={0.55}
-                              />
-                            ))}
+                            {rampColors.map((col, idx) => {
+                              const stepV = activeSliceRealFea
+                                ? (idx / rampColors.length) * activeSliceRealFea.maxDisp
+                                : 0;
+                              return (
+                                <g key={col}>
+                                  <rect
+                                    x={3}
+                                    y={4 + idx * 14}
+                                    width={15}
+                                    height={14}
+                                    fill={col}
+                                    stroke="#1e293b"
+                                    strokeWidth={0.5}
+                                  />
+                                  <text
+                                    x={20}
+                                    y={13 + idx * 14}
+                                    fill="#0f172a"
+                                    fontSize={6.2}
+                                    fontFamily="monospace"
+                                  >
+                                    {stepV.toFixed(1)}
+                                  </text>
+                                </g>
+                              );
+                            })}
                             <text
                               x={3}
                               y={192}
                               fill="#0f172a"
-                              fontSize={6.5}
-                              fontWeight={600}
+                              fontSize={6.3}
+                              fontWeight={700}
                               fontFamily="sans-serif"
                             >
-                              Uniform
+                              2D CST FEA
                             </text>
                             <text
                               x={3}
                               y={204}
                               fill="#0f172a"
                               fontSize={5.8}
-                              fontFamily="sans-serif"
+                              fontFamily="monospace"
                             >
-                              &lt;-{(dispVal * 0.18).toFixed(1)}mm
-                            </text>
-                            <text
-                              x={5}
-                              y={214}
-                              fill="#0f172a"
-                              fontSize={5.8}
-                              fontFamily="sans-serif"
-                            >
-                              .. {dispVal.toFixed(1)}
+                              0..{activeSliceRealFea ? activeSliceRealFea.maxDisp.toFixed(1) : dispVal.toFixed(1)}mm
                             </text>
                           </g>
                         </svg>

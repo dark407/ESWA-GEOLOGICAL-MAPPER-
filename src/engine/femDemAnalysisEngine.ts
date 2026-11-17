@@ -13,6 +13,7 @@ import {
   FieldProjectItem,
   FieldSupportSystemConfig,
   FieldTunnelLocationItem,
+  getLocationSurfaceConfig,
   MappingDomainType,
   parseChainageStringToMeters,
   resolveRockDisplayInfo,
@@ -24,6 +25,15 @@ import {
   normalizeVerticalShaftCenterMedianStatus,
   normalizeVerticalShaftHalfSide,
 } from './verticalShaftEngine';
+import {
+  buildConformalTunnelMesh,
+  FemBoltBarInput,
+  FemLinerInput,
+  MetricPoint2D,
+  pointInPolygon2D,
+  segmentsIntersect2D,
+  solveFemPlaneStrain2D,
+} from './femDemSolver2D';
 
 export type FemDemAnalysisMode = 'fem' | 'dem' | 'combined';
 
@@ -95,27 +105,47 @@ export interface FemMeshNode2D {
   angleRad: number;
   ringIndex: number;
   sectorIndex: number;
+  // Solved nodal FEA fields (Before & After Support)
+  uxBeforeMm: number;
+  uyBeforeMm: number;
+  dispBeforeMm: number;
+  sigmaThetaBeforeMpa: number;
+  strainBeforePct: number;
+  fosBefore: number;
+  uxAfterMm: number;
+  uyAfterMm: number;
+  dispAfterMm: number;
+  sigmaThetaAfterMpa: number;
+  strainAfterPct: number;
+  fosAfter: number;
 }
 
 export interface FemMeshElement2D {
   id: string;
   nodeIds: [string, string, string] | [string, string, string, string];
+  nodeIndices: [number, number, number];
   pointsSvg: { x: number; y: number }[];
   centroidSvg: { x: number; y: number };
   radiusNorm: number;
   sectorAngleDeg: number;
   lithologyName: string;
   lithologyColor: string;
-  // Before support state
+  // Before support state (solved from CST FEA [K]{u}={F})
   sigmaThetaBeforeMpa: number;
   sigmaRadialBeforeMpa: number;
+  sigma1BeforeMpa: number;
+  sigma3BeforeMpa: number;
+  tauMaxBeforeMpa: number;
   displacementBeforeMm: number;
   strainBeforePct: number;
   isYieldedBefore: boolean;
   localFosBefore: number;
-  // After support state
+  // After support state (solved from CST FEA [K+K_sup]{u}={F})
   sigmaThetaAfterMpa: number;
   sigmaRadialAfterMpa: number;
+  sigma1AfterMpa: number;
+  sigma3AfterMpa: number;
+  tauMaxAfterMpa: number;
   displacementAfterMm: number;
   strainAfterPct: number;
   isYieldedAfter: boolean;
@@ -323,6 +353,25 @@ export interface CompleteFemDemAnalysisResult {
   tunnelOutlineSvgPoints: { x: number; y: number }[];
   tunnelClosedPathD: string;
   tunnelSplY: number;
+  tunnelSvgBox: { x: number; y: number; w: number; h: number };
+  domainMeta: {
+    cxSvg: number;
+    cySvg: number;
+    pxPerMeter: number;
+    domHalfW: number;
+    domTopY: number;
+    domBotY: number;
+    plotW: number;
+    svgH: number;
+    nodeCount: number;
+    elementCount: number;
+    dofCount: number;
+    pcgIterationsBefore: number;
+    pcgIterationsAfter: number;
+    maxBoltAxialForceKn: number;
+    invertHeaveBeforeMm: number;
+    invertHeaveAfterMm: number;
+  };
   plasticZonePolygonBeforeSvg: { x: number; y: number }[];
   plasticZonePolygonAfterSvg: { x: number; y: number }[];
   supportBoltVectorsSvg: {
@@ -331,6 +380,8 @@ export interface CompleteFemDemAnalysisResult {
     x2: number;
     y2: number;
     zone: 'crown' | 'wall';
+    axialForceKn?: number;
+    utilizationPct?: number;
   }[];
   // DEM Results
   demJointPlanes: DemJointPlane2D[];
@@ -2719,514 +2770,453 @@ export function runCompleteFemDemAnalysis(
     shotcreteThicknessMm: shotcreteThickMm,
   };
 
-  // 7. Generate 2D Boundary-Fitted TRIANGULAR Finite Element Mesh around the Exact Fed ESWA Tunnel / Circular Vertical Shaft Profile
-  const svgW = 560;
+  // 7. Build EXACT 1:1 True-Scale Original Tunnel Profile in Physical Meters & Conformal Graded Triangular FEM Mesh
   const svgH = 440;
-  const cx = svgW / 2;
-  const cy = svgH * 0.54;
-  const boxW = 184;
-  const boxH = isVertShaft
-    ? boxW
-    : Math.round(boxW * Math.min(1.25, Math.max(0.72, totalHeightM / spanWidthM)));
-  const boxX = cx - boxW / 2;
-  const boxY = cy - boxH / 2;
-
-  // Obtain exact fed tunnel outline from ESWA fieldMappingEngine (or Circular Vertical Shaft Plan Ring)
-  const faceOutlineDetails = computeFaceTunnelOutlineDetails(
-    isVertShaft ? { ...location, shape: 'circular', heightM: spanWidthM } : location,
-    boxX,
-    boxY,
-    boxW,
-    boxH
+  const plotW = 492;
+  const surfCfg = getLocationSurfaceConfig(
+    isVertShaft ? { ...location, shape: 'circular', heightM: spanWidthM } : location
   );
-  const rShaftSvg = boxW / 2;
-  const tunnelClosedPathD = isVertShaft
-    ? `M ${(cx - rShaftSvg).toFixed(1)} ${cy.toFixed(1)} A ${rShaftSvg} ${rShaftSvg} 0 1 1 ${(cx + rShaftSvg).toFixed(1)} ${cy.toFixed(1)} A ${rShaftSvg} ${rShaftSvg} 0 1 1 ${(cx - rShaftSvg).toFixed(1)} ${cy.toFixed(1)} Z`
-    : faceOutlineDetails.closedFillPathD;
-  const tunnelSplY = isVertShaft ? cy : faceOutlineDetails.springY;
 
-  // Build dense closed perimeter polyline following the exact fed tunnel shape or 360° Circular Vertical Shaft:
-  const rawPerimeterLoop: { x: number; y: number }[] = [];
-  const pushDenseSegment = (pts: { x: number; y: number }[]) => {
+  // Extract exact original tunnel outline at 100 px/meter so pixel-based curve constants are 100% distortion-free
+  const SCALE_PX_PER_M = 100;
+  const rawOutlineMetricSvg = computeFaceTunnelOutlineDetails(
+    isVertShaft ? { ...location, shape: 'circular', heightM: spanWidthM } : location,
+    (-spanWidthM / 2) * SCALE_PX_PER_M,
+    (-totalHeightM / 2) * SCALE_PX_PER_M,
+    spanWidthM * SCALE_PX_PER_M,
+    totalHeightM * SCALE_PX_PER_M
+  );
+
+  // Convert from scaled SVG space (y down) to upright physical coordinates (x right, y UP in meters)
+  const rawPerimMeters: MetricPoint2D[] = [];
+  const pushDenseMetric = (pts: { x: number; y: number }[]) => {
     for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i];
-      const p1 = pts[i + 1];
+      const p0 = { x: pts[i].x / SCALE_PX_PER_M, y: pts[i].y / SCALE_PX_PER_M };
+      const p1 = { x: pts[i + 1].x / SCALE_PX_PER_M, y: pts[i + 1].y / SCALE_PX_PER_M };
       const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-      const steps = Math.max(1, Math.ceil(dist / 3.5));
+      const steps = Math.max(1, Math.ceil(dist / 0.2));
       for (let k = 0; k < steps; k++) {
         const t = k / steps;
-        rawPerimeterLoop.push({
+        rawPerimMeters.push({
           x: p0.x + (p1.x - p0.x) * t,
-          y: p0.y + (p1.y - p0.y) * t,
+          y: -(p0.y + (p1.y - p0.y) * t),
         });
       }
     }
   };
 
   if (isVertShaft) {
-    // True 360° circular shaft perimeter starting from 0° North (-π/2 in SVG) clockwise
-    for (let s = 0; s < 144; s++) {
-      const theta = -Math.PI / 2 + (s / 144) * 2 * Math.PI;
-      rawPerimeterLoop.push({
-        x: cx + rShaftSvg * Math.cos(theta),
-        y: cy + rShaftSvg * Math.sin(theta),
-      });
+    const rM = spanWidthM / 2;
+    for (let s = 0; s < 120; s++) {
+      const th = (s / 120) * Math.PI * 2;
+      rawPerimMeters.push({ x: rM * Math.cos(th), y: rM * Math.sin(th) });
     }
-  } else if (
-    faceOutlineDetails.leftWallPoly.length > 0 ||
-    faceOutlineDetails.crownPoly.length > 0
-  ) {
-    if (faceOutlineDetails.leftWallPoly.length >= 2) {
-      pushDenseSegment(faceOutlineDetails.leftWallPoly);
+  } else {
+    if (rawOutlineMetricSvg.leftWallPoly.length >= 2) {
+      pushDenseMetric(rawOutlineMetricSvg.leftWallPoly);
     }
-    if (faceOutlineDetails.crownPoly.length >= 2) {
-      pushDenseSegment(faceOutlineDetails.crownPoly);
+    if (rawOutlineMetricSvg.crownPoly.length >= 2) {
+      pushDenseMetric(rawOutlineMetricSvg.crownPoly);
     }
-    if (faceOutlineDetails.rightWallPoly.length >= 2) {
-      pushDenseSegment(faceOutlineDetails.rightWallPoly.slice().reverse());
+    if (rawOutlineMetricSvg.rightWallPoly.length >= 2) {
+      pushDenseMetric(rawOutlineMetricSvg.rightWallPoly.slice().reverse());
     }
-    if (faceOutlineDetails.invertPoly.length >= 2) {
-      pushDenseSegment(faceOutlineDetails.invertPoly.slice().reverse());
-    } else if (rawPerimeterLoop.length > 1) {
-      pushDenseSegment([
-        rawPerimeterLoop[rawPerimeterLoop.length - 1],
-        rawPerimeterLoop[0],
-      ]);
+    if (rawOutlineMetricSvg.invertPoly.length >= 2) {
+      pushDenseMetric(rawOutlineMetricSvg.invertPoly.slice().reverse());
     }
   }
 
-  // Fallback if custom open shape had too few points
-  if (rawPerimeterLoop.length < 12) {
-    for (let s = 0; s < 72; s++) {
-      const theta = -Math.PI + (s / 72) * 2 * Math.PI;
-      rawPerimeterLoop.push({
-        x: cx + (boxW / 2) * Math.cos(theta),
-        y: cy + (boxH / 2) * Math.sin(theta),
-      });
-    }
-  }
-
-  // Compute cumulative arc length around the closed tunnel perimeter
-  const cumArc: number[] = [0];
-  for (let i = 1; i < rawPerimeterLoop.length; i++) {
-    const d = Math.hypot(
-      rawPerimeterLoop[i].x - rawPerimeterLoop[i - 1].x,
-      rawPerimeterLoop[i].y - rawPerimeterLoop[i - 1].y
-    );
-    cumArc.push(cumArc[i - 1] + d);
-  }
-  const closingSeg = Math.hypot(
-    rawPerimeterLoop[0].x - rawPerimeterLoop[rawPerimeterLoop.length - 1].x,
-    rawPerimeterLoop[0].y - rawPerimeterLoop[rawPerimeterLoop.length - 1].y
-  );
-  const totalPerimArc = Math.max(1, cumArc[cumArc.length - 1] + closingSeg);
-
-  const samplePerimeterAtFraction = (uFrac: number): { x: number; y: number; angleRad: number } => {
-    const normU = ((uFrac % 1) + 1) % 1;
-    const targetArc = normU * totalPerimArc;
-    for (let i = 0; i < cumArc.length - 1; i++) {
-      if (targetArc >= cumArc[i] && targetArc <= cumArc[i + 1]) {
-        const segLen = Math.max(1e-5, cumArc[i + 1] - cumArc[i]);
-        const t = (targetArc - cumArc[i]) / segLen;
-        const px =
-          rawPerimeterLoop[i].x +
-          (rawPerimeterLoop[i + 1].x - rawPerimeterLoop[i].x) * t;
-        const py =
-          rawPerimeterLoop[i].y +
-          (rawPerimeterLoop[i + 1].y - rawPerimeterLoop[i].y) * t;
-        return { x: px, y: py, angleRad: Math.atan2(py - cy, px - cx) };
-      }
-    }
-    const lastPt = rawPerimeterLoop[rawPerimeterLoop.length - 1];
-    const firstPt = rawPerimeterLoop[0];
-    const remArc = Math.max(1e-5, totalPerimArc - cumArc[cumArc.length - 1]);
-    const t = Math.max(0, Math.min(1, (targetArc - cumArc[cumArc.length - 1]) / remArc));
-    const px = lastPt.x + (firstPt.x - lastPt.x) * t;
-    const py = lastPt.y + (firstPt.y - lastPt.y) * t;
-    return { x: px, y: py, angleRad: Math.atan2(py - cy, px - cx) };
-  };
-
-  // Sample 48 boundary vertices evenly along the exact fed tunnel outline
-  // Ring 0 -> Ring 1 (1.0 -> 1.045) forms the dense boundary-hugging triangular liner/interface mesh
-  // Rings 1 -> 8 expand smoothly across the entire rock mass viewport
-  const nSectors = 48;
-  const nRings = 8; // 8 concentric staggered rings -> 2 * 48 * 8 = 768 Triangular Finite Elements
-  const ringRadiiNorm = [1.0, 1.045, 1.15, 1.29, 1.47, 1.72, 2.06, 2.58, 3.65];
-
-  const boundarySamplePts: { x: number; y: number; angleRad: number }[] = [];
-  for (let s = 0; s < nSectors; s++) {
-    boundarySamplePts.push(samplePerimeterAtFraction(s / nSectors));
-  }
-
-  const tunnelOutlineSvgPoints: { x: number; y: number }[] = rawPerimeterLoop
-    .filter((_, idx) => idx % 2 === 0)
-    .map((pt) => ({
-      x: Number(pt.x.toFixed(1)),
-      y: Number(pt.y.toFixed(1)),
-    }));
-
-  // Helper to expand any perimeter fraction uFrac outward to normalized radius rNorm
-  // At rNorm = 1.0, point lies 100% on the exact fed tunnel boundary.
-  // As rNorm increases into the rock mass, blends smoothly with radial expansion and clamps to the full domain [0, 504] x [0, 440].
-  const domainPlotW = 504;
-  const domainPlotH = 440;
-  const projectRingPoint = (uFrac: number, rNorm: number) => {
-    const bPt = samplePerimeterAtFraction(uFrac);
-    const dx0 = bPt.x - cx;
-    const dy0 = bPt.y - cy;
-    const dist0 = Math.max(1, Math.hypot(dx0, dy0));
-    const ux = dx0 / dist0;
-    const uy = dy0 / dist0;
-    const radialStepPx = (rNorm - 1.0) * ((boxW + boxH) * 0.28);
-    // Slight smoothing of sharp invert corners in outer rings
-    const smoothBlend = Math.min(0.5, Math.max(0, (rNorm - 1.0) * 0.26));
-    const rawX =
-      cx +
-      dx0 * (1 - smoothBlend) * rNorm +
-      (dx0 + ux * radialStepPx) * smoothBlend;
-    const rawY =
-      cy +
-      dy0 * (1 - smoothBlend) * rNorm +
-      (dy0 + uy * radialStepPx) * smoothBlend;
-    const targetX = Math.max(0, Math.min(domainPlotW, rawX));
-    const targetY = Math.max(0, Math.min(domainPlotH, rawY));
-    return {
-      xSvg: Number(targetX.toFixed(1)),
-      ySvg: Number(targetY.toFixed(1)),
-      angleRad: bPt.angleRad,
-    };
-  };
-
-  const meshNodes: FemMeshNode2D[] = [];
-  const nodeGrid: FemMeshNode2D[][] = [];
-
-  for (let rIdx = 0; rIdx <= nRings; rIdx++) {
-    const rNorm = ringRadiiNorm[rIdx];
-    const rowNodes: FemMeshNode2D[] = [];
-    // Stagger odd rings by +0.5 sector for genuine equilateral/Delaunay 3-node triangulation
-    const staggerShift = rIdx === 0 ? 0 : (rIdx % 2) * 0.5;
-    for (let sIdx = 0; sIdx < nSectors; sIdx++) {
-      const uFrac = (sIdx + staggerShift) / nSectors;
-      const proj =
-        rIdx === 0
-          ? {
-              xSvg: Number(boundarySamplePts[sIdx].x.toFixed(1)),
-              ySvg: Number(boundarySamplePts[sIdx].y.toFixed(1)),
-              angleRad: boundarySamplePts[sIdx].angleRad,
-            }
-          : projectRingPoint(uFrac, rNorm);
-      const xMeters = Number((((proj.xSvg - cx) / (boxW / 2)) * (spanWidthM / 2)).toFixed(2));
-      const yMeters = Number((((cy - proj.ySvg) / (boxH / 2)) * (totalHeightM / 2)).toFixed(2));
-      const node: FemMeshNode2D = {
-        id: `nd-${rIdx}-${sIdx}`,
-        xSvg: proj.xSvg,
-        ySvg: proj.ySvg,
-        xMeters,
-        yMeters,
-        radiusNorm: rNorm,
-        angleRad: proj.angleRad,
-        ringIndex: rIdx,
-        sectorIndex: sIdx,
-      };
-      meshNodes.push(node);
-      rowNodes.push(node);
-    }
-    nodeGrid.push(rowNodes);
-  }
-
-  // Assign lithology zones from cumulative area-weighted logged shares and compute 3-node CST Triangular Finite Elements
+  // Lithology cumulative distribution for spatial rock-mass element assignment
   const cumulativeLithoShares: {
     cumMax: number;
     lithologyName: string;
     colorHex: string;
+    eMpa: number;
+    nu: number;
+    cohesionMpa: number;
+    phiDeg: number;
+    gammaKnM3: number;
+    ucsCmMpa: number;
   }[] = [];
   let runningPct = 0;
   for (const sh of lithoInfo.shares) {
     runningPct += sh.weightPct;
+    const shRef = matchLithologyReference(sh.rockId || sh.rockName);
+    const localEiMpa = Math.max(200, shRef.eiGpa * 1000 * wMod.modulusFactor);
+    const localErmMpa =
+      localEiMpa * (0.02 + (1 - D / 2) / (1 + Math.exp((60 + 15 * D - gsiVal) / 11)));
+    const blendRatio = lithoInfo.shares.length === 1 ? 1.0 : 0.65;
     cumulativeLithoShares.push({
       cumMax: runningPct / 100,
       lithologyName: sh.rockName,
       colorHex: sh.colorHex,
+      eMpa: Math.max(150, pErm.value * 1000 * (1 - blendRatio) + localErmMpa * blendRatio),
+      nu: shRef.poissonRatio,
+      cohesionMpa: pCohesionRm.value * (sh.isFaultOrShearZone ? 0.45 : 1.0),
+      phiDeg: sh.isFaultOrShearZone ? Math.max(15, pFrictionRm.value - 8) : pFrictionRm.value,
+      gammaKnM3: shRef.unitWeightKnM3,
+      ucsCmMpa: sigmaCmEffective * (sh.isFaultOrShearZone ? 0.45 : 0.75 + 0.25 * (sh.ucsMpa / Math.max(10, pIntactUcs.value))),
     });
   }
-  const meshElements: FemMeshElement2D[] = [];
 
-  const rpBeforeNorm = femBefore.plasticZoneRadiusMeters / Math.max(0.5, equivalentRadiusM);
-  const rpAfterNorm = femAfter.plasticZoneRadiusMeters / Math.max(0.5, equivalentRadiusM);
-
-  // Boundary-fitted Plastic Yield Zone contours (following the exact fed tunnel shape!)
-  const plasticZonePolygonBeforeSvg = Array.from({ length: 48 }, (_, i) => {
-    const p = projectRingPoint(i / 48, Math.max(1.02, rpBeforeNorm));
-    return { x: p.xSvg, y: p.ySvg };
+  const meshDomain = buildConformalTunnelMesh({
+    rawPerimeterMeters: rawPerimMeters,
+    spanWidthM,
+    totalHeightM,
+    splHeightFromInvertM: isVertShaft ? spanWidthM / 2 : surfCfg.splHeightM,
+    overburdenDepthM: pOverburden.value,
+    isVertShaft,
+    lithologyAssigner: (_xM, _yM, fracFromTop) => {
+      const sh =
+        cumulativeLithoShares.find((s) => fracFromTop <= s.cumMax) ||
+        cumulativeLithoShares[cumulativeLithoShares.length - 1];
+      if (!sh) {
+        return {
+          lithologyName: lithoInfo.dominant,
+          lithologyColor: refLitho.colorHex,
+          eModulusMpa: pErm.value * 1000,
+          poissonRatio: pPoisson.value,
+          cohesionMpa: pCohesionRm.value,
+          frictionDeg: pFrictionRm.value,
+          unitWeightKnM3: pUnitWeight.value,
+          ucsCmMpa: sigmaCmEffective,
+        };
+      }
+      return {
+        lithologyName: sh.lithologyName,
+        lithologyColor: sh.colorHex,
+        eModulusMpa: sh.eMpa,
+        poissonRatio: sh.nu,
+        cohesionMpa: sh.cohesionMpa,
+        frictionDeg: sh.phiDeg,
+        unitWeightKnM3: sh.gammaKnM3,
+        ucsCmMpa: sh.ucsCmMpa,
+      };
+    },
+    plotW,
+    svgH,
   });
-  const plasticZonePolygonAfterSvg = Array.from({ length: 48 }, (_, i) => {
-    const p = projectRingPoint(i / 48, Math.max(1.01, rpAfterNorm));
-    return { x: p.xSvg, y: p.ySvg };
-  });
 
-  // Compute boundary-fitted Radial Rock Bolt vectors (12-14 radial bolts fanning around Crown & Haunches/Walls like RS2/Plaxis)
-  const boltScalePx = boxW / Math.max(1, spanWidthM);
-  const boltLenPx = Math.min(118, Math.max(58, boltLenM * boltScalePx * 1.15));
-  const supportBoltVectorsSvg: {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-    zone: 'crown' | 'wall';
-  }[] = [];
+  const metricToSvgX = (xM: number) =>
+    Number((meshDomain.cxSvg + xM * meshDomain.pxPerMeter).toFixed(1));
+  const metricToSvgY = (yM: number) =>
+    Number((meshDomain.cySvg - yM * meshDomain.pxPerMeter).toFixed(1));
 
-  if (isVertShaft) {
-    const stepS = Math.max(2, Math.round(nSectors / Math.max(12, Math.min(20, Math.round((Math.PI * spanWidthM) / boltSpInM)))));
-    for (let sIdx = 0; sIdx < nSectors; sIdx += stepS) {
-      const bPt = boundarySamplePts[sIdx];
-      const dx = bPt.x - cx;
-      const dy = bPt.y - cy;
-      if (isShaftHalfFace && sup.rockBoltScope === 'crown_only') {
-        if (shaftHalfSide === 'right_half' && dx < -2) continue;
-        if (shaftHalfSide === 'left_half' && dx > 2) continue;
+  // Build exact 1:1 metric bounding box & native smooth SVG outline matching Stage 3 Face Canvas
+  const tunnelBoxMetricW = spanWidthM * meshDomain.pxPerMeter;
+  const tunnelBoxMetricH = totalHeightM * meshDomain.pxPerMeter;
+  const tunnelBoxSvg = {
+    x: Number((meshDomain.cxSvg - tunnelBoxMetricW / 2).toFixed(1)),
+    y: Number((meshDomain.cySvg - tunnelBoxMetricH / 2).toFixed(1)),
+    w: Number(tunnelBoxMetricW.toFixed(1)),
+    h: Number(tunnelBoxMetricH.toFixed(1)),
+  };
+  const exactFaceOutlineSvg = computeFaceTunnelOutlineDetails(
+    isVertShaft ? { ...location, shape: 'circular', heightM: spanWidthM } : location,
+    tunnelBoxSvg.x,
+    tunnelBoxSvg.y,
+    tunnelBoxSvg.w,
+    tunnelBoxSvg.h
+  );
+  const tunnelOutlineSvgPoints = meshDomain.nodeGrid[0].map((nd) => ({
+    x: nd.xSvg,
+    y: nd.ySvg,
+  }));
+  const tunnelClosedPathD =
+    exactFaceOutlineSvg.closedFillPathD ||
+    tunnelOutlineSvgPoints
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(' ') + ' Z';
+  const tunnelSplY = isVertShaft
+    ? meshDomain.cySvg
+    : metricToSvgY(-totalHeightM / 2 + surfCfg.splHeightM);
+
+  // Build systematic + spot rockbolts anchored directly onto Ring 0 boundary edges in true meters
+  const boltBarInputs: FemBoltBarInput[] = [];
+  const steelArea25 = Math.PI * Math.pow(0.0125, 2);
+
+  if (sup.rockBoltsEnabled || sup.soilNailsEnabled) {
+    // Accumulate arc length along supported perimeter segments and place bolts at true spacing boltSpInM
+    const edgesSupported = meshDomain.boundaryEdges.filter((ed) => {
+      if (isVertShaft && isShaftHalfFace && sup.rockBoltScope === 'crown_only') {
+        if (shaftHalfSide === 'right_half' && ed.midM.x < -0.05) return false;
+        if (shaftHalfSide === 'left_half' && ed.midM.x > 0.05) return false;
       }
-      const d = Math.max(1, Math.hypot(dx, dy));
-      const nx = dx / d;
-      const ny = dy / d;
-      supportBoltVectorsSvg.push({
-        x1: Number(bPt.x.toFixed(1)),
-        y1: Number(bPt.y.toFixed(1)),
-        x2: Number((bPt.x + nx * boltLenPx).toFixed(1)),
-        y2: Number((bPt.y + ny * boltLenPx).toFixed(1)),
-        zone: dy <= 0 ? 'crown' : 'wall',
-      });
-    }
-  } else {
-    // 12 radial rockbolt angles fanning symmetrically from left springline/haunch (-174°) across crown (-90°) to right haunch (-6°)
-    const targetAnglesDeg = [-174, -159, -143, -127, -112, -97, -83, -68, -53, -37, -21, -6];
-    for (const deg of targetAnglesDeg) {
-      const rad = (deg * Math.PI) / 180;
-      // Find closest perimeter point along the tunnel boundary in direction rad
-      let bestPt = boundarySamplePts[0];
-      let bestDiff = Infinity;
-      for (const cand of boundarySamplePts) {
-        let diff = Math.abs(cand.angleRad - rad);
-        if (diff > Math.PI) diff = 2 * Math.PI - diff;
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestPt = cand;
-        }
+      if (!isVertShaft) {
+        if (ed.isInvert) return false;
+        if (sup.rockBoltScope === 'crown_only' && !ed.isCrown) return false;
       }
-      const isCrownBolt = bestPt.y <= tunnelSplY + 8;
-      if (sup.rockBoltScope === 'crown_only' && !isCrownBolt && Math.abs(deg + 90) > 72) {
-        continue;
+      return true;
+    });
+
+    let arcAcc = boltSpInM * 0.45;
+    for (const ed of edgesSupported) {
+      arcAcc += ed.lenM;
+      if (arcAcc >= boltSpInM) {
+        arcAcc = 0;
+        // Outward normal into rock = -nxIntoVoid, -nyIntoVoid
+        const outX = -ed.nxIntoVoid;
+        const outY = -ed.nyIntoVoid;
+        boltBarInputs.push({
+          x1M: ed.midM.x,
+          y1M: ed.midM.y,
+          x2M: ed.midM.x + outX * boltLenM,
+          y2M: ed.midM.y + outY * boltLenM,
+          zone: ed.isCrown ? 'crown' : 'wall',
+          steelAreaM2: steelArea25,
+          steelModulusMpa: 200000,
+          spacingLongM: boltSpLongM,
+          tensileCapacityKn: 245,
+        });
       }
-      const nx = Math.cos(rad);
-      const ny = Math.sin(rad);
-      supportBoltVectorsSvg.push({
-        x1: Number(bestPt.x.toFixed(1)),
-        y1: Number(bestPt.y.toFixed(1)),
-        x2: Number((bestPt.x + nx * boltLenPx).toFixed(1)),
-        y2: Number((bestPt.y + ny * boltLenPx).toFixed(1)),
-        zone: isCrownBolt ? 'crown' : 'wall',
-      });
     }
   }
 
-  const buildTriangularElement = (
-    id: string,
-    na: FemMeshNode2D,
-    nb: FemMeshNode2D,
-    nc: FemMeshNode2D
-  ): FemMeshElement2D => {
-    const pointsSvg = [
-      { x: na.xSvg, y: na.ySvg },
-      { x: nb.xSvg, y: nb.ySvg },
-      { x: nc.xSvg, y: nc.ySvg },
-    ];
-    const centroidSvg = {
-      x: Number(((na.xSvg + nb.xSvg + nc.xSvg) / 3).toFixed(1)),
-      y: Number(((na.ySvg + nb.ySvg + nc.ySvg) / 3).toFixed(1)),
-    };
-    const elemRNorm = (na.radiusNorm + nb.radiusNorm + nc.radiusNorm) / 3;
-    const angleRad = Math.atan2(centroidSvg.y - cy, centroidSvg.x - cx);
-    const angleDeg = Math.round(((angleRad * 180) / Math.PI + 360) % 360);
-
-    const verticalBandFrac = Math.max(0, Math.min(0.999, (centroidSvg.y - 60) / 320));
-    const matchedShare =
-      cumulativeLithoShares.find((sh) => verticalBandFrac <= sh.cumMax) ||
-      cumulativeLithoShares[cumulativeLithoShares.length - 1];
-    const elemLitho = matchedShare ? matchedShare.lithologyName : lithoInfo.dominant;
-    const elemLithoRef = matchLithologyReference(elemLitho);
-
-    const inActiveShaftHalf =
-      !isVertShaft ||
-      !isShaftHalfFace ||
-      (shaftHalfSide === 'right_half' ? centroidSvg.x >= cx - 2 : centroidSvg.x <= cx + 2);
-    const shaftHalfLocalFactor =
-      isVertShaft && isShaftHalfFace
-        ? inActiveShaftHalf
-          ? shaftMedianStatus === 'open'
-            ? 1.12
-            : 1.02
-          : shaftMedianStatus === 'closed'
-          ? 0.58
-          : 0.95
-        : 1.0;
-
-    // Plaxis / RS2 Gravity-Loaded Chimney Plume Factor:
-    // - Maximum concentration in the parabolic settlement chimney above the crown (dy < 0, |dx| small)
-    // - Moderate in upper-mid flanks (green bands)
-    // - Low / rebound beneath the invert floor (dy > 0, |dx| < boxW * 0.55)
-    const dxNorm = (centroidSvg.x - cx) / Math.max(1, boxW * 0.5);
-    const dyNorm = (centroidSvg.y - cy) / Math.max(1, boxH * 0.5);
-    let plumeIntensity = 0.45;
-    if (isVertShaft) {
-      plumeIntensity =
-        (1 / Math.pow(Math.max(1, elemRNorm), 0.95)) *
-        (1 + 0.25 * (1 - pK0.value) * Math.cos(2 * angleRad)) *
-        shaftHalfLocalFactor;
-    } else if (dyNorm > 0.35 && Math.abs(dxNorm) < 1.15) {
-      // Invert rebound / floor zone (deep blue / royal blue)
-      const invCore = Math.max(0, 1 - Math.hypot(dxNorm * 1.1, (dyNorm - 0.95) * 0.9));
-      plumeIntensity = Math.max(0.03, 0.14 - 0.11 * invCore);
-    } else if (dyNorm <= 0.35) {
-      // Upper crown arch & flaring chimney settlement plume
-      const heightAboveCrown = Math.max(0, -dyNorm - 0.65);
-      const flareWidth = 0.72 + heightAboveCrown * 0.42;
-      const lateralGaussian = Math.exp(-Math.pow(dxNorm / flareWidth, 2) * 1.35);
-      const verticalDecay = Math.exp(-heightAboveCrown * 0.34);
-      const nearCrownBoost =
-        elemRNorm < 1.55 && dyNorm < -0.25
-          ? 0.28 * Math.exp(-Math.pow(dxNorm / 0.85, 2)) * (1.55 - elemRNorm)
-          : 0;
-      plumeIntensity = Math.min(
-        1.0,
-        Math.max(0.18, 0.22 + 0.72 * lateralGaussian * verticalDecay + nearCrownBoost)
-      );
-    } else {
-      // Lower lateral flanks (dark teal to forest green)
-      const flankDecay = Math.exp(-Math.pow((Math.abs(dxNorm) - 1.0) / 1.8, 2));
-      plumeIntensity = Math.max(0.16, Math.min(0.42, 0.18 + 0.22 * flankDecay));
+  // Add user-mapped spot bolts if enabled
+  if (sup.spotBoltsEnabled && spotBoltsList.length > 0) {
+    for (const sb of spotBoltsList) {
+      let candEdges = meshDomain.boundaryEdges;
+      if (sb.panel === 'crown') candEdges = meshDomain.boundaryEdges.filter((e) => e.isCrown);
+      else if (sb.panel === 'left_wall') candEdges = meshDomain.boundaryEdges.filter((e) => e.midM.x < 0 && !e.isInvert);
+      else if (sb.panel === 'right_wall') candEdges = meshDomain.boundaryEdges.filter((e) => e.midM.x > 0 && !e.isInvert);
+      const targetEdge = candEdges[Math.floor(candEdges.length / 2)] || meshDomain.boundaryEdges[0];
+      if (targetEdge) {
+        const d = sb.diameterMm || 25;
+        const fy = sb.gradeMpa || 500;
+        const capKn = sb.tensileCapacityKn || (Math.PI * Math.pow(d / 1000, 2) / 4) * (fy * 1000);
+        const sbL = Math.max(1.5, sb.lengthM || boltLenM);
+        boltBarInputs.push({
+          x1M: targetEdge.midM.x,
+          y1M: targetEdge.midM.y,
+          x2M: targetEdge.midM.x - targetEdge.nxIntoVoid * sbL,
+          y2M: targetEdge.midM.y - targetEdge.nyIntoVoid * sbL,
+          zone: targetEdge.isCrown ? 'crown' : 'wall',
+          steelAreaM2: Math.PI * Math.pow(d / 2000, 2),
+          steelModulusMpa: 200000,
+          spacingLongM: 1.0,
+          tensileCapacityKn: capKn,
+        });
+      }
     }
+  }
 
-    const directionalFactor = plumeIntensity * 1.35;
-
-    const isYieldedBefore =
-      elemRNorm <= rpBeforeNorm * (0.85 + 0.32 * plumeIntensity) && dyNorm < 0.25;
-    const isYieldedAfter =
-      elemRNorm <= rpAfterNorm * (0.85 + 0.28 * plumeIntensity) && dyNorm < 0.2;
-
-    const sigmaRadialBeforeMpa = Number(
-      (effectiveP0Mpa * (1 - 1 / Math.pow(elemRNorm, 2))).toFixed(2)
-    );
-    const sigmaRadialAfterMpa = Number(
-      (
-        effectiveP0Mpa * (1 - 1 / Math.pow(elemRNorm, 2)) +
-        effectiveSupportPressureMpa / Math.pow(elemRNorm, 2)
-      ).toFixed(2)
-    );
-
-    const sigmaThetaBeforeMpa = Number(
-      (
-        (isYieldedBefore
-          ? sigmaCmEffective + kCoeff * sigmaRadialBeforeMpa
-          : effectiveP0Mpa * (1 + 1 / Math.pow(elemRNorm, 2))) *
-        (0.65 + 0.55 * plumeIntensity)
-      ).toFixed(2)
-    );
-    const sigmaThetaAfterMpa = Number(
-      (
-        (isYieldedAfter
-          ? sigmaCmEffective + kCoeff * sigmaRadialAfterMpa
-          : effectiveP0Mpa * (1 + 1 / Math.pow(elemRNorm, 2)) -
-            effectiveSupportPressureMpa / Math.pow(elemRNorm, 2)) *
-        (0.62 + 0.48 * plumeIntensity)
-      ).toFixed(2)
-    );
-
-    const dispBeforeMm = Number(
-      (femBefore.maxDisplacementMm * plumeIntensity).toFixed(2)
-    );
-    const dispAfterMm = Number(
-      (femAfter.maxDisplacementMm * Math.pow(plumeIntensity, 1.08)).toFixed(2)
-    );
-
-    const strainBeforePct = Number(
-      (femBefore.maxShearStrainPct * plumeIntensity).toFixed(3)
-    );
-    const strainAfterPct = Number(
-      (femAfter.maxShearStrainPct * Math.pow(plumeIntensity, 1.1)).toFixed(3)
-    );
-
-    const localFosBefore = Number(
-      Math.max(
-        0.55,
-        Math.min(
-          4.0,
-          (sigmaCmEffective + kCoeff * sigmaRadialBeforeMpa) /
-            Math.max(0.2, sigmaThetaBeforeMpa * 0.78)
-        )
-      ).toFixed(2)
-    );
-    const localFosAfter = Number(
-      Math.max(
-        0.65,
-        Math.min(
-          4.5,
-          (sigmaCmEffective +
-            kCoeff * (sigmaRadialAfterMpa + effectiveSupportPressureMpa * 0.8)) /
-            Math.max(0.2, sigmaThetaAfterMpa * 0.74)
-        )
-      ).toFixed(2)
-    );
-
-    return {
-      id,
-      nodeIds: [na.id, nb.id, nc.id],
-      pointsSvg,
-      centroidSvg,
-      radiusNorm: Number(elemRNorm.toFixed(2)),
-      sectorAngleDeg: angleDeg,
-      lithologyName: elemLitho,
-      lithologyColor: matchedShare?.colorHex || elemLithoRef.colorHex,
-      sigmaThetaBeforeMpa,
-      sigmaRadialBeforeMpa,
-      displacementBeforeMm: dispBeforeMm,
-      strainBeforePct,
-      isYieldedBefore,
-      localFosBefore,
-      sigmaThetaAfterMpa,
-      sigmaRadialAfterMpa,
-      displacementAfterMm: dispAfterMm,
-      strainAfterPct,
-      isYieldedAfter,
-      localFosAfter,
-    };
+  const linerBeforeInput: FemLinerInput = {
+    enabled: false,
+    scope: 'crown_wall',
+    thicknessM: 0,
+    linerModulusMpa: 0,
+    ribEquivalentPressureMpa: 0,
+    wireMeshRetentionMpa: 0,
   };
 
-  for (let rIdx = 0; rIdx < nRings; rIdx++) {
-    for (let sIdx = 0; sIdx < nSectors; sIdx++) {
-      const nextS = (sIdx + 1) % nSectors;
-      const n00 = nodeGrid[rIdx][sIdx];
-      const n01 = nodeGrid[rIdx][nextS];
-      const n10 = nodeGrid[rIdx + 1][sIdx];
-      const n11 = nodeGrid[rIdx + 1][nextS];
+  const hasPerimeterLiner =
+    sup.shotcreteEnabled ||
+    sup.wireMeshEnabled ||
+    sup.latticeGirderEnabled ||
+    sup.ismbEnabled ||
+    sup.protectionSupportEnabled;
 
-      if (rIdx % 2 === 0) {
-        meshElements.push(
-          buildTriangularElement(`tri-${rIdx}-${sIdx}-a`, n00, n10, n01)
-        );
-        meshElements.push(
-          buildTriangularElement(`tri-${rIdx}-${sIdx}-b`, n01, n10, n11)
-        );
-      } else {
-        meshElements.push(
-          buildTriangularElement(`tri-${rIdx}-${sIdx}-a`, n00, n10, n11)
-        );
-        meshElements.push(
-          buildTriangularElement(`tri-${rIdx}-${sIdx}-b`, n00, n11, n01)
-        );
+  const eqSteelThicknessM =
+    (sup.latticeGirderEnabled ? 0.035 / Math.max(0.4, Number(sup.latticeGirderSpacingM || 1.2)) : 0) +
+    (sup.ismbEnabled ? 0.06 / Math.max(0.4, Number(sup.ismbSpacingM || 1.0)) : 0);
+
+  const linerAfterInput: FemLinerInput = {
+    enabled: isSupportConfirmedInstalled && hasPerimeterLiner,
+    scope: isVertShaft
+      ? 'full'
+      : sup.shotcreteScope === 'crown_only'
+      ? 'crown_only'
+      : 'crown_wall',
+    thicknessM: Math.max(
+      sup.wireMeshEnabled ? 0.025 : 0,
+      (sup.shotcreteEnabled ? shotcreteThickMm / 1000 : 0) + eqSteelThicknessM
+    ),
+    linerModulusMpa: sup.shotcreteEnabled ? 26000 : 85000,
+    ribEquivalentPressureMpa: steelSetOrLatticePressureMpa + forepolingOrCanopyPressureMpa,
+    wireMeshRetentionMpa: wireMeshRetentionKpa / 1000,
+  };
+
+  // Run REAL 2D Plane-Strain Elasto-Plastic Finite Element Solver ([K]{u} = {F}) for Stage A and Stage B
+  const feaBefore = solveFemPlaneStrain2D({
+    mesh: meshDomain,
+    overburdenDepthM: pOverburden.value,
+    unitWeightKnM3: pUnitWeight.value,
+    k0: pK0.value,
+    poreWaterKpa: pPoreWater.value,
+    sigmaV_Mpa,
+    sigmaH_Mpa,
+    isVertShaft,
+    isShaftHalfFace,
+    shaftHalfSide,
+    shaftMedianStatus,
+    bolts: [],
+    liner: linerBeforeInput,
+    hoekBrownMb: mb,
+    hoekBrownS: s,
+    hoekBrownA: a,
+    intactUcsMpa: pIntactUcs.value,
+  });
+
+  const feaAfter = isSupportConfirmedInstalled
+    ? solveFemPlaneStrain2D({
+        mesh: meshDomain,
+        overburdenDepthM: pOverburden.value,
+        unitWeightKnM3: pUnitWeight.value,
+        k0: pK0.value,
+        poreWaterKpa: pPoreWater.value,
+        sigmaV_Mpa,
+        sigmaH_Mpa,
+        isVertShaft,
+        isShaftHalfFace,
+        shaftHalfSide,
+        shaftMedianStatus,
+        bolts: boltBarInputs,
+        liner: linerAfterInput,
+        hoekBrownMb: mb,
+        hoekBrownS: s,
+        hoekBrownA: a,
+        intactUcsMpa: pIntactUcs.value,
+      })
+    : feaBefore;
+
+  // Populate femBefore & femAfter directly from the real solved 2D FEA response!
+  const makeStatus = (fos: number, strainPct: number): FemContinuumStateResult['stabilityStatus'] =>
+    fos >= 1.5 && strainPct < 0.5
+      ? 'STABLE (ELASTIC)'
+      : fos >= 1.05 && strainPct < 1.5
+      ? 'CONTROLLED YIELDING'
+      : 'HIGH DEFORMATION / INSTABILITY';
+
+  const femBeforeResolved: FemContinuumStateResult = {
+    internalSupportPressureMpa: 0,
+    plasticZoneRadiusMeters: Number((equivalentRadiusM + feaBefore.maxPlasticDepthM).toFixed(2)),
+    plasticZoneDepthMeters: feaBefore.maxPlasticDepthM,
+    crownDisplacementMm: feaBefore.crownDispMm || feaBefore.maxDispMm,
+    sidewallDisplacementMm: feaBefore.wallDispMm || feaBefore.maxDispMm * 0.78,
+    maxDisplacementMm: feaBefore.maxDispMm,
+    tunnelConvergencePct: Number((((feaBefore.maxDispMm * 2) / (spanWidthM * 1000)) * 100).toFixed(3)),
+    maxTangentialStressMpa: feaBefore.maxSigmaThetaMpa,
+    maxShearStrainPct: feaBefore.maxShearStrainPct,
+    yieldedElementsPct: feaBefore.yieldedAreaPct,
+    continuumFactorOfSafety: feaBefore.continuumFos,
+    stabilityStatus: makeStatus(feaBefore.continuumFos, feaBefore.maxShearStrainPct),
+  };
+
+  const femAfterResolved: FemContinuumStateResult = isSupportConfirmedInstalled
+    ? {
+        internalSupportPressureMpa: Number(effectiveSupportPressureMpa.toFixed(3)),
+        plasticZoneRadiusMeters: Number((equivalentRadiusM + feaAfter.maxPlasticDepthM).toFixed(2)),
+        plasticZoneDepthMeters: feaAfter.maxPlasticDepthM,
+        crownDisplacementMm: feaAfter.crownDispMm || feaAfter.maxDispMm,
+        sidewallDisplacementMm: feaAfter.wallDispMm || feaAfter.maxDispMm * 0.78,
+        maxDisplacementMm: feaAfter.maxDispMm,
+        tunnelConvergencePct: Number((((feaAfter.maxDispMm * 2) / (spanWidthM * 1000)) * 100).toFixed(3)),
+        maxTangentialStressMpa: feaAfter.maxSigmaThetaMpa,
+        maxShearStrainPct: feaAfter.maxShearStrainPct,
+        yieldedElementsPct: feaAfter.yieldedAreaPct,
+        continuumFactorOfSafety: feaAfter.continuumFos,
+        stabilityStatus: makeStatus(feaAfter.continuumFos, feaAfter.maxShearStrainPct),
       }
-    }
-  }
+    : femBeforeResolved;
 
-  // 8. DEM Discontinuum Joint Network & Key-Block Limit-Equilibrium Solver
+  // Map solved nodes & elements to FemMeshNode2D[] and FemMeshElement2D[]
+  const meshNodes: FemMeshNode2D[] = meshDomain.nodes.map((nd) => ({
+    id: nd.id,
+    xSvg: nd.xSvg,
+    ySvg: nd.ySvg,
+    xMeters: Number(nd.xM.toFixed(2)),
+    yMeters: Number(nd.yM.toFixed(2)),
+    radiusNorm: nd.radiusNorm,
+    angleRad: nd.angleRad,
+    ringIndex: nd.ringIndex,
+    sectorIndex: nd.sectorIndex,
+    uxBeforeMm: feaBefore.nodeUxMm[nd.index],
+    uyBeforeMm: feaBefore.nodeUyMm[nd.index],
+    dispBeforeMm: feaBefore.nodeDispMm[nd.index],
+    sigmaThetaBeforeMpa: feaBefore.nodeSigmaThetaMpa[nd.index],
+    strainBeforePct: feaBefore.nodeStrainPct[nd.index],
+    fosBefore: feaBefore.nodeFos[nd.index],
+    uxAfterMm: feaAfter.nodeUxMm[nd.index],
+    uyAfterMm: feaAfter.nodeUyMm[nd.index],
+    dispAfterMm: feaAfter.nodeDispMm[nd.index],
+    sigmaThetaAfterMpa: feaAfter.nodeSigmaThetaMpa[nd.index],
+    strainAfterPct: feaAfter.nodeStrainPct[nd.index],
+    fosAfter: feaAfter.nodeFos[nd.index],
+  }));
+
+  const meshElements: FemMeshElement2D[] = meshDomain.elements.map((el) => {
+    const [i0, i1, i2] = el.nodeIndices;
+    const n0 = meshDomain.nodes[i0];
+    const n1 = meshDomain.nodes[i1];
+    const n2 = meshDomain.nodes[i2];
+    return {
+      id: el.id,
+      nodeIds: [n0.id, n1.id, n2.id],
+      nodeIndices: el.nodeIndices,
+      pointsSvg: [
+        { x: n0.xSvg, y: n0.ySvg },
+        { x: n1.xSvg, y: n1.ySvg },
+        { x: n2.xSvg, y: n2.ySvg },
+      ],
+      centroidSvg: el.centroidSvg,
+      radiusNorm: el.radiusNorm,
+      sectorAngleDeg: el.sectorAngleDeg,
+      lithologyName: el.lithologyName,
+      lithologyColor: el.lithologyColor,
+      sigmaThetaBeforeMpa: feaBefore.elemSigmaThetaMpa[el.index],
+      sigmaRadialBeforeMpa: feaBefore.elemSigmaRadialMpa[el.index],
+      sigma1BeforeMpa: feaBefore.elemSigma1Mpa[el.index],
+      sigma3BeforeMpa: feaBefore.elemSigma3Mpa[el.index],
+      tauMaxBeforeMpa: feaBefore.elemTauMaxMpa[el.index],
+      displacementBeforeMm: feaBefore.elemDispMm[el.index],
+      strainBeforePct: feaBefore.elemStrainPct[el.index],
+      isYieldedBefore: feaBefore.elemYielded[el.index] === 1,
+      localFosBefore: feaBefore.elemFos[el.index],
+      sigmaThetaAfterMpa: feaAfter.elemSigmaThetaMpa[el.index],
+      sigmaRadialAfterMpa: feaAfter.elemSigmaRadialMpa[el.index],
+      sigma1AfterMpa: feaAfter.elemSigma1Mpa[el.index],
+      sigma3AfterMpa: feaAfter.elemSigma3Mpa[el.index],
+      tauMaxAfterMpa: feaAfter.elemTauMaxMpa[el.index],
+      displacementAfterMm: feaAfter.elemDispMm[el.index],
+      strainAfterPct: feaAfter.elemStrainPct[el.index],
+      isYieldedAfter: feaAfter.elemYielded[el.index] === 1,
+      localFosAfter: feaAfter.elemFos[el.index],
+    };
+  });
+
+  // Extract plastic zone contour envelope directly from furthest yielded radius per sector
+  const extractYieldEnvelope = (yieldFlags: Uint8Array) =>
+    Array.from({ length: meshDomain.nSectors }, (_, s) => {
+      let furthestR = 0;
+      for (let r = meshDomain.nRings - 1; r >= 0; r--) {
+        const eIdxA = (r * meshDomain.nSectors + s) * 2;
+        const eIdxB = eIdxA + 1;
+        if (yieldFlags[eIdxA] || yieldFlags[eIdxB]) {
+          furthestR = r + 1;
+          break;
+        }
+      }
+      const nd = meshDomain.nodeGrid[Math.min(meshDomain.nRings, furthestR)][s];
+      return { x: nd.xSvg, y: nd.ySvg };
+    });
+
+  const plasticZonePolygonBeforeSvg = extractYieldEnvelope(feaBefore.elemYielded);
+  const plasticZonePolygonAfterSvg = extractYieldEnvelope(feaAfter.elemYielded);
+
+  // Convert real rockbolt bars + their solved FEA axial forces to SVG coordinates
+  const supportBoltVectorsSvg = boltBarInputs.map((b, idx) => ({
+    x1: metricToSvgX(b.x1M),
+    y1: metricToSvgY(b.y1M),
+    x2: metricToSvgX(b.x2M),
+    y2: metricToSvgY(b.y2M),
+    zone: b.zone,
+    axialForceKn: isSupportConfirmedInstalled ? feaAfter.boltForcesKn[idx] ?? 0 : 0,
+    utilizationPct: isSupportConfirmedInstalled ? feaAfter.boltUtilizationsPct[idx] ?? 0 : 0,
+  }));
+  const maxBoltAxialForceKn =
+    supportBoltVectorsSvg.reduce((m, b) => Math.max(m, b.axialForceKn || 0), 0);
+
+  // 8. Real DEM Discontinuum Joint Network & FEM-Coupled Key-Block Limit-Equilibrium Solver (in True Metric Coordinates!)
   const setColors: Record<string, string> = {
     J1: '#ef4444',
     J2: '#38bdf8',
@@ -3236,83 +3226,128 @@ export function runCompleteFemDemAnalysis(
   };
 
   const demJointPlanes: DemJointPlane2D[] = [];
+  const driveAzimuthDeg = 0; // Cross-section normal relative to tunnel drive
 
-  // Map actual traced joints from ESWA round + 3D dip surfaces + structural faults/shears
+  // Helper to clip a metric infinite/long plane passing through (mx, my) at angle appRad to domain box
+  const buildJointSegmentInDomain = (mx: number, my: number, appRad: number, halfSpanM: number) => {
+    const x1M = Math.max(-meshDomain.domHalfW * 0.95, Math.min(meshDomain.domHalfW * 0.95, mx - halfSpanM * Math.cos(appRad)));
+    const y1M = Math.max(-meshDomain.domBotY * 0.92, Math.min(meshDomain.domTopY * 0.94, my - halfSpanM * Math.sin(appRad)));
+    const x2M = Math.max(-meshDomain.domHalfW * 0.95, Math.min(meshDomain.domHalfW * 0.95, mx + halfSpanM * Math.cos(appRad)));
+    const y2M = Math.max(-meshDomain.domBotY * 0.92, Math.min(meshDomain.domTopY * 0.94, my + halfSpanM * Math.sin(appRad)));
+    return {
+      x1Svg: metricToSvgX(x1M),
+      y1Svg: metricToSvgY(y1M),
+      x2Svg: metricToSvgX(x2M),
+      y2Svg: metricToSvgY(y2M),
+      mx,
+      my,
+    };
+  };
+
+  // Sample solved FEM normal/shear stress near any metric point (xM, yM)
+  const sampleFemStressNearM = (xM: number, yM: number, useAfter: boolean) => {
+    let bestEl = meshDomain.elements[0];
+    let bestD = Infinity;
+    for (const el of meshDomain.elements) {
+      const d = Math.hypot(el.centroidM.x - xM, el.centroidM.y - yM);
+      if (d < bestD) {
+        bestD = d;
+        bestEl = el;
+      }
+    }
+    if (!bestEl) return { s1: effectiveP0Mpa, s3: effectiveP0Mpa * 0.5, tauMax: effectiveP0Mpa * 0.25 };
+    const eIdx = bestEl.index;
+    const sol = useAfter ? feaAfter : feaBefore;
+    return {
+      s1: sol.elemSigma1Mpa[eIdx],
+      s3: sol.elemSigma3Mpa[eIdx],
+      tauMax: sol.elemTauMaxMpa[eIdx],
+    };
+  };
+
+  const evaluateJointMechanics = (
+    mx: number,
+    my: number,
+    appRad: number,
+    jrcVal: number,
+    jcsVal: number,
+    phiDeg: number,
+    cohKpa: number
+  ) => {
+    const femStBef = sampleFemStressNearM(mx, my, false);
+    const femStAft = sampleFemStressNearM(mx, my, true);
+    const cos2 = Math.pow(Math.cos(appRad), 2);
+    const sin2 = Math.abs(Math.sin(2 * appRad));
+
+    const sigmaNormalBef = Math.max(
+      0.08,
+      femStBef.s3 + (femStBef.s1 - femStBef.s3) * cos2 - pPoreWater.value / 1000
+    );
+    const tauDrivingBef = Math.max(0.04, 0.5 * (femStBef.s1 - femStBef.s3) * sin2);
+    const jrcTerm = jrcVal * Math.log10(Math.max(1.05, jcsVal / sigmaNormalBef));
+    const phiPeakRad = (Math.min(72, phiDeg + jrcTerm) * Math.PI) / 180;
+    const shearStrBef = sigmaNormalBef * Math.tan(phiPeakRad) + cohKpa / 1000;
+
+    const clampingAddedMpa = isSupportConfirmedInstalled
+      ? effectiveSupportPressureMpa * 1.45 + (sup.rockBoltsEnabled || sup.soilNailsEnabled ? 0.14 : 0)
+      : 0;
+    const sigmaNormalAft = Math.max(
+      sigmaNormalBef,
+      femStAft.s3 + (femStAft.s1 - femStAft.s3) * cos2 - pPoreWater.value / 1000 + clampingAddedMpa
+    );
+    const tauDrivingAft = Math.max(0.04, 0.5 * (femStAft.s1 - femStAft.s3) * sin2 * (isSupportConfirmedInstalled ? 0.85 : 1.0));
+    const shearStrAft = sigmaNormalAft * Math.tan(phiPeakRad) + cohKpa / 1000;
+
+    const jFosBef = Number(Math.max(0.35, Math.min(4.2, shearStrBef / Math.max(0.04, tauDrivingBef))).toFixed(2));
+    const jFosAft = Number(Math.max(jFosBef, Math.min(4.8, shearStrAft / Math.max(0.04, tauDrivingAft))).toFixed(2));
+
+    const openBef = Number(((femBeforeResolved.maxDisplacementMm * 0.16) / Math.max(1, pJointKn.value / 8)).toFixed(2));
+    const openAft = Number(((femAfterResolved.maxDisplacementMm * 0.10) / Math.max(1, pJointKn.value / 8)).toFixed(2));
+    const slipBef = Number(((tauDrivingBef / Math.max(0.5, pJointKs.value)) * (jFosBef < 1.0 ? 2.4 : 1.0)).toFixed(2));
+    const slipAft = Number(((tauDrivingAft * 0.65) / Math.max(0.5, pJointKs.value)).toFixed(2));
+
+    return {
+      sigmaNormalBef,
+      tauDrivingBef,
+      shearStrBef,
+      shearStrAft,
+      jFosBef,
+      jFosAft,
+      openBef,
+      openAft,
+      slipBef,
+      slipAft,
+    };
+  };
+
+  // Map traced joints anchored around actual perimeter nodes
   const tracedJoints = round.jointTraces || [];
-  tracedJoints.slice(0, 18).forEach((jt, idx) => {
-    if (!jt.points || jt.points.length < 2) return;
-    const pStart = jt.points[0];
-    const pEnd = jt.points[jt.points.length - 1];
+  tracedJoints.slice(0, 16).forEach((jt, idx) => {
     const setRec = round.discontinuitySets?.[jt.setId];
-    const dipDeg = jt.dipAmount || (setRec ? (setRec.dipAmountFrom + setRec.dipAmountTo) / 2 : 65);
+    const dipDeg = jt.dipAmount || (setRec ? (setRec.dipAmountFrom + setRec.dipAmountTo) / 2 : 64);
     const dipDirDeg = jt.dipDirection || (setRec ? (setRec.dipDirectionFrom + setRec.dipDirectionTo) / 2 : 135);
+    const strikeDiffSin = Math.max(0.35, Math.abs(Math.sin(((dipDirDeg - driveAzimuthDeg) * Math.PI) / 180)));
+    const apparentDipRad = Math.atan(Math.tan((dipDeg * Math.PI) / 180) * strikeDiffSin) * (dipDirDeg > 180 ? -1 : 1);
 
-    const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
-    const anchorAngle = -Math.PI * 0.85 + (idx / Math.max(1, tracedJoints.length)) * Math.PI * 1.7;
-    const midR = (boxW / 2) * (1.12 + (idx % 3) * 0.22);
-    const mx = cx + midR * Math.cos(anchorAngle);
-    const my = cy + midR * Math.sin(anchorAngle);
-    const halfLenPx = 42 + Math.min(35, (jt.points.length || 3) * 4);
-
-    const x1Svg = Number((mx - halfLenPx * Math.cos(angleRad)).toFixed(1));
-    const y1Svg = Number((my - halfLenPx * Math.sin(angleRad)).toFixed(1));
-    const x2Svg = Number((mx + halfLenPx * Math.cos(angleRad)).toFixed(1));
-    const y2Svg = Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1));
-
+    const perimNode = meshDomain.nodeGrid[0][Math.floor((idx / Math.max(1, tracedJoints.length)) * meshDomain.nSectors) % meshDomain.nSectors];
+    const offsetOutM = 0.6 + (idx % 3) * 0.85;
+    const mx = perimNode.xM + Math.cos(perimNode.angleRad) * offsetOutM;
+    const my = perimNode.yM + Math.sin(perimNode.angleRad) * offsetOutM;
     const lengthM = Number(
-      (
-        jt.traceLengthM && jt.traceLengthM > 0.2
-          ? jt.traceLengthM
-          : Math.max(1.2, Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y) / 38)
-      ).toFixed(2)
+      (jt.traceLengthM && jt.traceLengthM > 0.2 ? jt.traceLengthM : Math.max(2.0, avgPersistenceM)).toFixed(2)
     );
-
-    const sigmaNormalMpa = Math.max(0.12, effectiveP0Mpa * (0.45 + 0.35 * Math.pow(Math.cos(angleRad), 2)) - pPoreWater.value / 1000);
-    const tauDrivingMpa = Math.max(0.05, effectiveP0Mpa * 0.38 * Math.abs(Math.sin(2 * angleRad)));
-
-    const jrcLogTerm = pJointJrc.value * Math.log10(Math.max(1.05, pJointJcs.value / sigmaNormalMpa));
-    const peakFrictionBeforeRad =
-      ((Math.min(70, pJointFriction.value + jrcLogTerm)) * Math.PI) / 180;
-    const shearStrengthBeforeMpa =
-      sigmaNormalMpa * Math.tan(peakFrictionBeforeRad) + pJointCohesion.value / 1000;
-
-    const addedNormalClampingMpa = effectiveSupportPressureMpa * 1.65;
-    const sigmaNormalAfterMpa = sigmaNormalMpa + addedNormalClampingMpa;
-    const shearStrengthAfterMpa =
-      sigmaNormalAfterMpa * Math.tan(peakFrictionBeforeRad) +
-      pJointCohesion.value / 1000 +
-      (sup.rockBoltsEnabled || sup.soilNailsEnabled ? 0.14 : 0);
-
-    const jointFosBefore = Number(
-      Math.max(0.45, Math.min(4.0, shearStrengthBeforeMpa / Math.max(0.05, tauDrivingMpa))).toFixed(2)
-    );
-    const jointFosAfter = Number(
-      Math.max(jointFosBefore, Math.min(4.5, shearStrengthAfterMpa / Math.max(0.05, tauDrivingMpa * 0.78))).toFixed(2)
-    );
-
-    const apertureChangeBeforeMm = Number(
-      ((femBefore.maxDisplacementMm * 0.18) / Math.max(1, pJointKn.value / 8)).toFixed(2)
-    );
-    const apertureChangeAfterMm = Number(
-      ((femAfter.maxDisplacementMm * 0.11) / Math.max(1, pJointKn.value / 8)).toFixed(2)
-    );
-
-    const shearSlipBeforeMm = Number(
-      ((tauDrivingMpa / Math.max(0.5, pJointKs.value)) * (jointFosBefore < 1.0 ? 2.4 : 1.0)).toFixed(2)
-    );
-    const shearSlipAfterMm = Number(
-      ((tauDrivingMpa * 0.65) / Math.max(0.5, pJointKs.value)).toFixed(2)
-    );
+    const seg = buildJointSegmentInDomain(mx, my, apparentDipRad, Math.min(4.2, Math.max(1.8, lengthM * 0.7)));
+    const mech = evaluateJointMechanics(mx, my, apparentDipRad, pJointJrc.value, pJointJcs.value, pJointFriction.value, pJointCohesion.value);
 
     demJointPlanes.push({
       id: jt.id || `dem-j-${idx}`,
       setId: (jt.setId === 'unassigned' ? 'J-Random' : jt.setId) as FieldJointSetId,
       label: `${jt.setId} (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
       panel: jt.panel,
-      x1Svg,
-      y1Svg,
-      x2Svg,
-      y2Svg,
+      x1Svg: seg.x1Svg,
+      y1Svg: seg.y1Svg,
+      x2Svg: seg.x2Svg,
+      y2Svg: seg.y2Svg,
       dipDirectionDeg: Math.round(dipDirDeg),
       dipAmountDeg: Math.round(dipDeg),
       lengthMeters: lengthM,
@@ -3323,137 +3358,94 @@ export function runCompleteFemDemAnalysis(
       cohesionKpa: pJointCohesion.value,
       knGpaM: pJointKn.value,
       ksGpaM: pJointKs.value,
-      normalStressMpa: Number(sigmaNormalMpa.toFixed(2)),
-      shearStressMpa: Number(tauDrivingMpa.toFixed(2)),
-      shearStrengthBeforeMpa: Number(shearStrengthBeforeMpa.toFixed(2)),
-      shearStrengthAfterMpa: Number(shearStrengthAfterMpa.toFixed(2)),
-      apertureChangeBeforeMm,
-      apertureChangeAfterMm,
-      shearSlipBeforeMm,
-      shearSlipAfterMm,
-      jointFosBefore,
-      jointFosAfter,
+      normalStressMpa: Number(mech.sigmaNormalBef.toFixed(2)),
+      shearStressMpa: Number(mech.tauDrivingBef.toFixed(2)),
+      shearStrengthBeforeMpa: Number(mech.shearStrBef.toFixed(2)),
+      shearStrengthAfterMpa: Number(mech.shearStrAft.toFixed(2)),
+      apertureChangeBeforeMm: mech.openBef,
+      apertureChangeAfterMm: mech.openAft,
+      shearSlipBeforeMm: mech.slipBef,
+      shearSlipAfterMm: mech.slipAft,
+      jointFosBefore: mech.jFosBef,
+      jointFosAfter: mech.jFosAft,
       color: setColors[jt.setId] || '#38bdf8',
     });
   });
 
-  // Also include mapped 3D Dip Surfaces and Fault / Shear Structural Features in DEM Joint Network
-  (round.dipPlaneSurfaces || []).slice(0, 6).forEach((ds, idx) => {
-    const dipDeg = ds.dipAmount || 62;
-    const dipDirDeg = ds.dipDirection || 140;
-    const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
-    const anchorAngle = -Math.PI * 0.72 + (idx / 6) * Math.PI * 1.44;
-    const midR = (boxW / 2) * (1.16 + (idx % 2) * 0.24);
-    const mx = cx + midR * Math.cos(anchorAngle);
-    const my = cy + midR * Math.sin(anchorAngle);
-    const halfLenPx = 46;
-    const setId: FieldJointSetId =
-      ds.setId === 'unassigned' ? 'J-Random' : (ds.setId as FieldJointSetId);
-    demJointPlanes.push({
-      id: ds.id || `dem-ds-${idx}`,
-      setId,
-      label: `${setId} 3D Plane (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
-      panel: ds.panel,
-      x1Svg: Number((mx - halfLenPx * Math.cos(angleRad)).toFixed(1)),
-      y1Svg: Number((my - halfLenPx * Math.sin(angleRad)).toFixed(1)),
-      x2Svg: Number((mx + halfLenPx * Math.cos(angleRad)).toFixed(1)),
-      y2Svg: Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1)),
-      dipDirectionDeg: Math.round(dipDirDeg),
-      dipAmountDeg: Math.round(dipDeg),
-      lengthMeters: avgPersistenceM,
-      apertureMm: avgApertureMm,
-      jrc: pJointJrc.value,
-      jcsMpa: pJointJcs.value,
-      frictionDeg: pJointFriction.value,
-      cohesionKpa: pJointCohesion.value,
-      knGpaM: pJointKn.value,
-      ksGpaM: pJointKs.value,
-      normalStressMpa: Number((effectiveP0Mpa * 0.52).toFixed(2)),
-      shearStressMpa: Number((effectiveP0Mpa * 0.34).toFixed(2)),
-      shearStrengthBeforeMpa: Number((effectiveP0Mpa * 0.44).toFixed(2)),
-      shearStrengthAfterMpa: Number((effectiveP0Mpa * 0.62 + effectiveSupportPressureMpa).toFixed(2)),
-      apertureChangeBeforeMm: Number((femBefore.maxDisplacementMm * 0.16).toFixed(2)),
-      apertureChangeAfterMm: Number((femAfter.maxDisplacementMm * 0.09).toFixed(2)),
-      shearSlipBeforeMm: Number((femBefore.maxDisplacementMm * 0.21).toFixed(2)),
-      shearSlipAfterMm: Number((femAfter.maxDisplacementMm * 0.11).toFixed(2)),
-      jointFosBefore: 1.18,
-      jointFosAfter: isSupportConfirmedInstalled ? 1.76 : 1.18,
-      color: setColors[setId] || '#38bdf8',
-    });
-  });
-
+  // Mapped 3D dip surfaces & faults
   (round.structuralFeatures || [])
-    .filter(
-      (sf) =>
-        sf.featureType === 'fault' ||
-        sf.featureType === 'thrust_fault' ||
-        sf.featureType === 'shear_zone'
-    )
+    .filter((sf) => sf.featureType === 'fault' || sf.featureType === 'thrust_fault' || sf.featureType === 'shear_zone')
     .slice(0, 4)
     .forEach((sf, idx) => {
       const dipDeg = sf.dipAmount || 68;
       const dipDirDeg = sf.dipDirection || 165;
-      const angleRad = ((dipDeg * (idx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
-      const anchorAngle = -Math.PI * 0.55 + idx * 0.55;
-      const midR = (boxW / 2) * 1.22;
-      const mx = cx + midR * Math.cos(anchorAngle);
-      const my = cy + midR * Math.sin(anchorAngle);
-      const halfLenPx = 56;
+      const appRad = ((dipDeg * (dipDirDeg > 180 ? -1 : 1)) * Math.PI) / 180;
+      const perimNode = meshDomain.nodeGrid[0][Math.min(meshDomain.nSectors - 1, Math.floor((0.18 + idx * 0.22) * meshDomain.nSectors))];
+      const mx = perimNode.xM + Math.cos(perimNode.angleRad) * 1.1;
+      const my = perimNode.yM + Math.sin(perimNode.angleRad) * 1.1;
+      const seg = buildJointSegmentInDomain(mx, my, appRad, Math.max(3.8, avgPersistenceM));
+      const fJrc = Math.max(2, Number((pJointJrc.value * 0.65).toFixed(1)));
+      const fJcs = Math.max(5, Number((pJointJcs.value * 0.6).toFixed(1)));
+      const fPhi = Math.max(15, Number((pJointFriction.value - 5).toFixed(1)));
+      const fCoh = Math.max(6, Number((pJointCohesion.value * 0.55).toFixed(0)));
+      const mech = evaluateJointMechanics(mx, my, appRad, fJrc, fJcs, fPhi, fCoh);
+
       demJointPlanes.push({
         id: sf.id || `dem-sf-${idx}`,
         setId: 'J-Random',
         label: `${sf.featureType.replace('_', ' ').toUpperCase()} (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
         panel: sf.panel,
-        x1Svg: Number((mx - halfLenPx * Math.cos(angleRad)).toFixed(1)),
-        y1Svg: Number((my - halfLenPx * Math.sin(angleRad)).toFixed(1)),
-        x2Svg: Number((mx + halfLenPx * Math.cos(angleRad)).toFixed(1)),
-        y2Svg: Number((my + halfLenPx * Math.sin(angleRad)).toFixed(1)),
+        x1Svg: seg.x1Svg,
+        y1Svg: seg.y1Svg,
+        x2Svg: seg.x2Svg,
+        y2Svg: seg.y2Svg,
         dipDirectionDeg: Math.round(dipDirDeg),
         dipAmountDeg: Math.round(dipDeg),
         lengthMeters: Math.max(4.5, avgPersistenceM * 1.4),
         apertureMm: Math.max(2.5, avgApertureMm * 2),
-        jrc: Math.max(2, Number((pJointJrc.value * 0.65).toFixed(1))),
-        jcsMpa: Math.max(5, Number((pJointJcs.value * 0.6).toFixed(1))),
-        frictionDeg: Math.max(16, Number((pJointFriction.value - 5).toFixed(1))),
-        cohesionKpa: Math.max(8, Number((pJointCohesion.value * 0.55).toFixed(0))),
+        jrc: fJrc,
+        jcsMpa: fJcs,
+        frictionDeg: fPhi,
+        cohesionKpa: fCoh,
         knGpaM: pJointKn.value,
         ksGpaM: pJointKs.value,
-        normalStressMpa: Number((effectiveP0Mpa * 0.48).toFixed(2)),
-        shearStressMpa: Number((effectiveP0Mpa * 0.39).toFixed(2)),
-        shearStrengthBeforeMpa: Number((effectiveP0Mpa * 0.36).toFixed(2)),
-        shearStrengthAfterMpa: Number((effectiveP0Mpa * 0.56 + effectiveSupportPressureMpa).toFixed(2)),
-        apertureChangeBeforeMm: Number((femBefore.maxDisplacementMm * 0.24).toFixed(2)),
-        apertureChangeAfterMm: Number((femAfter.maxDisplacementMm * 0.13).toFixed(2)),
-        shearSlipBeforeMm: Number((femBefore.maxDisplacementMm * 0.32).toFixed(2)),
-        shearSlipAfterMm: Number((femAfter.maxDisplacementMm * 0.15).toFixed(2)),
-        jointFosBefore: 0.94,
-        jointFosAfter: isSupportConfirmedInstalled ? 1.54 : 0.94,
+        normalStressMpa: Number(mech.sigmaNormalBef.toFixed(2)),
+        shearStressMpa: Number(mech.tauDrivingBef.toFixed(2)),
+        shearStrengthBeforeMpa: Number(mech.shearStrBef.toFixed(2)),
+        shearStrengthAfterMpa: Number(mech.shearStrAft.toFixed(2)),
+        apertureChangeBeforeMm: mech.openBef,
+        apertureChangeAfterMm: mech.openAft,
+        shearSlipBeforeMm: mech.slipBef,
+        shearSlipAfterMm: mech.slipAft,
+        jointFosBefore: mech.jFosBef,
+        jointFosAfter: mech.jFosAft,
         color: '#e11d48',
       });
     });
 
-  // Ensure conjugate set planes are represented around the perimeter if fewer than 6 traces were drawn
+  // Add conjugate active discontinuity set traces intersecting crown & walls if fewer than 6 planes
   if (demJointPlanes.length < 6) {
     effectiveSetIds.forEach((setId, sIdx) => {
       const setRec = round.discontinuitySets?.[setId];
-      const dipDeg = setRec ? (setRec.dipAmountFrom + setRec.dipAmountTo) / 2 : sIdx === 0 ? 64 : 58;
+      const dipDeg = setRec ? (setRec.dipAmountFrom + setRec.dipAmountTo) / 2 : sIdx === 0 ? 64 : 56;
       const dipDirDeg = setRec ? (setRec.dipDirectionFrom + setRec.dipDirectionTo) / 2 : sIdx === 0 ? 130 : 245;
-      for (let k = 0; k < 4; k++) {
-        const sectorAng = -Math.PI * 0.8 + ((sIdx * 4 + k) / 8) * Math.PI * 1.6;
-        const rad = (boxW / 2) * (1.18 + (k % 2) * 0.28);
-        const mx = cx + rad * Math.cos(sectorAng);
-        const my = cy + rad * Math.sin(sectorAng);
-        const planeAng = ((sIdx % 2 === 0 ? dipDeg : -dipDeg) * Math.PI) / 180;
-        const halfLen = 48;
+      const appRad = ((dipDeg * (sIdx % 2 === 0 ? 1 : -1)) * Math.PI) / 180;
+      for (let k = 0; k < 3; k++) {
+        const sIdxNode = Math.floor(((0.08 + k * 0.34 + sIdx * 0.14) % 1) * meshDomain.nSectors);
+        const perimNode = meshDomain.nodeGrid[0][sIdxNode];
+        const mx = perimNode.xM + Math.cos(perimNode.angleRad) * 0.95;
+        const my = perimNode.yM + Math.sin(perimNode.angleRad) * 0.95;
+        const seg = buildJointSegmentInDomain(mx, my, appRad, Math.min(3.6, Math.max(2.0, avgPersistenceM * 0.65)));
+        const mech = evaluateJointMechanics(mx, my, appRad, pJointJrc.value, pJointJcs.value, pJointFriction.value, pJointCohesion.value);
         demJointPlanes.push({
           id: `synth-${setId}-${k}`,
           setId,
           label: `${setId} (${Math.round(dipDirDeg)}°/${Math.round(dipDeg)}°)`,
-          panel: k < 2 ? 'crown' : 'left_wall',
-          x1Svg: Number((mx - halfLen * Math.cos(planeAng)).toFixed(1)),
-          y1Svg: Number((my - halfLen * Math.sin(planeAng)).toFixed(1)),
-          x2Svg: Number((mx + halfLen * Math.cos(planeAng)).toFixed(1)),
-          y2Svg: Number((my + halfLen * Math.sin(planeAng)).toFixed(1)),
+          panel: perimNode.yM >= 0 ? 'crown' : perimNode.xM < 0 ? 'left_wall' : 'right_wall',
+          x1Svg: seg.x1Svg,
+          y1Svg: seg.y1Svg,
+          x2Svg: seg.x2Svg,
+          y2Svg: seg.y2Svg,
           dipDirectionDeg: Math.round(dipDirDeg),
           dipAmountDeg: Math.round(dipDeg),
           lengthMeters: avgPersistenceM,
@@ -3464,23 +3456,23 @@ export function runCompleteFemDemAnalysis(
           cohesionKpa: pJointCohesion.value,
           knGpaM: pJointKn.value,
           ksGpaM: pJointKs.value,
-          normalStressMpa: Number((effectiveP0Mpa * 0.55).toFixed(2)),
-          shearStressMpa: Number((effectiveP0Mpa * 0.32).toFixed(2)),
-          shearStrengthBeforeMpa: Number((effectiveP0Mpa * 0.42).toFixed(2)),
-          shearStrengthAfterMpa: Number((effectiveP0Mpa * 0.58 + effectiveSupportPressureMpa).toFixed(2)),
-          apertureChangeBeforeMm: Number((femBefore.maxDisplacementMm * 0.15).toFixed(2)),
-          apertureChangeAfterMm: Number((femAfter.maxDisplacementMm * 0.08).toFixed(2)),
-          shearSlipBeforeMm: Number((femBefore.maxDisplacementMm * 0.22).toFixed(2)),
-          shearSlipAfterMm: Number((femAfter.maxDisplacementMm * 0.11).toFixed(2)),
-          jointFosBefore: 1.24,
-          jointFosAfter: isSupportConfirmedInstalled ? 1.82 : 1.24,
+          normalStressMpa: Number(mech.sigmaNormalBef.toFixed(2)),
+          shearStressMpa: Number(mech.tauDrivingBef.toFixed(2)),
+          shearStrengthBeforeMpa: Number(mech.shearStrBef.toFixed(2)),
+          shearStrengthAfterMpa: Number(mech.shearStrAft.toFixed(2)),
+          apertureChangeBeforeMm: mech.openBef,
+          apertureChangeAfterMm: mech.openAft,
+          shearSlipBeforeMm: mech.slipBef,
+          shearSlipAfterMm: mech.slipAft,
+          jointFosBefore: mech.jFosBef,
+          jointFosAfter: mech.jFosAft,
           color: setColors[setId] || '#f59e0b',
         });
       }
     });
   }
 
-  // 9. Goodman & Shi (1985) Key-Block & Kinematic Wedge Evaluation around Excavation Boundary
+  // 9. Goodman & Shi (1985) Key-Block Wedges Seated Flush on the EXACT Original Tunnel Perimeter + Coupled FEM Stress + Geometric Bolt Intersection
   const set1 = effectiveSetIds[0] || 'J1';
   const set2 = effectiveSetIds[1] || 'J2';
   const set3 = effectiveSetIds[2] || set1;
@@ -3492,142 +3484,150 @@ export function runCompleteFemDemAnalysis(
     ? (round.discontinuitySets[set2].dipAmountFrom + round.discontinuitySets[set2].dipAmountTo) / 2
     : 58;
 
-  const crownApexDepthM = Number(
-    Math.max(1.1, Math.min(spanWidthM * 0.42, (spanWidthM * 0.28) * Math.tan(((90 - (set1Dip + set2Dip) / 2) * Math.PI) / 180 + 0.35))).toFixed(2)
-  );
-  const leftWedgeDepthM = Number(
-    Math.max(0.9, Math.min(totalHeightM * 0.36, totalHeightM * 0.24)).toFixed(2)
-  );
-  const rightWedgeDepthM = Number(
-    Math.max(0.85, Math.min(totalHeightM * 0.34, totalHeightM * 0.22)).toFixed(2)
-  );
+  const findNearestPerimNodeByAngle = (targetAngleRad: number) => {
+    let best = meshDomain.nodeGrid[0][0];
+    let bestDiff = Infinity;
+    for (const nd of meshDomain.nodeGrid[0]) {
+      let d = Math.abs(nd.angleRad - targetAngleRad);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = nd;
+      }
+    }
+    return best;
+  };
 
-  const scalePxPerM = boxW / spanWidthM;
-
-  const buildKeyBlock = (
+  const buildExactPerimeterWedge = (
     id: string,
     label: string,
     zone: DemKeyBlock2D['locationZone'],
     sets: string[],
-    polySvg: { x: number; y: number }[],
-    moveVec: { dx: number; dy: number },
+    angStartRad: number,
+    angMidRad: number,
+    angEndRad: number,
     apexDepthM: number,
-    perimWidthM: number,
     failureMode: DemKeyBlock2D['failureMode'],
     slidingAngleDeg: number
   ): DemKeyBlock2D => {
-    const areaM2 = Number((0.5 * perimWidthM * apexDepthM).toFixed(2));
+    const pA = findNearestPerimNodeByAngle(angStartRad);
+    const pM = findNearestPerimNodeByAngle(angMidRad);
+    const pB = findNearestPerimNodeByAngle(angEndRad);
+    const outNx = Math.cos(angMidRad);
+    const outNy = Math.sin(angMidRad);
+    const apexM: MetricPoint2D = {
+      x: pM.xM + outNx * apexDepthM,
+      y: pM.yM + outNy * apexDepthM,
+    };
+
+    const polyM: MetricPoint2D[] = [
+      { x: pA.xM, y: pA.yM },
+      apexM,
+      { x: pB.xM, y: pB.yM },
+      { x: pM.xM, y: pM.yM },
+    ];
+    const polySvg = polyM.map((p) => ({ x: metricToSvgX(p.x), y: metricToSvgY(p.y) }));
+    const perimWidthM = Number(Math.max(0.8, Math.hypot(pB.xM - pA.xM, pB.yM - pA.yM)).toFixed(2));
+    const areaM2 = Number(
+      Math.max(0.35, Math.abs(
+        0.5 * ((pA.xM * apexM.y - apexM.x * pA.yM) + (apexM.x * pB.yM - pB.xM * apexM.y) + (pB.xM * pA.yM - pA.xM * pB.yM))
+      )).toFixed(2)
+    );
     const weightKnPerM = Number((areaM2 * pUnitWeight.value).toFixed(1));
     const slideRad = (slidingAngleDeg * Math.PI) / 180;
     const jointPhiRad = (pJointFriction.value * Math.PI) / 180;
-    const waterUpliftKn = (pPoreWater.value * perimWidthM * 0.45);
+    const waterUpliftKn = pPoreWater.value * perimWidthM * 0.42;
 
     const drivingForceKn = Number(
       (
         failureMode === 'Gravity Fall (Crown)'
           ? weightKnPerM + waterUpliftKn * 0.5
-          : Math.max(15, weightKnPerM * Math.sin(slideRad) + waterUpliftKn * 0.35)
+          : Math.max(12, weightKnPerM * Math.sin(slideRad) + waterUpliftKn * 0.35)
       ).toFixed(1)
     );
 
-    // Before Support Resisting Force (Joint cohesion along two planes + lateral clamping friction)
-    const jointPlaneLengthM = 2 * Math.hypot(perimWidthM / 2, apexDepthM);
-    const lateralClampingKn =
+    // Sample coupled FEM confining stress around the wedge centroid!
+    const centroidM = {
+      x: polyM.reduce((a, p) => a + p.x, 0) / polyM.length,
+      y: polyM.reduce((a, p) => a + p.y, 0) / polyM.length,
+    };
+    const femLocalStress = sampleFemStressNearM(centroidM.x, centroidM.y, false);
+    const femClampingStressMpa = Math.max(0.05, femLocalStress.s3 + (femLocalStress.s1 - femLocalStress.s3) * 0.18);
+
+    const jointPlaneLenM =
+      Math.hypot(apexM.x - pA.xM, apexM.y - pA.yM) + Math.hypot(pB.xM - apexM.x, pB.yM - apexM.y);
+    const clampingResistKn =
       failureMode === 'Gravity Fall (Crown)'
-        ? Math.max(12, sigmaH_Mpa * 1000 * apexDepthM * 0.08 * Math.tan(jointPhiRad))
-        : Math.max(18, (weightKnPerM * Math.cos(slideRad) - waterUpliftKn) * Math.tan(jointPhiRad));
+        ? Math.max(10, femClampingStressMpa * 1000 * apexDepthM * 0.14 * Math.tan(jointPhiRad))
+        : Math.max(14, (weightKnPerM * Math.cos(slideRad) + femClampingStressMpa * 45 - waterUpliftKn) * Math.tan(jointPhiRad));
+    const cohesionResistKn = pJointCohesion.value * jointPlaneLenM * 0.85;
+    const yieldRelaxFactor = femBeforeResolved.plasticZoneDepthMeters > apexDepthM * 0.8 ? 0.78 : 1.0;
 
-    const cohesionResistKn = pJointCohesion.value * jointPlaneLengthM * 0.85;
-    // Relaxation penalty if continuum plastic zone envelops block before support
-    const yieldRelaxationFactorBefore =
-      femBefore.plasticZoneDepthMeters > apexDepthM * 0.85 ? 0.76 : 1.0;
+    const resistingForceBeforeKn = Number(((clampingResistKn + cohesionResistKn) * yieldRelaxFactor).toFixed(1));
 
-    const resistingForceBeforeKn = Number(
-      ((lateralClampingKn + cohesionResistKn) * yieldRelaxationFactorBefore).toFixed(1)
-    );
-
-    // Support Force Added from ESWA Installed Support
-    const boltsIntersecting =
-      sup.rockBoltsEnabled || sup.soilNailsEnabled
-        ? Math.max(1, Math.round(perimWidthM / boltSpInM))
-        : 0;
-    const effectiveAnchorageFactor =
-      boltLenM > apexDepthM + 0.5
-        ? 1.0
-        : boltLenM > apexDepthM
-        ? 0.65
-        : 0.25;
-
-    let spotBoltBlockResistKn = 0;
-    if (sup.spotBoltsEnabled && spotBoltsCount > 0) {
-      for (const sb of spotBoltsList) {
-        const pinsThisBlock = isVertShaft
-          ? (id === 'KB-NE' && (sb.panel === 'left_wall' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 0 && sb.azimuthDeg < 90))) ||
-            (id === 'KB-ES' && (sb.panel === 'crown' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 90 && sb.azimuthDeg < 180))) ||
-            (id === 'KB-SW' && (sb.panel === 'right_wall' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 180 && sb.azimuthDeg < 270))) ||
-            (id === 'KB-WN' && (sb.panel === 'shaft_sn' || (sb.azimuthDeg !== undefined && sb.azimuthDeg >= 270 && sb.azimuthDeg <= 360))) ||
-            (id === 'KB-MEDIAN' && String(sb.panel) === 'center_median')
-          : (zone === 'Crown Arch' && (sb.panel === 'crown' || (sb.yMeters ?? 0) > totalHeightM * 0.75)) ||
-            (zone === 'Left Sidewall' && (sb.panel === 'left_wall' || (sb.xMeters ?? 0) < -spanWidthM * 0.25)) ||
-            (zone === 'Right Sidewall' && (sb.panel === 'right_wall' || (sb.xMeters ?? 0) > spanWidthM * 0.25)) ||
-            (zone === 'Shoulder Wedge' && (sb.panel === 'crown' || sb.panel === 'left_wall' || sb.panel === 'right_wall')) ||
-            (zone === 'Slope Batter');
-
-        if (pinsThisBlock) {
-          const d = sb.diameterMm || 25;
-          const fy = sb.gradeMpa || 500;
-          const nominalCapKn = sb.tensileCapacityKn || (Math.PI * Math.pow(d / 1000, 2) / 4) * (fy * 1000);
-          const sbLen = sb.lengthM || 4.0;
-          const sbAnchorage =
-            sbLen > apexDepthM + 0.5 ? 1.0 : sbLen > apexDepthM ? Math.max(0.4, (sbLen - apexDepthM) / 0.5) : 0.25;
-          spotBoltBlockResistKn += nominalCapKn * sbAnchorage;
+    // Exact geometric intersection count of active bolts piercing the wedge polygon!
+    let boltsIntersectingCount = 0;
+    let totalAnchoredBoltForceKn = 0;
+    for (let bi = 0; bi < boltBarInputs.length; bi++) {
+      const b = boltBarInputs[bi];
+      const startInOrNear =
+        pointInPolygon2D(b.x1M, b.y1M, polyM) ||
+        Math.hypot(b.x1M - pM.xM, b.y1M - pM.yM) <= perimWidthM * 0.65;
+      let crossesEdge = false;
+      for (let ei = 0; ei < polyM.length; ei++) {
+        const e0 = polyM[ei];
+        const e1 = polyM[(ei + 1) % polyM.length];
+        if (segmentsIntersect2D(b.x1M, b.y1M, b.x2M, b.y2M, e0.x, e0.y, e1.x, e1.y).hit) {
+          crossesEdge = true;
+          break;
         }
       }
-      if (spotBoltBlockResistKn === 0 && spotBoltsCount > 0 && !isVertShaft) {
-        spotBoltBlockResistKn = 45 * Math.min(2, spotBoltsCount);
+      if (crossesEdge || startInOrNear) {
+        // Verify anchor extends beyond the wedge back plane
+        const anchoredBeyond = !pointInPolygon2D(b.x2M, b.y2M, polyM);
+        const anchorEff = anchoredBeyond ? 1.0 : 0.28;
+        if (crossesEdge) {
+          boltsIntersectingCount++;
+          totalAnchoredBoltForceKn += (b.tensileCapacityKn * 0.68 / Math.max(0.5, b.spacingLongM)) * anchorEff;
+        }
       }
     }
 
-    const boltForceKn =
-      boltsIntersecting * (165 / boltSpLongM) * effectiveAnchorageFactor + spotBoltBlockResistKn;
-
-    // Shotcrete punching shear perimeter resistance
     const shotcreteShearKn =
       sup.shotcreteEnabled && shotcreteThickMm > 0
-        ? (shotcreteThickMm / 1000) * 1800 * 0.45 // ~800 kN/m of thickness
+        ? (shotcreteThickMm / 1000) * 1650 * (perimWidthM / Math.max(1, spanWidthM * 0.35)) * 0.42
         : 0;
-
-    const ribSupportKn =
-      (sup.latticeGirderEnabled ? 95 : 0) + (sup.ismbEnabled ? 155 : 0);
+    const ribSupportKn = (sup.latticeGirderEnabled ? 90 : 0) + (sup.ismbEnabled ? 145 : 0);
 
     const supportForceAddedKn = isSupportConfirmedInstalled
-      ? Number((boltForceKn + shotcreteShearKn + ribSupportKn).toFixed(1))
+      ? Number((totalAnchoredBoltForceKn + shotcreteShearKn + ribSupportKn).toFixed(1))
       : 0;
-
     const resistingForceAfterKn = Number(
-      (resistingForceBeforeKn / yieldRelaxationFactorBefore + supportForceAddedKn).toFixed(1)
+      (resistingForceBeforeKn / yieldRelaxFactor + supportForceAddedKn).toFixed(1)
     );
 
-    const fosBefore = Number(
-      Math.max(0.35, Math.min(3.8, resistingForceBeforeKn / Math.max(10, drivingForceKn))).toFixed(2)
-    );
-    const fosAfter = Number(
-      Math.max(fosBefore, Math.min(4.8, resistingForceAfterKn / Math.max(10, drivingForceKn))).toFixed(2)
-    );
+    const fosBefore = Number(Math.max(0.35, Math.min(3.8, resistingForceBeforeKn / Math.max(8, drivingForceKn))).toFixed(2));
+    const fosAfter = Number(Math.max(fosBefore, Math.min(4.8, resistingForceAfterKn / Math.max(8, drivingForceKn))).toFixed(2));
 
     const dispBeforeMm = Number(
-      (femBefore.maxDisplacementMm * (fosBefore < 1.0 ? 1.65 : fosBefore < 1.3 ? 1.25 : 0.9)).toFixed(2)
+      (femBeforeResolved.maxDisplacementMm * (fosBefore < 1.0 ? 1.55 : fosBefore < 1.3 ? 1.2 : 0.88)).toFixed(2)
     );
     const dispAfterMm = Number(
-      (femAfter.maxDisplacementMm * (fosAfter >= 1.5 ? 0.65 : 0.85)).toFixed(2)
+      (femAfterResolved.maxDisplacementMm * (fosAfter >= 1.5 ? 0.62 : 0.85)).toFixed(2)
     );
 
-    const classifyBlock = (fos: number): DemKeyBlock2D['statusBefore'] =>
+    const classify = (fos: number): DemKeyBlock2D['statusBefore'] =>
       fos < 1.05 ? 'UNSTABLE' : fos < 1.45 ? 'MARGINALLY STABLE' : 'STABLE';
 
     const centroidSvg = {
-      x: Number((polySvg.reduce((acc, p) => acc + p.x, 0) / polySvg.length).toFixed(1)),
-      y: Number((polySvg.reduce((acc, p) => acc + p.y, 0) / polySvg.length).toFixed(1)),
+      x: metricToSvgX(centroidM.x),
+      y: metricToSvgY(centroidM.y),
+    };
+
+    // Move vector points inward into the excavated tunnel void (-outNx, -outNy)
+    const moveVec = {
+      dx: Number((-outNx * 22).toFixed(1)),
+      dy: Number((outNy * 22).toFixed(1)), // SVG y is flipped (-outNy * -1 = +outNy)
     };
 
     return {
@@ -3638,7 +3638,7 @@ export function runCompleteFemDemAnalysis(
       polygonSvg: polySvg,
       centroidSvg,
       moveVectorSvg: moveVec,
-      apexDepthMeters: apexDepthM,
+      apexDepthMeters: Number(apexDepthM.toFixed(2)),
       perimeterWidthMeters: perimWidthM,
       areaM2,
       volumePerMeterM3: areaM2,
@@ -3652,245 +3652,72 @@ export function runCompleteFemDemAnalysis(
       fosAfter,
       dispBeforeMm,
       dispAfterMm,
-      boltsIntersectingCount: boltsIntersecting,
+      boltsIntersectingCount,
       anchorageBeyondPlasticZone:
         isSupportConfirmedInstalled &&
-        boltLenM >= Math.max(apexDepthM + 0.5, femAfter.plasticZoneDepthMeters + 0.5),
-      statusBefore: classifyBlock(fosBefore),
-      statusAfter: classifyBlock(fosAfter),
+        boltLenM >= Math.max(apexDepthM + 0.5, feaAfter.maxPlasticDepthM + 0.5),
+      statusBefore: classify(fosBefore),
+      statusAfter: classify(fosAfter),
     };
   };
 
-  const crownTopY = cy - boxH / 2;
-  const crownWedgeHalfW = (spanWidthM * 0.34 * scalePxPerM) / 2;
-  const crownWedgeApexY = crownTopY - crownApexDepthM * scalePxPerM;
-
-  const leftWallX = cx - boxW / 2;
-  const leftWedgeApexX = leftWallX - leftWedgeDepthM * scalePxPerM;
-
-  const rightWallX = cx + boxW / 2;
-  const rightWedgeApexX = rightWallX + rightWedgeDepthM * scalePxPerM;
+  const crownApexDepthM = Number(
+    Math.max(1.0, Math.min(spanWidthM * 0.42, spanWidthM * 0.26 * Math.tan(((90 - (set1Dip + set2Dip) / 2) * Math.PI) / 180 + 0.35))).toFixed(2)
+  );
+  const leftWedgeDepthM = Number(Math.max(0.85, Math.min(totalHeightM * 0.36, totalHeightM * 0.24)).toFixed(2));
+  const rightWedgeDepthM = Number(Math.max(0.85, Math.min(totalHeightM * 0.34, totalHeightM * 0.22)).toFixed(2));
 
   const demKeyBlocks: DemKeyBlock2D[] = isVertShaft
     ? (() => {
-        const rPx = boxW / 2;
-        const quadArcM = shaftBreakdown
-          ? shaftBreakdown.quadrantArcLengthM
-          : Number(((Math.PI * spanWidthM) / 4).toFixed(2));
         const qBlocks: DemKeyBlock2D[] = [];
-
-        // Q1: NORTH-EAST (0°–90°) — active in Full Face or Right Half
         if (!isShaftHalfFace || shaftHalfSide === 'right_half') {
-          const a0 = (-75 * Math.PI) / 180;
-          const aMid = (-45 * Math.PI) / 180;
-          const a1 = (-15 * Math.PI) / 180;
-          const rApex = rPx + crownApexDepthM * scalePxPerM;
           qBlocks.push(
-            buildKeyBlock(
-              'KB-NE',
-              'KB-1 NE (0°–90°) Quadrant Wedge',
-              'Right Sidewall',
-              [set1, set2],
-              [
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
-                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
-                },
-              ],
-              { dx: -18, dy: 18 },
-              crownApexDepthM,
-              Number((quadArcM * 0.65).toFixed(2)),
-              'Wedge Sliding',
-              set1Dip
-            )
+            buildExactPerimeterWedge('KB-NE', 'KB-1 NE (0°–90°) Quadrant Wedge', 'Right Sidewall', [set1, set2], 0.25, Math.PI / 4, 1.3, crownApexDepthM, 'Wedge Sliding', set1Dip),
+            buildExactPerimeterWedge('KB-ES', 'KB-2 ES (90°–180°) Quadrant Wedge', 'Right Sidewall', [set2, set3], -1.3, -Math.PI / 4, -0.25, rightWedgeDepthM, 'Wedge Sliding', set2Dip)
           );
         }
-
-        // Q2: EAST-SOUTH (90°–180°) — active in Full Face or Right Half
-        if (!isShaftHalfFace || shaftHalfSide === 'right_half') {
-          const a0 = (15 * Math.PI) / 180;
-          const aMid = (45 * Math.PI) / 180;
-          const a1 = (75 * Math.PI) / 180;
-          const rApex = rPx + rightWedgeDepthM * scalePxPerM;
-          qBlocks.push(
-            buildKeyBlock(
-              'KB-ES',
-              'KB-2 ES (90°–180°) Quadrant Wedge',
-              'Right Sidewall',
-              [set2, set3],
-              [
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
-                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
-                },
-              ],
-              { dx: -18, dy: -18 },
-              rightWedgeDepthM,
-              Number((quadArcM * 0.62).toFixed(2)),
-              'Wedge Sliding',
-              set2Dip
-            )
-          );
-        }
-
-        // Q3: SOUTH-WEST (180°–270°) — active in Full Face or Left Half
         if (!isShaftHalfFace || shaftHalfSide === 'left_half') {
-          const a0 = (105 * Math.PI) / 180;
-          const aMid = (135 * Math.PI) / 180;
-          const a1 = (165 * Math.PI) / 180;
-          const rApex = rPx + leftWedgeDepthM * scalePxPerM;
           qBlocks.push(
-            buildKeyBlock(
-              'KB-SW',
-              'KB-3 SW (180°–270°) Quadrant Wedge',
-              'Left Sidewall',
-              [set1, set3],
-              [
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
-                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
-                },
-              ],
-              { dx: 18, dy: -18 },
-              leftWedgeDepthM,
-              Number((quadArcM * 0.62).toFixed(2)),
-              'Planar Sliding',
-              set1Dip
-            )
+            buildExactPerimeterWedge('KB-SW', 'KB-3 SW (180°–270°) Quadrant Wedge', 'Left Sidewall', [set1, set3], -Math.PI + 0.25, (-3 * Math.PI) / 4, -Math.PI / 2 - 0.25, leftWedgeDepthM, 'Planar Sliding', set1Dip),
+            buildExactPerimeterWedge('KB-WN', 'KB-4 WN (270°–360°) Quadrant Wedge', 'Left Sidewall', [set1, set2], Math.PI / 2 + 0.25, (3 * Math.PI) / 4, Math.PI - 0.25, leftWedgeDepthM, 'Wedge Sliding', set2Dip)
           );
         }
-
-        // Q4: WEST-NORTH (270°–360°) — active in Full Face or Left Half
-        if (!isShaftHalfFace || shaftHalfSide === 'left_half') {
-          const a0 = (195 * Math.PI) / 180;
-          const aMid = (225 * Math.PI) / 180;
-          const a1 = (255 * Math.PI) / 180;
-          const rApex = rPx + leftWedgeDepthM * scalePxPerM;
-          qBlocks.push(
-            buildKeyBlock(
-              'KB-WN',
-              'KB-4 WN (270°–360°) Quadrant Wedge',
-              'Left Sidewall',
-              [set1, set2],
-              [
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a0)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a0)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + rApex * Math.cos(aMid)).toFixed(1)),
-                  y: Number((cy + rApex * Math.sin(aMid)).toFixed(1)),
-                },
-                {
-                  x: Number((cx + (rPx - 3) * Math.cos(a1)).toFixed(1)),
-                  y: Number((cy + (rPx - 3) * Math.sin(a1)).toFixed(1)),
-                },
-              ],
-              { dx: 18, dy: 18 },
-              leftWedgeDepthM,
-              Number((quadArcM * 0.65).toFixed(2)),
-              'Wedge Sliding',
-              set2Dip
-            )
-          );
-        }
-
-        // When Half Face + Center Median is CLOSED (unexcavated rock half), include Center Median Rock Wall Block
-        if (isShaftHalfFace && shaftMedianStatus === 'closed') {
-          const medDir = shaftHalfSide === 'left_half' ? 1 : -1; // into unexcavated half
-          const medApexX = cx + medDir * (leftWedgeDepthM * 0.85 * scalePxPerM);
-          qBlocks.push(
-            buildKeyBlock(
-              'KB-MEDIAN',
-              'KB-MED Center Median Rock Wall Block (0°–180°)',
-              shaftHalfSide === 'left_half' ? 'Right Sidewall' : 'Left Sidewall',
-              [set1, set2],
-              [
-                { x: Number(cx.toFixed(1)), y: Number((cy - boxH * 0.24).toFixed(1)) },
-                { x: Number(medApexX.toFixed(1)), y: Number(cy.toFixed(1)) },
-                { x: Number(cx.toFixed(1)), y: Number((cy + boxH * 0.24).toFixed(1)) },
-              ],
-              { dx: -medDir * 22, dy: 0 },
-              Number((leftWedgeDepthM * 0.85).toFixed(2)),
-              Number((spanWidthM * 0.48).toFixed(2)),
-              'Planar Sliding',
-              set1Dip
-            )
-          );
-        }
-
         return qBlocks;
       })()
     : [
-        buildKeyBlock(
+        buildExactPerimeterWedge(
           'KB-CROWN',
           mappingDomain === 'TUNNEL' ? 'KB-1 Crown Arch Wedge' : 'KB-1 Upper Crest Wedge',
           mappingDomain === 'TUNNEL' ? 'Crown Arch' : 'Slope Batter',
           [set1, set2],
-          [
-            { x: Number((cx - crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
-            { x: Number(cx.toFixed(1)), y: Number(crownWedgeApexY.toFixed(1)) },
-            { x: Number((cx + crownWedgeHalfW).toFixed(1)), y: Number((crownTopY + 6).toFixed(1)) },
-          ],
-          { dx: 0, dy: 24 },
+          Math.PI * 0.32,
+          Math.PI * 0.5,
+          Math.PI * 0.68,
           crownApexDepthM,
-          Number((spanWidthM * 0.34).toFixed(2)),
           mappingDomain === 'TUNNEL' ? 'Gravity Fall (Crown)' : 'Wedge Sliding',
           68
         ),
-        buildKeyBlock(
+        buildExactPerimeterWedge(
           'KB-LEFT',
           mappingDomain === 'TUNNEL' ? 'KB-2 Left Sidewall Wedge' : 'KB-2 Mid-Batter Planar Block',
           'Left Sidewall',
           [set1, set3],
-          [
-            { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy - boxH * 0.22).toFixed(1)) },
-            { x: Number(leftWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.04).toFixed(1)) },
-            { x: Number((leftWallX + 4).toFixed(1)), y: Number((cy + boxH * 0.22).toFixed(1)) },
-          ],
-          { dx: 22, dy: 10 },
+          Math.PI * 0.80,
+          Math.PI * 0.96,
+          -Math.PI * 0.86,
           leftWedgeDepthM,
-          Number((totalHeightM * 0.42).toFixed(2)),
           'Planar Sliding',
           set1Dip
         ),
-        buildKeyBlock(
+        buildExactPerimeterWedge(
           'KB-RIGHT',
           mappingDomain === 'TUNNEL' ? 'KB-3 Right Haunch / Wall Block' : 'KB-3 Toe Release Block',
           'Right Sidewall',
           [set2, set3],
-          [
-            { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy - boxH * 0.24).toFixed(1)) },
-            { x: Number(rightWedgeApexX.toFixed(1)), y: Number((cy - boxH * 0.02).toFixed(1)) },
-            { x: Number((rightWallX - 4).toFixed(1)), y: Number((cy + boxH * 0.20).toFixed(1)) },
-          ],
-          { dx: -22, dy: 10 },
+          -Math.PI * 0.14,
+          Math.PI * 0.04,
+          Math.PI * 0.20,
           rightWedgeDepthM,
-          Number((totalHeightM * 0.38).toFixed(2)),
           'Wedge Sliding',
           set2Dip
         ),
@@ -3917,14 +3744,18 @@ export function runCompleteFemDemAnalysis(
     Math.max(...demJointPlanes.map((j) => j.shearSlipAfterMm), 0.1).toFixed(2)
   );
 
+  // Replace summary continuum results with authentic 2D CST FEA solved metrics
+  const femBeforeOut = femBeforeResolved;
+  const femAfterOut = femAfterResolved;
+
   // 10. Coupled FEM + DEM Interaction Assessment
   const maxWedgeApexDepthM = Math.max(...demKeyBlocks.map((b) => b.apexDepthMeters), 1.0);
   const doesPlasticZoneEnvelopWedgesBefore =
-    femBefore.plasticZoneDepthMeters >= maxWedgeApexDepthM * 0.85;
+    femBeforeOut.plasticZoneDepthMeters >= maxWedgeApexDepthM * 0.85;
   const doesPlasticZoneEnvelopWedgesAfter =
-    femAfter.plasticZoneDepthMeters >= maxWedgeApexDepthM * 0.85;
+    femAfterOut.plasticZoneDepthMeters >= maxWedgeApexDepthM * 0.85;
 
-  const governingDepthAfterM = Math.max(femAfter.plasticZoneDepthMeters, maxWedgeApexDepthM);
+  const governingDepthAfterM = Math.max(femAfterOut.plasticZoneDepthMeters, maxWedgeApexDepthM);
   const boltAnchorageMarginMeters = isSupportConfirmedInstalled
     ? Number((boltLenM - governingDepthAfterM).toFixed(2))
     : Number((-governingDepthAfterM).toFixed(2));
@@ -3932,16 +3763,16 @@ export function runCompleteFemDemAnalysis(
     isSupportConfirmedInstalled && boltAnchorageMarginMeters >= 0.5;
 
   const combinedStabilityStatusBefore =
-    femBefore.continuumFactorOfSafety < 1.05 || minBlockFosBefore < 1.05
+    femBeforeOut.continuumFactorOfSafety < 1.05 || minBlockFosBefore < 1.05
       ? 'CRITICAL INSTABILITY'
-      : femBefore.continuumFactorOfSafety < 1.4 || minBlockFosBefore < 1.4
+      : femBeforeOut.continuumFactorOfSafety < 1.4 || minBlockFosBefore < 1.4
       ? 'MARGINAL / YIELDING'
       : 'STABLE';
 
   const combinedStabilityStatusAfter =
-    femAfter.continuumFactorOfSafety < 1.05 || minBlockFosAfter < 1.05
+    femAfterOut.continuumFactorOfSafety < 1.05 || minBlockFosAfter < 1.05
       ? 'CRITICAL INSTABILITY'
-      : femAfter.continuumFactorOfSafety < 1.4 || minBlockFosAfter < 1.4
+      : femAfterOut.continuumFactorOfSafety < 1.4 || minBlockFosAfter < 1.4
       ? 'MARGINAL / YIELDING'
       : 'STABLE';
 
@@ -3958,10 +3789,10 @@ export function runCompleteFemDemAnalysis(
           }`,
         ]
       : []),
-    `Continuum FEM (Hoek–Brown / Duncan Fama): Unsupported excavation develops a plastic yield zone of ${femBefore.plasticZoneDepthMeters.toFixed(2)} m (R_p = ${femBefore.plasticZoneRadiusMeters.toFixed(2)} m) with maximum radial displacement u_max = ${femBefore.maxDisplacementMm.toFixed(2)} mm and FoS_FEM = ${femBefore.continuumFactorOfSafety.toFixed(2)}.`,
-    `Discontinuum DEM (Goodman & Shi / Barton–Bandis): Mapped joint sets (${effectiveSetIds.join(', ')}) form ${demKeyBlocks.length} perimeter blocks; critical block is ${criticalBlockBefore?.label || 'Crown Wedge'} (apex ${maxWedgeApexDepthM.toFixed(2)} m, W = ${criticalBlockBefore?.weightKnPerM.toFixed(0)} kN/m) with unsupported FoS_DEM = ${minBlockFosBefore.toFixed(2)}.`,
+    `2D CST Finite Element Solver ([K]{u}={F}, ${meshNodes.length} nodes / ${meshElements.length} triangles / ${meshNodes.length * 2} DOFs): Unsupported excavation produces crown/boundary max displacement u_max = ${femBeforeOut.maxDisplacementMm.toFixed(2)} mm (invert heave ${feaBefore.invertHeaveMm.toFixed(2)} mm), plastic depth d_p = ${femBeforeOut.plasticZoneDepthMeters.toFixed(2)} m, and FoS_FEM = ${femBeforeOut.continuumFactorOfSafety.toFixed(2)}.`,
+    `Coupled Discontinuum DEM (Goodman & Shi / Barton–Bandis): Mapped joint sets (${effectiveSetIds.join(', ')}) form ${demKeyBlocks.length} perimeter blocks seated on actual ${location?.shape || 'tunnel'} geometry; critical block is ${criticalBlockBefore?.label || 'Crown Wedge'} (apex ${maxWedgeApexDepthM.toFixed(2)} m, W = ${criticalBlockBefore?.weightKnPerM.toFixed(0)} kN/m) with unsupported FoS_DEM = ${minBlockFosBefore.toFixed(2)}.`,
     isSupportConfirmedInstalled
-      ? `After-Support Coupled Effect: Installed ESWA support (${activeSystemsSummary.join(' + ')}) supplies p_i = ${effectiveSupportPressureMpa.toFixed(3)} MPa, reducing plastic depth to ${femAfter.plasticZoneDepthMeters.toFixed(2)} m (-${Math.round(((femBefore.maxDisplacementMm - femAfter.maxDisplacementMm) / Math.max(0.1, femBefore.maxDisplacementMm)) * 100)}% displacement reduction) and raising critical block FoS_DEM from ${minBlockFosBefore.toFixed(2)} to ${minBlockFosAfter.toFixed(2)}.`
+      ? `After-Support Coupled Effect: Installed ESWA support (${activeSystemsSummary.join(' + ')}) with ${boltBarInputs.length} bolt bar(s) (max axial load ${maxBoltAxialForceKn.toFixed(1)} kN) + perimeter liner reduces displacement to ${femAfterOut.maxDisplacementMm.toFixed(2)} mm (-${Math.max(0, Math.round(((femBeforeOut.maxDisplacementMm - femAfterOut.maxDisplacementMm) / Math.max(0.1, femBeforeOut.maxDisplacementMm)) * 100))}%) and raises critical block FoS_DEM from ${minBlockFosBefore.toFixed(2)} to ${minBlockFosAfter.toFixed(2)}.`
       : `WARNING — No Installed Support Confirmed in Current Face Record: Enable rock bolts, shotcrete, or ribs in Stage 8 (Support System) to evaluate reinforced After-Support performance.`,
     isSupportConfirmedInstalled
       ? isBoltLengthAdequateForYieldAndWedge
@@ -3972,28 +3803,28 @@ export function runCompleteFemDemAnalysis(
 
   const methodologyAndLimitations = [
     {
-      title: '1. Area-Weighted Logged Lithology & Intact Rock Synthesis',
+      title: '1. Real 2D Plane-Strain CST Finite Element Solver ([K]{u} = {F})',
       formulaSummary:
-        'Intact UCS (σ_ci), Modulus Ratio (MR), Hoek–Brown m_i, unit weight (γ), and Poisson ratio (ν) are computed using strict priority from logged strength/UCS ratings and area-weighted mapped lithology strokes, alternating bands, channel samples, and structural fault/shear zones — never diluted by unlogged median defaults.',
+        'Builds a 1:1 true-scale conformal graded triangular mesh from the exact excavation perimeter out to the far-field rock block, applies geostatic excavation unloading tractions, and solves sparse [K]{u}={F} via Jacobi-PCG with elasto-plastic secant modulus softening and 1D bolt / liner structural elements.',
+      referenceCitation: 'Zienkiewicz & Taylor (2005); Hoek et al. (2002); Brady & Brown (2004)',
+      limitationNote:
+        'Assumes 2D plane strain per meter advance. Directly reflects tunnel shape, exact width×height aspect ratio, overburden cover H, K0 stress ratio, E_rm, and active support geometry.',
+    },
+    {
+      title: '2. Area-Weighted Logged Lithology & Intact Rock Synthesis',
+      formulaSummary:
+        'Intact UCS (σ_ci), Modulus Ratio (MR), Hoek–Brown m_i, unit weight (γ), and Poisson ratio (ν) are computed from logged strength/UCS ratings and area-weighted mapped lithology strokes and structural fault/shear zones.',
       referenceCitation: 'Hoek & Brown (1997); Marinos & Hoek (2001); ISRM (1981)',
       limitationNote:
-        'When multiple lithologies are mapped on the face or bench, continuum properties are weighted by mapped polygon/stroke area fraction and assigned across the 3-node CST triangular mesh.',
+        'Multiple logged lithologies distribute stiffness and strength across the FEM mesh elements by mapped weight fraction.',
     },
     {
-      title: '2. Continuum Elastoplastic Solution (FEM Representation)',
+      title: '3. Coupled Discontinuum DEM & Key-Block Limit-Equilibrium',
       formulaSummary:
-        'Generalized Hoek–Brown (2002) & Duncan Fama (1993) / Carranza-Torres & Fairhurst (2000) closed-form elastoplastic convergence-confinement solution mapped onto a 2D boundary-fitted mesh with Kirsch directional stress factors.',
-      referenceCitation: 'Hoek, Carranza-Torres & Corkum (2002); Hoek & Diederichs (2006)',
-      limitationNote:
-        'Assumes equivalent isotropic continuum behavior within each lithology sector. Valid for preliminary design and convergence-confinement verification; does not replace full 3D nonlinear time-dependent creep FEA.',
-    },
-    {
-      title: '3. Discontinuum Block & Joint Mechanics (DEM Representation)',
-      formulaSummary:
-        'Goodman & Shi (1985) 2D kinematic key-block limit-equilibrium combined with Barton–Choubey (1977) nonlinear joint shear strength (JRC, JCS, φ_r) and Bandis et al. (1983) normal/shear joint stiffness (K_n, K_s) derived directly from logged joint sets, trace lengths, apertures, infilling, and fault/shear features.',
+        'Goodman & Shi (1985) key-block wedges seated flush on the actual excavation perimeter, clamped by stresses sampled directly from the solved FEM element field, paired with Barton–Choubey (1977) joint shear strength and exact segment-polygon bolt intersection.',
       referenceCitation: 'Goodman & Shi (1985); Barton & Choubey (1977); Bandis et al. (1983)',
       limitationNote:
-        'Evaluates plane-strain perimeter wedges and joint slip from mapped ESWA traces, 3D dip surfaces, and fault/shear zones.',
+        'Plane-strain kinematic wedge equilibrium driven by mapped discontinuity orientations, pore pressure, and bolt anchorage length.',
     },
   ];
 
@@ -4134,14 +3965,33 @@ export function runCompleteFemDemAnalysis(
     overriddenParametersCount: parameters.filter((p) => p.provenance === 'ENGINEER_OVERRIDE').length,
     missingParametersCount: parameters.filter((p) => p.provenance === 'MISSING_INPUT').length,
     supportBreakdown,
-    femBefore,
-    femAfter,
+    femBefore: femBeforeOut,
+    femAfter: femAfterOut,
     grcCurve,
     meshNodes,
     meshElements,
     tunnelOutlineSvgPoints,
     tunnelClosedPathD,
     tunnelSplY,
+    tunnelSvgBox: tunnelBoxSvg,
+    domainMeta: {
+      cxSvg: Number(meshDomain.cxSvg.toFixed(1)),
+      cySvg: Number(meshDomain.cySvg.toFixed(1)),
+      pxPerMeter: Number(meshDomain.pxPerMeter.toFixed(2)),
+      domHalfW: Number(meshDomain.domHalfW.toFixed(2)),
+      domTopY: Number(meshDomain.domTopY.toFixed(2)),
+      domBotY: Number(meshDomain.domBotY.toFixed(2)),
+      plotW: meshDomain.plotW,
+      svgH: meshDomain.svgH,
+      nodeCount: meshNodes.length,
+      elementCount: meshElements.length,
+      dofCount: meshNodes.length * 2,
+      pcgIterationsBefore: feaBefore.pcgIterations,
+      pcgIterationsAfter: feaAfter.pcgIterations,
+      maxBoltAxialForceKn: Number(maxBoltAxialForceKn.toFixed(1)),
+      invertHeaveBeforeMm: feaBefore.invertHeaveMm,
+      invertHeaveAfterMm: feaAfter.invertHeaveMm,
+    },
     plasticZonePolygonBeforeSvg,
     plasticZonePolygonAfterSvg,
     supportBoltVectorsSvg,
@@ -4157,8 +4007,8 @@ export function runCompleteFemDemAnalysis(
     maxJointSlipAfterMm,
     combinedInteraction: {
       maxWedgeApexDepthM,
-      plasticZoneDepthBeforeM: femBefore.plasticZoneDepthMeters,
-      plasticZoneDepthAfterM: femAfter.plasticZoneDepthMeters,
+      plasticZoneDepthBeforeM: femBeforeOut.plasticZoneDepthMeters,
+      plasticZoneDepthAfterM: femAfterOut.plasticZoneDepthMeters,
       doesPlasticZoneEnvelopWedgesBefore,
       doesPlasticZoneEnvelopWedgesAfter,
       boltAnchorageMarginMeters,

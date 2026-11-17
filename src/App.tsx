@@ -2968,6 +2968,18 @@ export default function App({
   }, [isFieldMappingModeOpen]);
 
   useEffect(() => {
+    if (isDigitalTwinBetaOpen) {
+      return registerStepBackHandler('digital_twin_beta', () => setIsDigitalTwinBetaOpen(false), 82, 'Exit 3D Digital Twin');
+    }
+  }, [isDigitalTwinBetaOpen]);
+
+  useEffect(() => {
+    if (isDigitalTwinContinuousLogOpen) {
+      return registerStepBackHandler('digital_twin_continuous', () => setIsDigitalTwinContinuousLogOpen(false), 83, 'Exit Continuous 3D Twin Log');
+    }
+  }, [isDigitalTwinContinuousLogOpen]);
+
+  useEffect(() => {
     if (screen === 'mapping') {
       return registerStepBackHandler('screen_mapping', () => {
         navigateScreen('drive_and_photos');
@@ -4962,11 +4974,11 @@ export default function App({
               <button
                 type="button"
                 onClick={() => setScreen('welcome')}
-                className={layoutStyles.backButton}
-                title="Return to Welcome Window"
+                className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 border border-amber-600 cursor-pointer shadow-xs"
+                title="Go One Step Back to Welcome Window"
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Welcome</span>
+                <ArrowLeft className="w-4 h-4 text-slate-950" />
+                <span>Step Back</span>
               </button>
               <EswaTunnelLogo size="sm" animated={false} />
 

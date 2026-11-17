@@ -457,6 +457,32 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
+            onClick={() => {
+              const stageOrder: TbmWorkflowStage[] = [
+                'projects',
+                'locations',
+                'configuration',
+                'collection',
+                'analysis',
+                'monitoring',
+                'reports',
+              ];
+              const idx = stageOrder.indexOf(currentStage);
+              if (idx > 0) {
+                setCurrentStage(stageOrder[idx - 1]);
+                return;
+              }
+              onBackToMainWindow();
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 text-xs font-mono font-black cursor-pointer transition-all shrink-0 whitespace-nowrap"
+            title="Go One Step Back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+            <span>Step Back</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onBackToMainWindow}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono font-bold cursor-pointer transition-all"
             style={{ color: palette.accentHex }}
