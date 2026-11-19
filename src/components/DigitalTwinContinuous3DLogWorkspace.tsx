@@ -193,6 +193,33 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
     | 'export_audit'
   >('rounds_and_2d_sync');
 
+  const tabHistoryRef = useRef<
+    Array<
+      | 'rounds_and_2d_sync'
+      | 'cross_round_continuity'
+      | 'longitudinal_analytics'
+      | 'export_audit'
+    >
+  >([]);
+  const prevRightTabRef = useRef(activeRightTab);
+  const isPoppingRightTabRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingRightTabRef.current) {
+      isPoppingRightTabRef.current = false;
+      prevRightTabRef.current = activeRightTab;
+      return;
+    }
+    if (prevRightTabRef.current !== activeRightTab) {
+      const stack = tabHistoryRef.current;
+      if (stack[stack.length - 1] !== prevRightTabRef.current) {
+        stack.push(prevRightTabRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevRightTabRef.current = activeRightTab;
+    }
+  }, [activeRightTab]);
+
   // Keep selectedChainageM within corridor chainage bounds
   useEffect(() => {
     if (!corridorAnalysis || corridorAnalysis.stitchedRounds.length === 0) return;
@@ -822,32 +849,21 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
                   setSelectedContinuityId(null);
                   return;
                 }
-                const tabOrder: typeof activeRightTab[] = [
-                  'rounds_and_2d_sync',
-                  'cross_round_continuity',
-                  'longitudinal_analytics',
-                  'export_audit',
-                ];
-                const idx = tabOrder.indexOf(activeRightTab);
-                if (idx > 0) {
-                  setActiveRightTab(tabOrder[idx - 1]);
+                const prevTab = tabHistoryRef.current.pop();
+                if (prevTab && prevTab !== activeRightTab) {
+                  isPoppingRightTabRef.current = true;
+                  setActiveRightTab(prevTab);
                   return;
                 }
                 onBackToMainMenu();
               }}
-              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 font-black text-xs flex items-center gap-1 cursor-pointer transition-all shrink-0 whitespace-nowrap shadow-2xs"
-              title="Go One Step Back"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-              <span className="whitespace-nowrap">Step Back</span>
-            </button>
-            <button
-              type="button"
-              onClick={onBackToMainMenu}
               className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shrink-0 whitespace-nowrap"
+              title="Return to previous window"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="whitespace-nowrap">NATM Menu</span>
+              <span className="whitespace-nowrap">
+                {tabHistoryRef.current.length > 0 ? 'Back' : 'NATM Menu'}
+              </span>
             </button>
 
             <button

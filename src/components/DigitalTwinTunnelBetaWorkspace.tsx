@@ -103,6 +103,34 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     return 'setup';
   });
 
+  const stepHistoryRef = useRef<
+    Array<
+      | 'setup'
+      | 'capture_20'
+      | 'reconstruct_3d'
+      | 'joint_dip_inspector_window'
+      | 'unfold_3d_to_2d'
+    >
+  >([]);
+  const prevStepRef = useRef(activeStep);
+  const isPoppingStepRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingStepRef.current) {
+      isPoppingStepRef.current = false;
+      prevStepRef.current = activeStep;
+      return;
+    }
+    if (prevStepRef.current !== activeStep) {
+      const stack = stepHistoryRef.current;
+      if (stack[stack.length - 1] !== prevStepRef.current) {
+        stack.push(prevStepRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevStepRef.current = activeStep;
+    }
+  }, [activeStep]);
+
   const [unfold2DSyncVersion, setUnfold2DSyncVersion] = useState<number>(1);
   const [unfold2DTargetViewMode, setUnfold2DTargetViewMode] = useState<
     '2d_canvas' | '3d_flat_tunnel' | 'strip_log'
@@ -2033,39 +2061,23 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                   stopLiveCamera();
                   return;
                 }
-                const stepOrder: typeof activeStep[] = [
-                  'setup',
-                  'capture_20',
-                  'reconstruct_3d',
-                  'joint_dip_inspector_window',
-                  'unfold_3d_to_2d',
-                ];
-                const idx = stepOrder.indexOf(activeStep);
-                if (idx > 0) {
+                const prevStep = stepHistoryRef.current.pop();
+                if (prevStep && prevStep !== activeStep) {
                   stopLiveCamera();
-                  setActiveStep(stepOrder[idx - 1]);
+                  isPoppingStepRef.current = true;
+                  setActiveStep(prevStep);
                   return;
                 }
                 stopLiveCamera();
                 onBackToMainMenu();
               }}
-              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
-              title="Go One Step Back"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-              <span className="whitespace-nowrap">Step Back</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                stopLiveCamera();
-                onBackToMainMenu();
-              }}
               className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 border border-slate-300 cursor-pointer shrink-0 whitespace-nowrap"
+              title="Return to previous window or step"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="whitespace-nowrap">NATM Menu</span>
+              <span className="whitespace-nowrap">
+                {stepHistoryRef.current.length > 0 ? 'Back' : 'NATM Menu'}
+              </span>
             </button>
 
             <div

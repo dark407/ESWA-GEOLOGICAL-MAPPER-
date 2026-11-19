@@ -480,6 +480,26 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
 }) => {
   // Navigation Tabs
   const [activeWorkingWindow, setActiveWorkingWindow] = useState<MiningWorkingWindow>('CANVAS');
+  const windowHistoryRef = useRef<MiningWorkingWindow[]>([]);
+  const prevWindowRef = useRef<MiningWorkingWindow>('CANVAS');
+  const isPoppingWindowRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingWindowRef.current) {
+      isPoppingWindowRef.current = false;
+      prevWindowRef.current = activeWorkingWindow;
+      return;
+    }
+    if (prevWindowRef.current !== activeWorkingWindow) {
+      const stack = windowHistoryRef.current;
+      if (stack[stack.length - 1] !== prevWindowRef.current) {
+        stack.push(prevWindowRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevWindowRef.current = activeWorkingWindow;
+    }
+  }, [activeWorkingWindow]);
+
   const [isSetupWizardOpen, setIsSetupWizardOpen] = useState<boolean>(false);
   const [isStorageModalOpen, setIsStorageModalOpen] = useState<boolean>(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
@@ -1508,36 +1528,21 @@ export const MiningMappingWorkspace: React.FC<MiningMappingWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => {
-              const winOrder: MiningWorkingWindow[] = [
-                'CANVAS',
-                'GRADES',
-                'CHANNELS',
-                'STRUCTURE',
-                'GEOTECH',
-                'EXPORTS',
-              ];
-              const idx = winOrder.indexOf(activeWorkingWindow);
-              if (idx > 0) {
-                setActiveWorkingWindow(winOrder[idx - 1]);
+              const prevWin = windowHistoryRef.current.pop();
+              if (prevWin && prevWin !== activeWorkingWindow) {
+                isPoppingWindowRef.current = true;
+                setActiveWorkingWindow(prevWin);
                 return;
               }
               onBackToMainWindow();
             }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-black text-slate-950 border border-amber-600 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 whitespace-nowrap"
-            title="Go One Step Back"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-            <span>Step Back</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onBackToMainWindow}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-400 border border-slate-700 hover:border-amber-500/50 transition-all cursor-pointer shadow-sm active:scale-95"
-            title="Return to Mining Main Window"
+            title="Return to previous window"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Main Window</span>
+            <span className="hidden sm:inline">
+              {windowHistoryRef.current.length > 0 ? 'Back' : 'Main Window'}
+            </span>
           </button>
 
           <div className="h-5 w-px bg-slate-800 hidden sm:block" />

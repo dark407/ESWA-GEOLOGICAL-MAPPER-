@@ -76,12 +76,35 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
   const [activeWizardStage, setActiveWizardStage] = useState<1 | 2 | 3 | 4 | 5 | 6>(
     initialCadOpen ? 2 : 6
   );
+  const wizardStageHistoryRef = useRef<Array<1 | 2 | 3 | 4 | 5 | 6>>([]);
+  const prevWizardStageRef = useRef<1 | 2 | 3 | 4 | 5 | 6>(initialCadOpen ? 2 : 6);
+  const isPoppingWizardStageRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
-      setActiveWizardStage(initialCadOpen ? 2 : 6);
+      const startStage = initialCadOpen ? 2 : 6;
+      wizardStageHistoryRef.current = [];
+      isPoppingWizardStageRef.current = true;
+      prevWizardStageRef.current = startStage;
+      setActiveWizardStage(startStage);
     }
   }, [isOpen, initialCadOpen]);
+
+  useEffect(() => {
+    if (isPoppingWizardStageRef.current) {
+      isPoppingWizardStageRef.current = false;
+      prevWizardStageRef.current = activeWizardStage;
+      return;
+    }
+    if (prevWizardStageRef.current !== activeWizardStage) {
+      const stack = wizardStageHistoryRef.current;
+      if (stack[stack.length - 1] !== prevWizardStageRef.current) {
+        stack.push(prevWizardStageRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevWizardStageRef.current = activeWizardStage;
+    }
+  }, [activeWizardStage]);
 
   const storedDatasets = useMemo(() => loadAllContinuousStripDatasets(), [isOpen, propDataset?.id]);
 
@@ -610,19 +633,19 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
             <button
               type="button"
               onClick={() => {
-                if (activeWizardStage > 1) {
-                  setActiveWizardStage(
-                    (activeWizardStage - 1) as 1 | 2 | 3 | 4 | 5 | 6
-                  );
-                } else {
-                  onClose();
+                const prevStage = wizardStageHistoryRef.current.pop();
+                if (prevStage && prevStage !== activeWizardStage) {
+                  isPoppingWizardStageRef.current = true;
+                  setActiveWizardStage(prevStage);
+                  return;
                 }
+                onClose();
               }}
-              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
-              title="Go One Step Back"
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 border border-slate-700 cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+              title="Return to previous stage or window"
             >
-              <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-              <span>Step Back</span>
+              <ArrowLeft className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Back</span>
             </button>
             <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <Layers className="w-5 h-5" />
@@ -3034,448 +3057,566 @@ export const A3ContinuousTunnelLogModal: React.FC<A3ContinuousTunnelLogModalProp
 
                       {/* Clipped Interior Layers (Lithology Zones, Pull Boundaries, Joint Traces, Water Symbols, Custom Text) */}
                       <g clipPath="url(#eswa-cad-strip-clip)">
-                        {/* 3. Lithology Zones Layer (`dataset.lithologyZones` directly from ESWA CAD) */}
-                        {(dataset.lithologyZones || []).map((zone) => {
-                          if (!zone.polygon || zone.polygon.length < 3) return null;
-                          const rockDef = getCadRockDef(zone.rockType, zone.codeSymbol);
-                          const patUrl = getPatternUrlForRockDef(rockDef);
-                          const polyPts = zone.polygon
-                            .map((pt) => `${rdToX(pt.x).toFixed(1)},${yToSvgY(pt.y).toFixed(1)}`)
-                            .join(' ');
-                          const avgX =
-                            zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
-                          const avgY =
-                            zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
-                          const lx = rdToX(avgX);
-                          const ly = yToSvgY(avgY);
-                          const lbl = zone.label || rockDef.label;
-
-                          return (
-                            <g key={zone.id}>
-                              <polygon
-                                points={polyPts}
-                                fill={`${rockDef.color}38`}
-                                stroke={rockDef.color}
-                                strokeWidth={1.2}
-                              />
-                              {patUrl !== 'none' && <polygon points={polyPts} fill={patUrl} />}
-                              <text
-                                x={lx}
-                                y={ly}
-                                fontSize={10}
-                                fontWeight={700}
-                                fill="#1e293b"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                stroke="rgba(255,255,255,0.95)"
-                                strokeWidth={3}
-                                paintOrder="stroke"
-                              >
-                                {lbl}
-                              </text>
-                            </g>
-                          );
-                        })}
-
-                        {/* 4. Horizontal Zone Divider Lines (3-Zone Tunnel OR 4-Quadrant Vertical Shaft) */}
-                        {isShaft ? (
-                          <>
-                            <line
-                              x1={padL}
-                              y1={yShaftQ1}
-                              x2={svgW - padR}
-                              y2={yShaftQ1}
-                              stroke="rgba(2, 132, 199, 0.28)"
-                              strokeWidth={1.0}
-                              strokeDasharray="6,6"
-                            />
-                            <line
-                              x1={padL}
-                              y1={yShaftQ2}
-                              x2={svgW - padR}
-                              y2={yShaftQ2}
-                              stroke="rgba(2, 132, 199, 0.28)"
-                              strokeWidth={1.0}
-                              strokeDasharray="6,6"
-                            />
-                            <line
-                              x1={padL}
-                              y1={yShaftQ3}
-                              x2={svgW - padR}
-                              y2={yShaftQ3}
-                              stroke="rgba(2, 132, 199, 0.28)"
-                              strokeWidth={1.0}
-                              strokeDasharray="6,6"
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <line
-                              x1={padL}
-                              y1={yTunnelCrownTop}
-                              x2={svgW - padR}
-                              y2={yTunnelCrownTop}
-                              stroke="rgba(2, 132, 199, 0.28)"
-                              strokeWidth={1.0}
-                              strokeDasharray="6,6"
-                            />
-                            <line
-                              x1={padL}
-                              y1={yTunnelRightWallTop}
-                              x2={svgW - padR}
-                              y2={yTunnelRightWallTop}
-                              stroke="rgba(2, 132, 199, 0.28)"
-                              strokeWidth={1.0}
-                              strokeDasharray="6,6"
-                            />
-                          </>
-                        )}
-
-                        {/* 5. Excavation Pull Rounds Layer & True-Scale Blank Unlogged Gaps (`MISSING_GAP`) */}
-                        {(dataset.pulls || []).map((pull, idx) => {
-                          const pullStartX = rdToX(pull.fromRd);
-                          const pullEndX = rdToX(pull.toRd);
-                          const isGap = pull.status === 'MISSING_GAP';
-
-                          if (isGap) {
-                            return (
-                              <g key={`cad-gap-${pull.fromRd}-${pull.toRd}-${idx}`}>
-                                <rect
-                                  x={pullStartX}
-                                  y={padT}
-                                  width={Math.max(1, pullEndX - pullStartX)}
-                                  height={plotH}
-                                  fill="#ffffff"
-                                />
-                                <line
-                                  x1={pullStartX}
-                                  y1={padT}
-                                  x2={pullStartX}
-                                  y2={padT + plotH}
-                                  stroke="#64748b"
-                                  strokeWidth={1.6}
-                                  strokeDasharray="6,4"
-                                />
-                                <line
-                                  x1={pullEndX}
-                                  y1={padT}
-                                  x2={pullEndX}
-                                  y2={padT + plotH}
-                                  stroke="#64748b"
-                                  strokeWidth={1.6}
-                                  strokeDasharray="6,4"
-                                />
-                                <text
-                                  x={(pullStartX + pullEndX) / 2}
-                                  y={padT + plotH / 2}
-                                  fontSize={9.5}
-                                  fontFamily="monospace"
-                                  fontWeight={700}
-                                  fill="#64748b"
-                                  textAnchor="middle"
-                                  dominantBaseline="middle"
-                                >
-                                  UNLOGGED GAP ({pull.fromRd.toFixed(1)}–{pull.toRd.toFixed(1)}m)
-                                </text>
-                              </g>
+                        {(() => {
+                          const placedSvgBoxes: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+                          const overlapsSvgBox = (x1: number, y1: number, x2: number, y2: number, pad = 2.5) =>
+                            placedSvgBoxes.some(
+                              (b) => !(x2 + pad < b.x1 || x1 - pad > b.x2 || y2 + pad < b.y1 || y1 - pad > b.y2)
                             );
-                          }
 
-                          const midX = (pullStartX + pullEndX) / 2;
-                          const pullLabel = `${pull.excavationDefiningNo || 'PULL'} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`;
-                          return (
-                            <g key={`cad-pull-${pull.id}-${idx}`}>
-                              <line
-                                x1={pullEndX}
-                                y1={padT}
-                                x2={pullEndX}
-                                y2={padT + plotH}
-                                stroke="#eab308"
-                                strokeWidth={1}
-                                strokeDasharray="4,2"
-                              />
-                              <text
-                                x={midX}
-                                y={padT + 12}
-                                fontSize={9.5}
-                                fontFamily="monospace"
-                                fontWeight={700}
-                                fill="#b45309"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                stroke="rgba(255,255,255,0.9)"
-                                strokeWidth={2.5}
-                                paintOrder="stroke"
-                              >
-                                {pullLabel}
-                              </text>
-                            </g>
-                          );
-                        })}
-
-                        {/* 6. Discontinuity Joint Traces Layer (`dataset.traces` — Crisp Strip Thickness & Inline Free-Space Labels Inside Tunnel Outline) */}
-                        {(dataset.traces || []).map((trace) => {
-                          const points = trace.points || [];
-                          if (points.length < 2) return null;
-                          const isSelected = trace.id === selectedTraceId;
-                          const color = resolveStripTraceColor(trace);
-
-                          const svgPts = points.map((pt) => ({
-                            x: Math.max(padL + 1, Math.min(padL + plotW - 1, rdToX(pt.x))),
-                            y: Math.max(padT + 1, Math.min(padT + plotH - 1, yToSvgY(pt.y))),
-                          }));
-                          const dPath = svgPts
-                            .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
-                            .join(' ');
-
-                          const dashArray =
-                            trace.structureType === 'Shear Zone'
-                              ? '6,2.5'
-                              : trace.structureType === 'Bedding/Foliation'
-                              ? '3,2.5'
-                              : undefined;
-
-                          // Structural Geology Dip Tick & Inline On-Trace Free-Space Label
-                          const midIdx = Math.floor(svgPts.length / 2);
-                          const p1 = svgPts[Math.max(0, midIdx - 1)];
-                          const p2 = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
-                          const midPt = svgPts[midIdx];
-
-                          const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-                          const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-                          const tickLen = 7;
-                          const tickAngle = segAngle + (Math.PI / 2) * tickSide;
-
-                          const tx = midPt.x + Math.cos(tickAngle) * tickLen;
-                          const ty = midPt.y + Math.sin(tickAngle) * tickLen;
-
-                          const displayLabel =
-                            trace.customLabel !== undefined ? trace.customLabel : trace.setId;
-                          const inlineText =
-                            displayLabel && displayLabel.trim() !== ''
-                              ? `${displayLabel} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
-                              : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`;
-
-                          // Compute arc-length inline placement at freest space along the trace strictly inside tunnel outline
-                          const cumLen: number[] = [0];
-                          for (let k = 1; k < svgPts.length; k++) {
-                            cumLen.push(
-                              cumLen[k - 1] +
-                                Math.hypot(svgPts[k].x - svgPts[k - 1].x, svgPts[k].y - svgPts[k - 1].y)
-                            );
-                          }
-                          const totalLen = cumLen[cumLen.length - 1] || 1;
-                          const sampleTraceAt = (frac: number) => {
-                            const targetS = Math.max(0, Math.min(1, frac)) * totalLen;
-                            let sIdx = 0;
-                            while (sIdx < cumLen.length - 2 && cumLen[sIdx + 1] < targetS) sIdx++;
-                            const segL = Math.max(1e-4, cumLen[sIdx + 1] - cumLen[sIdx]);
-                            const tLoc = (targetS - cumLen[sIdx]) / segL;
-                            const a = svgPts[sIdx];
-                            const b = svgPts[sIdx + 1];
-                            let deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-                            if (deg > 90) deg -= 180;
-                            if (deg < -90) deg += 180;
-                            return {
-                              x: a.x + (b.x - a.x) * tLoc,
-                              y: a.y + (b.y - a.y) * tLoc,
-                              deg,
-                            };
-                          };
-
-                          const candidateFracs = [0.66, 0.34, 0.74, 0.26, 0.78, 0.22, 0.56];
-                          let bestInline = sampleTraceAt(0.66);
-                          let bestScore = -1e9;
-                          const otherTraces = (dataset.traces || []).filter((ot) => ot.id !== trace.id);
-
-                          for (const frac of candidateFracs) {
-                            const cand = sampleTraceAt(frac);
-                            const halfW = Math.max(16, inlineText.length * 2.2);
-                            if (
-                              cand.x - halfW < padL + 4 ||
-                              cand.x + halfW > padL + plotW - 4 ||
-                              cand.y < padT + 6 ||
-                              cand.y > padT + plotH - 6
-                            ) {
-                              continue;
-                            }
-                            let minClearance = 999;
-                            for (const ot of otherTraces) {
-                              for (const op of ot.points || []) {
-                                const ox = rdToX(op.x);
-                                const oy = yToSvgY(op.y);
-                                const d = Math.hypot(cand.x - ox, cand.y - oy);
-                                if (d < minClearance) minClearance = d;
-                              }
-                            }
-                            const score = Math.min(44, minClearance) - Math.abs(frac - 0.65) * 8;
-                            if (score > bestScore) {
-                              bestScore = score;
-                              bestInline = cand;
-                            }
-                          }
+                          let lastPullRockCode = '';
+                          let lastPullLabelX = -999;
 
                           return (
-                            <g
-                              key={trace.id}
-                              onClick={() => setSelectedTraceId(trace.id)}
-                              className="cursor-pointer"
-                            >
-                              {isSelected && (
-                                <path
-                                  d={dPath}
-                                  fill="none"
-                                  stroke="rgba(251, 191, 36, 0.35)"
-                                  strokeWidth={3.6}
-                                />
-                              )}
+                            <>
+                              {/* 3. Lithology Zones Layer (`dataset.lithologyZones` directly from ESWA CAD) */}
+                              {(dataset.lithologyZones || []).map((zone) => {
+                                if (!zone.polygon || zone.polygon.length < 3) return null;
+                                const rockDef = getCadRockDef(zone.rockType, zone.codeSymbol);
+                                const patUrl = getPatternUrlForRockDef(rockDef);
+                                const polyPts = zone.polygon
+                                  .map((pt) => `${rdToX(pt.x).toFixed(1)},${yToSvgY(pt.y).toFixed(1)}`)
+                                  .join(' ');
+                                const xs = zone.polygon.map((p) => rdToX(p.x));
+                                const zMinX = Math.min(...xs);
+                                const zMaxX = Math.max(...xs);
+                                const zW = zMaxX - zMinX;
 
-                              {/* Joint Trace Polyline (Crisp Strip Log Thickness) */}
-                              <path
-                                d={dPath}
-                                fill="none"
-                                stroke={isSelected ? '#fbbf24' : color}
-                                strokeWidth={
-                                  isSelected
-                                    ? 1.6
-                                    : trace.fillingThickness === 'Thin'
-                                    ? 0.85
-                                    : 1.1
+                                const isPullBg = zone.id.startsWith('lith-pull-') || zone.id.includes('-lith-base');
+                                const shortCode = (zone.codeSymbol || rockDef.id || 'Qtz').trim();
+                                const rawLbl = (zone.label || rockDef.label || shortCode)
+                                  .replace(/\((RD|Depth|CH)[^)]*\)/gi, '')
+                                  .trim();
+                                const displayLithText = isPullBg
+                                  ? shortCode
+                                  : rawLbl.length > 20
+                                  ? `${shortCode} (${rockDef.label.replace(/^[A-Za-z]+\s*-\s*/, '')})`
+                                  : rawLbl;
+
+                                let showZoneLabel = zW >= 34;
+                                let lx = (zMinX + zMaxX) / 2;
+                                let ly = padT + plotH - 10;
+
+                                if (isPullBg) {
+                                  if (shortCode === lastPullRockCode && Math.abs(lx - lastPullLabelX) < 150) {
+                                    showZoneLabel = false;
+                                  }
+                                } else {
+                                  const avgX =
+                                    zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
+                                  const avgY =
+                                    zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
+                                  lx = rdToX(avgX);
+                                  ly = Math.min(padT + plotH - 12, Math.max(padT + 14, yToSvgY(avgY)));
                                 }
-                                strokeDasharray={dashArray}
-                              />
 
-                              {/* Trace Vertex Points */}
-                              {svgPts.map((pt, vIdx) => (
-                                <circle
-                                  key={`v-${trace.id}-${vIdx}`}
-                                  cx={pt.x}
-                                  cy={pt.y}
-                                  r={1.15}
-                                  fill={color}
-                                />
-                              ))}
+                                const halfW = Math.max(14, displayLithText.length * 2.9);
+                                if (showZoneLabel && overlapsSvgBox(lx - halfW, ly - 6, lx + halfW, ly + 6)) {
+                                  showZoneLabel = false;
+                                }
+                                if (showZoneLabel) {
+                                  placedSvgBoxes.push({ x1: lx - halfW, y1: ly - 6, x2: lx + halfW, y2: ly + 6 });
+                                  if (isPullBg) {
+                                    lastPullRockCode = shortCode;
+                                    lastPullLabelX = lx;
+                                  }
+                                }
 
-                              {/* Perpendicular Dip Tick */}
-                              <line
-                                x1={midPt.x}
-                                y1={midPt.y}
-                                x2={tx}
-                                y2={ty}
-                                stroke={isSelected ? '#fbbf24' : color}
-                                strokeWidth={1.0}
-                              />
+                                return (
+                                  <g key={zone.id}>
+                                    <polygon
+                                      points={polyPts}
+                                      fill={`${rockDef.color}38`}
+                                      stroke={rockDef.color}
+                                      strokeWidth={1.1}
+                                    />
+                                    {patUrl !== 'none' && <polygon points={polyPts} fill={patUrl} />}
+                                    {showZoneLabel && (
+                                      <text
+                                        x={lx}
+                                        y={ly}
+                                        fontSize={isPullBg ? 8.5 : 9}
+                                        fontFamily={isPullBg ? 'monospace' : 'sans-serif'}
+                                        fontWeight={700}
+                                        fill="#334155"
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        stroke="rgba(255,255,255,0.95)"
+                                        strokeWidth={2.8}
+                                        paintOrder="stroke"
+                                      >
+                                        {displayLithText}
+                                      </text>
+                                    )}
+                                  </g>
+                                );
+                              })}
 
-                              {/* Inline On-Trace Label placed in free space along the trace line */}
-                              {!trace.hideLabel && (
-                                <text
-                                  x={bestInline.x + (trace.labelOffset?.dx || 0)}
-                                  y={bestInline.y + (trace.labelOffset?.dy || 0)}
-                                  dy="0.32em"
-                                  transform={`rotate(${bestInline.deg.toFixed(1)}, ${(
-                                    bestInline.x + (trace.labelOffset?.dx || 0)
-                                  ).toFixed(1)}, ${(
-                                    bestInline.y + (trace.labelOffset?.dy || 0)
-                                  ).toFixed(1)})`}
-                                  fontSize={7.8}
-                                  fontFamily="Arial, sans-serif"
-                                  fontWeight={900}
-                                  fill={isSelected ? '#ea580c' : color}
-                                  textAnchor="middle"
-                                  stroke="rgba(255,255,255,0.96)"
-                                  strokeWidth={2.8}
-                                  paintOrder="stroke"
-                                >
-                                  {inlineText}
-                                </text>
-                              )}
-
-                              {/* HW / FW Markers when enabled in ESWA CAD */}
-                              {trace.showHwFw && (
+                              {/* 4. Horizontal Zone Divider Lines (3-Zone Tunnel OR 4-Quadrant Vertical Shaft) */}
+                              {isShaft ? (
                                 <>
-                                  <text
-                                    x={midPt.x + Math.cos(tickAngle) * 18}
-                                    y={midPt.y + Math.sin(tickAngle) * 18}
-                                    fontSize={8}
-                                    fontWeight={700}
-                                    fill="#ef4444"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                  >
-                                    {trace.flipHwFw ? 'FW' : 'HW'}
-                                  </text>
-                                  <text
-                                    x={midPt.x - Math.cos(tickAngle) * 18}
-                                    y={midPt.y - Math.sin(tickAngle) * 18}
-                                    fontSize={8}
-                                    fontWeight={700}
-                                    fill="#3b82f6"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                  >
-                                    {trace.flipHwFw ? 'HW' : 'FW'}
-                                  </text>
+                                  <line
+                                    x1={padL}
+                                    y1={yShaftQ1}
+                                    x2={svgW - padR}
+                                    y2={yShaftQ1}
+                                    stroke="rgba(2, 132, 199, 0.28)"
+                                    strokeWidth={1.0}
+                                    strokeDasharray="6,6"
+                                  />
+                                  <line
+                                    x1={padL}
+                                    y1={yShaftQ2}
+                                    x2={svgW - padR}
+                                    y2={yShaftQ2}
+                                    stroke="rgba(2, 132, 199, 0.28)"
+                                    strokeWidth={1.0}
+                                    strokeDasharray="6,6"
+                                  />
+                                  <line
+                                    x1={padL}
+                                    y1={yShaftQ3}
+                                    x2={svgW - padR}
+                                    y2={yShaftQ3}
+                                    stroke="rgba(2, 132, 199, 0.28)"
+                                    strokeWidth={1.0}
+                                    strokeDasharray="6,6"
+                                  />
+                                </>
+                              ) : (
+                                <>
+                                  <line
+                                    x1={padL}
+                                    y1={yTunnelCrownTop}
+                                    x2={svgW - padR}
+                                    y2={yTunnelCrownTop}
+                                    stroke="rgba(2, 132, 199, 0.28)"
+                                    strokeWidth={1.0}
+                                    strokeDasharray="6,6"
+                                  />
+                                  <line
+                                    x1={padL}
+                                    y1={yTunnelRightWallTop}
+                                    x2={svgW - padR}
+                                    y2={yTunnelRightWallTop}
+                                    stroke="rgba(2, 132, 199, 0.28)"
+                                    strokeWidth={1.0}
+                                    strokeDasharray="6,6"
+                                  />
                                 </>
                               )}
-                            </g>
-                          );
-                        })}
 
-                        {/* 7. Groundwater Inflow Symbols (`dataset.waterSymbols` matching ESWA CAD) */}
-                        {(dataset.waterSymbols || []).map((sym) => {
-                          const scrX = rdToX(sym.position.x);
-                          const scrY = yToSvgY(sym.position.y);
-                          return (
-                            <g key={sym.id}>
-                              <circle cx={scrX} cy={scrY} r={6} fill="#0284c7" />
-                              <text
-                                x={scrX}
-                                y={scrY + 0.5}
-                                fontSize={8.5}
-                                fontWeight={700}
-                                fill="#ffffff"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                              >
-                                W
-                              </text>
-                              {sym.label && (
+                              {/* 5. Excavation Pull Rounds Layer & True-Scale Blank Unlogged Gaps (`MISSING_GAP`) */}
+                              {(dataset.pulls || []).map((pull, idx) => {
+                                const pullStartX = rdToX(pull.fromRd);
+                                const pullEndX = rdToX(pull.toRd);
+                                const pullW = pullEndX - pullStartX;
+                                const isGap = pull.status === 'MISSING_GAP';
+
+                                if (isGap) {
+                                  return (
+                                    <g key={`cad-gap-${pull.fromRd}-${pull.toRd}-${idx}`}>
+                                      <rect
+                                        x={pullStartX}
+                                        y={padT}
+                                        width={Math.max(1, pullW)}
+                                        height={plotH}
+                                        fill="#ffffff"
+                                      />
+                                      <line
+                                        x1={pullStartX}
+                                        y1={padT}
+                                        x2={pullStartX}
+                                        y2={padT + plotH}
+                                        stroke="#64748b"
+                                        strokeWidth={1.5}
+                                        strokeDasharray="6,4"
+                                      />
+                                      <line
+                                        x1={pullEndX}
+                                        y1={padT}
+                                        x2={pullEndX}
+                                        y2={padT + plotH}
+                                        stroke="#64748b"
+                                        strokeWidth={1.5}
+                                        strokeDasharray="6,4"
+                                      />
+                                      {pullW >= 46 && (
+                                        <text
+                                          x={(pullStartX + pullEndX) / 2}
+                                          y={padT + plotH / 2}
+                                          fontSize={8.5}
+                                          fontFamily="monospace"
+                                          fontWeight={700}
+                                          fill="#64748b"
+                                          textAnchor="middle"
+                                          dominantBaseline="middle"
+                                        >
+                                          {pullW >= 110
+                                            ? `UNLOGGED GAP (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`
+                                            : 'UNLOGGED GAP'}
+                                        </text>
+                                      )}
+                                    </g>
+                                  );
+                                }
+
+                                const midX = (pullStartX + pullEndX) / 2;
+                                const rawNo = (pull.excavationDefiningNo || `P${idx + 1}`).trim();
+                                const pullLabel =
+                                  pullW >= 115
+                                    ? `${rawNo} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`
+                                    : rawNo.startsWith('RD') || rawNo.startsWith('P')
+                                    ? rawNo
+                                    : `P#${rawNo}`;
+                                const halfW = Math.max(14, pullLabel.length * 2.5);
+                                const py = padT + 9;
+                                const canShowPullTag =
+                                  pullW >= 44 && !overlapsSvgBox(midX - halfW, py - 5, midX + halfW, py + 5);
+                                if (canShowPullTag) {
+                                  placedSvgBoxes.push({ x1: midX - halfW, y1: py - 5, x2: midX + halfW, y2: py + 5 });
+                                }
+
+                                return (
+                                  <g key={`cad-pull-${pull.id}-${idx}`}>
+                                    <line
+                                      x1={pullEndX}
+                                      y1={padT}
+                                      x2={pullEndX}
+                                      y2={padT + plotH}
+                                      stroke="rgba(234, 179, 8, 0.65)"
+                                      strokeWidth={0.9}
+                                      strokeDasharray="4,3"
+                                    />
+                                    {canShowPullTag && (
+                                      <text
+                                        x={midX}
+                                        y={py}
+                                        fontSize={8}
+                                        fontFamily="monospace"
+                                        fontWeight={700}
+                                        fill="#b45309"
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        stroke="rgba(255,255,255,0.92)"
+                                        strokeWidth={2.4}
+                                        paintOrder="stroke"
+                                      >
+                                        {pullLabel}
+                                      </text>
+                                    )}
+                                  </g>
+                                );
+                              })}
+
+                              {/* 6. Discontinuity Joint Traces Layer (`dataset.traces` — Crisp Strip Thickness & Collision-Free Labels) */}
+                              {(dataset.traces || []).map((trace) => {
+                                const points = trace.points || [];
+                                if (points.length < 2) return null;
+                                const isSelected = trace.id === selectedTraceId;
+                                const color = resolveStripTraceColor(trace);
+
+                                const svgPts = points.map((pt) => ({
+                                  x: Math.max(padL + 1, Math.min(padL + plotW - 1, rdToX(pt.x))),
+                                  y: Math.max(padT + 1, Math.min(padT + plotH - 1, yToSvgY(pt.y))),
+                                }));
+                                const dPath = svgPts
+                                  .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+                                  .join(' ');
+
+                                const dashArray =
+                                  trace.structureType === 'Shear Zone'
+                                    ? '6,2.5'
+                                    : trace.structureType === 'Bedding/Foliation'
+                                    ? '3,2.5'
+                                    : undefined;
+
+                                // Structural Geology Dip Tick & Collision-Free On-Trace Label
+                                const midIdx = Math.floor(svgPts.length / 2);
+                                const p1 = svgPts[Math.max(0, midIdx - 1)];
+                                const p2 = svgPts[Math.min(svgPts.length - 1, midIdx + 1)];
+                                const midPt = svgPts[midIdx];
+
+                                const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+                                const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
+                                const tickLen = 6;
+                                const tickAngle = segAngle + (Math.PI / 2) * tickSide;
+
+                                const tx = midPt.x + Math.cos(tickAngle) * tickLen;
+                                const ty = midPt.y + Math.sin(tickAngle) * tickLen;
+
+                                const rawDisplay = (
+                                  trace.customLabel !== undefined ? trace.customLabel : trace.setId || 'J1'
+                                ).trim();
+                                const shortSet = rawDisplay.length > 8 ? rawDisplay.slice(0, 8) : rawDisplay;
+
+                                // Compute arc-length inline placement at freest space along the trace
+                                const cumLen: number[] = [0];
+                                for (let k = 1; k < svgPts.length; k++) {
+                                  cumLen.push(
+                                    cumLen[k - 1] +
+                                      Math.hypot(svgPts[k].x - svgPts[k - 1].x, svgPts[k].y - svgPts[k - 1].y)
+                                  );
+                                }
+                                const totalLen = cumLen[cumLen.length - 1] || 1;
+                                const inlineText =
+                                  totalLen >= 34 || isSelected
+                                    ? shortSet
+                                      ? `${shortSet} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                                      : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                                    : shortSet || `${trace.dipDirectionDeg}°/${trace.dipDeg}°`;
+
+                                const sampleTraceAt = (frac: number, normalOffsetPx: number) => {
+                                  const targetS = Math.max(0, Math.min(1, frac)) * totalLen;
+                                  let sIdx = 0;
+                                  while (sIdx < cumLen.length - 2 && cumLen[sIdx + 1] < targetS) sIdx++;
+                                  const segL = Math.max(1e-4, cumLen[sIdx + 1] - cumLen[sIdx]);
+                                  const tLoc = (targetS - cumLen[sIdx]) / segL;
+                                  const a = svgPts[sIdx];
+                                  const b = svgPts[sIdx + 1];
+                                  let rad = Math.atan2(b.y - a.y, b.x - a.x);
+                                  if (rad > Math.PI / 2) rad -= Math.PI;
+                                  if (rad < -Math.PI / 2) rad += Math.PI;
+                                  const deg = (rad * 180) / Math.PI;
+                                  const nx = -Math.sin(rad) * normalOffsetPx;
+                                  const ny = Math.cos(rad) * normalOffsetPx;
+                                  return {
+                                    x: a.x + (b.x - a.x) * tLoc + nx,
+                                    y: a.y + (b.y - a.y) * tLoc + ny,
+                                    deg,
+                                  };
+                                };
+
+                                const candidateFracs = [0.62, 0.38, 0.74, 0.26, 0.5, 0.82, 0.18];
+                                const normalOffsets = [-6, 6, 0];
+                                let bestInline: { x: number; y: number; deg: number } | null = null;
+                                let bestScore = -1e9;
+                                const otherTraces = (dataset.traces || []).filter((ot) => ot.id !== trace.id);
+                                const halfW = Math.max(13, inlineText.length * 2.2);
+                                const halfH = 5.5;
+
+                                for (const nOff of normalOffsets) {
+                                  for (const frac of candidateFracs) {
+                                    const cand = sampleTraceAt(frac, nOff);
+                                    if (
+                                      cand.x - halfW < padL + 3 ||
+                                      cand.x + halfW > padL + plotW - 3 ||
+                                      cand.y - halfH < padT + 13 ||
+                                      cand.y + halfH > padT + plotH - 11
+                                    ) {
+                                      continue;
+                                    }
+                                    const boxClash = overlapsSvgBox(
+                                      cand.x - halfW,
+                                      cand.y - halfH,
+                                      cand.x + halfW,
+                                      cand.y + halfH,
+                                      2
+                                    );
+                                    if (boxClash && !isSelected) continue;
+
+                                    let minClearance = 999;
+                                    for (const ot of otherTraces) {
+                                      for (const op of ot.points || []) {
+                                        const ox = rdToX(op.x);
+                                        const oy = yToSvgY(op.y);
+                                        const d = Math.hypot(cand.x - ox, cand.y - oy);
+                                        if (d < minClearance) minClearance = d;
+                                      }
+                                    }
+                                    const score =
+                                      Math.min(44, minClearance) -
+                                      Math.abs(frac - 0.55) * 6 -
+                                      (boxClash ? 100 : 0);
+                                    if (score > bestScore) {
+                                      bestScore = score;
+                                      bestInline = cand;
+                                    }
+                                  }
+                                }
+
+                                if (!bestInline && (isSelected || totalLen >= 20)) {
+                                  bestInline = sampleTraceAt(0.55, -5.5);
+                                }
+                                if (bestInline && !trace.hideLabel) {
+                                  placedSvgBoxes.push({
+                                    x1: bestInline.x - halfW,
+                                    y1: bestInline.y - halfH,
+                                    x2: bestInline.x + halfW,
+                                    y2: bestInline.y + halfH,
+                                  });
+                                }
+
+                                return (
+                                  <g
+                                    key={trace.id}
+                                    onClick={() => setSelectedTraceId(trace.id)}
+                                    className="cursor-pointer"
+                                  >
+                                    {isSelected && (
+                                      <path
+                                        d={dPath}
+                                        fill="none"
+                                        stroke="rgba(251, 191, 36, 0.35)"
+                                        strokeWidth={3.6}
+                                      />
+                                    )}
+
+                                    {/* Joint Trace Polyline (Crisp Strip Log Thickness) */}
+                                    <path
+                                      d={dPath}
+                                      fill="none"
+                                      stroke={isSelected ? '#fbbf24' : color}
+                                      strokeWidth={
+                                        isSelected
+                                          ? 1.65
+                                          : trace.fillingThickness === 'Thin'
+                                          ? 0.95
+                                          : 1.15
+                                      }
+                                      strokeDasharray={dashArray}
+                                    />
+
+                                    {/* Perpendicular Dip Tick */}
+                                    <line
+                                      x1={midPt.x}
+                                      y1={midPt.y}
+                                      x2={tx}
+                                      y2={ty}
+                                      stroke={isSelected ? '#fbbf24' : color}
+                                      strokeWidth={1.0}
+                                    />
+
+                                    {/* Collision-Free Inline Label placed along the trace */}
+                                    {!trace.hideLabel && bestInline && (
+                                      <text
+                                        x={bestInline.x + (trace.labelOffset?.dx || 0)}
+                                        y={bestInline.y + (trace.labelOffset?.dy || 0)}
+                                        dy="0.32em"
+                                        transform={`rotate(${bestInline.deg.toFixed(1)}, ${(
+                                          bestInline.x + (trace.labelOffset?.dx || 0)
+                                        ).toFixed(1)}, ${(
+                                          bestInline.y + (trace.labelOffset?.dy || 0)
+                                        ).toFixed(1)})`}
+                                        fontSize={7.5}
+                                        fontFamily="monospace"
+                                        fontWeight={800}
+                                        fill={isSelected ? '#ea580c' : color}
+                                        textAnchor="middle"
+                                        stroke="rgba(255,255,255,0.96)"
+                                        strokeWidth={2.6}
+                                        paintOrder="stroke"
+                                      >
+                                        {inlineText}
+                                      </text>
+                                    )}
+
+                                    {/* HW / FW Markers when enabled in ESWA CAD */}
+                                    {trace.showHwFw && (
+                                      <>
+                                        <text
+                                          x={midPt.x + Math.cos(tickAngle) * 15}
+                                          y={midPt.y + Math.sin(tickAngle) * 15}
+                                          fontSize={7.5}
+                                          fontWeight={700}
+                                          fill="#ef4444"
+                                          textAnchor="middle"
+                                          dominantBaseline="middle"
+                                        >
+                                          {trace.flipHwFw ? 'FW' : 'HW'}
+                                        </text>
+                                        <text
+                                          x={midPt.x - Math.cos(tickAngle) * 15}
+                                          y={midPt.y - Math.sin(tickAngle) * 15}
+                                          fontSize={7.5}
+                                          fontWeight={700}
+                                          fill="#3b82f6"
+                                          textAnchor="middle"
+                                          dominantBaseline="middle"
+                                        >
+                                          {trace.flipHwFw ? 'HW' : 'FW'}
+                                        </text>
+                                      </>
+                                    )}
+                                  </g>
+                                );
+                              })}
+
+                              {/* 7. Groundwater Inflow Symbols (`dataset.waterSymbols` matching ESWA CAD) */}
+                              {(dataset.waterSymbols || []).map((sym) => {
+                                const scrX = rdToX(sym.position.x);
+                                const scrY = yToSvgY(sym.position.y);
+                                const shortWaterLbl = sym.label
+                                  ? sym.label.replace(/\s*\([^)]*\)/g, '').trim()
+                                  : '';
+                                const wBoxW = shortWaterLbl.length * 4.8;
+                                const canShowWaterText =
+                                  Boolean(shortWaterLbl) &&
+                                  !overlapsSvgBox(scrX + 8, scrY - 5, scrX + 8 + wBoxW, scrY + 5, 2);
+                                if (canShowWaterText) {
+                                  placedSvgBoxes.push({
+                                    x1: scrX + 8,
+                                    y1: scrY - 5,
+                                    x2: scrX + 8 + wBoxW,
+                                    y2: scrY + 5,
+                                  });
+                                }
+
+                                return (
+                                  <g key={sym.id}>
+                                    <circle cx={scrX} cy={scrY} r={5} fill="#0284c7" />
+                                    <text
+                                      x={scrX}
+                                      y={scrY + 0.5}
+                                      fontSize={7.5}
+                                      fontWeight={700}
+                                      fill="#ffffff"
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                    >
+                                      W
+                                    </text>
+                                    {canShowWaterText && (
+                                      <text
+                                        x={scrX + 8}
+                                        y={scrY + 0.5}
+                                        fontSize={8}
+                                        fontFamily="monospace"
+                                        fontWeight={700}
+                                        fill="#0284c7"
+                                        textAnchor="start"
+                                        dominantBaseline="middle"
+                                        stroke="rgba(255,255,255,0.92)"
+                                        strokeWidth={2.2}
+                                        paintOrder="stroke"
+                                      >
+                                        {shortWaterLbl}
+                                      </text>
+                                    )}
+                                  </g>
+                                );
+                              })}
+
+                              {/* 8. Custom Text Annotations (`dataset.customAnnotations`) */}
+                              {(dataset.customAnnotations || []).map((ann) => (
                                 <text
-                                  x={scrX + 10}
-                                  y={scrY + 1}
-                                  fontSize={10}
-                                  fontFamily="monospace"
-                                  fill="#0284c7"
-                                  textAnchor="start"
-                                  dominantBaseline="middle"
-                                  stroke="rgba(255,255,255,0.9)"
-                                  strokeWidth={2}
+                                  key={ann.id}
+                                  x={rdToX(ann.x)}
+                                  y={yToSvgY(ann.y)}
+                                  fontSize={8.5}
+                                  fontWeight={800}
+                                  fill={ann.color || '#0f172a'}
+                                  textAnchor="middle"
+                                  stroke="#ffffff"
+                                  strokeWidth={2.2}
                                   paintOrder="stroke"
                                 >
-                                  {sym.label}
+                                  {ann.text}
                                 </text>
-                              )}
-                            </g>
+                              ))}
+                            </>
                           );
-                        })}
-
-                        {/* 8. Custom Text Annotations (`dataset.customAnnotations`) */}
-                        {(dataset.customAnnotations || []).map((ann) => (
-                          <text
-                            key={ann.id}
-                            x={rdToX(ann.x)}
-                            y={yToSvgY(ann.y)}
-                            fontSize={9}
-                            fontWeight={800}
-                            fill={ann.color || '#0f172a'}
-                            textAnchor="middle"
-                            stroke="#ffffff"
-                            strokeWidth={2.2}
-                            paintOrder="stroke"
-                          >
-                            {ann.text}
-                          </text>
-                        ))}
+                        })()}
                       </g>
 
                       {/* Left Zone Labels (matching ESWA CAD Canvas) */}

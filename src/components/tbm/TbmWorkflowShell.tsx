@@ -5,7 +5,7 @@
 // 5. GEOLOGICAL ANALYSIS → 6. MONITORING → 7. REPORTS
 // ============================================================================
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FolderKanban,
   MapPin,
@@ -114,6 +114,26 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
   onOpenSettings,
 }) => {
   const [currentStage, setCurrentStage] = useState<TbmWorkflowStage>(initialStage);
+  const stageHistoryRef = useRef<TbmWorkflowStage[]>([]);
+  const prevStageRef = useRef<TbmWorkflowStage>(initialStage);
+  const isPoppingStageRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingStageRef.current) {
+      isPoppingStageRef.current = false;
+      prevStageRef.current = currentStage;
+      return;
+    }
+    if (prevStageRef.current !== currentStage) {
+      const stack = stageHistoryRef.current;
+      if (stack[stack.length - 1] !== prevStageRef.current) {
+        stack.push(prevStageRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevStageRef.current = currentStage;
+    }
+  }, [currentStage]);
+
   const { palette } = useTheme();
 
   // Storage State
@@ -458,38 +478,22 @@ export const TbmWorkflowShell: React.FC<TbmWorkflowShellProps> = ({
           <button
             type="button"
             onClick={() => {
-              const stageOrder: TbmWorkflowStage[] = [
-                'projects',
-                'locations',
-                'configuration',
-                'collection',
-                'analysis',
-                'monitoring',
-                'reports',
-              ];
-              const idx = stageOrder.indexOf(currentStage);
-              if (idx > 0) {
-                setCurrentStage(stageOrder[idx - 1]);
+              const prevStage = stageHistoryRef.current.pop();
+              if (prevStage && prevStage !== currentStage) {
+                isPoppingStageRef.current = true;
+                setCurrentStage(prevStage);
                 return;
               }
               onBackToMainWindow();
             }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 text-xs font-mono font-black cursor-pointer transition-all shrink-0 whitespace-nowrap"
-            title="Go One Step Back"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-            <span>Step Back</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onBackToMainWindow}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono font-bold cursor-pointer transition-all"
             style={{ color: palette.accentHex }}
-            title="Return to TBM Main Window"
+            title="Return to previous stage or TBM Main Window"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Main Window</span>
+            <span className="hidden sm:inline">
+              {stageHistoryRef.current.length > 0 ? 'Back' : 'Main Window'}
+            </span>
           </button>
 
           <div className="flex items-center gap-2">

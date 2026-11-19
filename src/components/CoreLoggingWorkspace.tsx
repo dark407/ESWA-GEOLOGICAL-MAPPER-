@@ -657,6 +657,26 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
   const [activeBoreholeIdState, setActiveBoreholeIdState] = useState<string>('');
   // Show hole detail first when opening Core Logging
   const [activeTab, setActiveTab] = useState<'metadata' | 'runs' | 'visual' | 'photos' | 'signoff' | 'storage'>('metadata');
+  const tabHistoryRef = useRef<Array<'metadata' | 'runs' | 'visual' | 'photos' | 'signoff' | 'storage'>>([]);
+  const prevTabRef = useRef(activeTab);
+  const isPoppingTabRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingTabRef.current) {
+      isPoppingTabRef.current = false;
+      prevTabRef.current = activeTab;
+      return;
+    }
+    if (prevTabRef.current !== activeTab) {
+      const stack = tabHistoryRef.current;
+      if (stack[stack.length - 1] !== prevTabRef.current) {
+        stack.push(prevTabRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevTabRef.current = activeTab;
+    }
+  }, [activeTab]);
+
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [targetReportBorehole, setTargetReportBorehole] = useState<BoreholeRecord | null>(null);
   const [isCreateBoreholeModalOpen, setIsCreateBoreholeModalOpen] = useState(false);
@@ -1136,23 +1156,19 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
                 setIsStorageCenterOpen(false);
                 return;
               }
+              const prevTab = tabHistoryRef.current.pop();
+              if (prevTab && prevTab !== activeTab) {
+                isPoppingTabRef.current = true;
+                setActiveTab(prevTab);
+                return;
+              }
               onBackToMain();
             }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-black text-slate-950 bg-amber-500 hover:bg-amber-400 border border-amber-600 transition-all cursor-pointer shadow-xs active:scale-95 shrink-0 whitespace-nowrap"
-            title="Go One Step Back"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-            <span>Step Back</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onBackToMain}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer shadow-xs active:scale-95"
-            title="Return to Main Window"
+            title="Return to previous tab or window"
           >
             <ArrowLeft className="w-4 h-4 text-orange-400" />
-            <span>Main Window</span>
+            <span>Back</span>
           </button>
 
           <div className="h-5 w-px bg-slate-700" />

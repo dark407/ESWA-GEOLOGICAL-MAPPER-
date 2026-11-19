@@ -790,7 +790,7 @@ export function createPowerTunnelReferenceDataset(): ContinuousTunnelStripDatase
       id: 'pt-lith-qtz-1',
       rockType: 'Quartzite',
       codeSymbol: 'Qtz',
-      label: 'Qtz - Reddish Brown to Light Yellow Very Strong Quartzite',
+      label: 'Qtz (Quartzite)',
       polygon: [
         { x: 250, y: 0 },
         { x: 263, y: 0 },
@@ -802,7 +802,7 @@ export function createPowerTunnelReferenceDataset(): ContinuousTunnelStripDatase
       id: 'pt-lith-qtz-2',
       rockType: 'Quartzite',
       codeSymbol: 'Qtz',
-      label: 'Qtz - Reddish Brown to Greenish Grey Very Strong Quartzite',
+      label: 'Qtz (Quartzite)',
       polygon: [
         { x: 263, y: 0 },
         { x: 287, y: 0 },
@@ -814,7 +814,7 @@ export function createPowerTunnelReferenceDataset(): ContinuousTunnelStripDatase
       id: 'pt-lith-qtz-3',
       rockType: 'Quartzite',
       codeSymbol: 'Qtz',
-      label: 'Qtz - Reddish Brown to Light Grey Very Strong Quartzite',
+      label: 'Qtz (Quartzite)',
       polygon: [
         { x: 287, y: 0 },
         { x: 300, y: 0 },
@@ -825,8 +825,8 @@ export function createPowerTunnelReferenceDataset(): ContinuousTunnelStripDatase
     {
       id: 'pt-vein-1',
       rockType: 'Quartz veins',
-      codeSymbol: '+ + +',
-      label: 'Quartz Vein Band (+ + +)',
+      codeSymbol: 'Qv',
+      label: 'Qv (Quartz Vein)',
       isIntrusionBody: true,
       polygon: [
         { x: 262.0, y: 0.4 },
@@ -839,7 +839,7 @@ export function createPowerTunnelReferenceDataset(): ContinuousTunnelStripDatase
       id: 'pt-fractured-1',
       rockType: 'Phyllitic Quartzite',
       codeSymbol: 'PQ',
-      label: 'Fractured / Shattered Rockmass along Shear Zone',
+      label: 'PQ (Fractured Zone)',
       isFracturedZone: true,
       polygon: [
         { x: 273.0, y: 5.5 },
@@ -1330,7 +1330,7 @@ export function createAdaniRithwikReferenceDataset(): ContinuousTunnelStripDatas
       id: 'lith-siltstone-zone',
       rockType: 'Siltstone',
       codeSymbol: 'Slt',
-      label: 'Siltstone (RD 0.0~15.0m)',
+      label: 'Slt (Siltstone)',
       polygon: [
         { x: 0, y: 0 },
         { x: 15.2, y: 0 },
@@ -1342,7 +1342,7 @@ export function createAdaniRithwikReferenceDataset(): ContinuousTunnelStripDatas
       id: 'lith-dolerite-upper',
       rockType: 'Dolerite',
       codeSymbol: 'Dol',
-      label: 'Dolerite Intrusion (RD 15.0~30.0m)',
+      label: 'Dol (Dolerite)',
       polygon: [
         { x: 14.2, y: 0 },
         { x: 30, y: 0 },
@@ -1354,7 +1354,7 @@ export function createAdaniRithwikReferenceDataset(): ContinuousTunnelStripDatas
       id: 'lith-quartzite-lower',
       rockType: 'Quartzite',
       codeSymbol: 'Qtz',
-      label: 'Quartzite (RD 14.0~30.0m)',
+      label: 'Qtz (Quartzite)',
       polygon: [
         { x: 14.2, y: 8.5 },
         { x: 30, y: 9.2 },
@@ -1365,8 +1365,8 @@ export function createAdaniRithwikReferenceDataset(): ContinuousTunnelStripDatas
     {
       id: 'lith-c-intrusion',
       rockType: 'Quartz veins',
-      codeSymbol: '+ + +',
-      label: 'C-Shaped Shear / Quartz Vein Body',
+      codeSymbol: 'Qv',
+      label: 'Qv (Shear / Vein)',
       isIntrusionBody: true,
       polygon: [
         { x: 3.1, y: 3.1 },
@@ -3436,7 +3436,7 @@ export function syncSavedProjectsIntoStripDatasets(
             id: `${recPrefix}lith-${lr.id}`,
             rockType: rockMeta.rockType,
             codeSymbol: rockMeta.codeSymbol,
-            label: `${rockMeta.codeSymbol} - ${lr.lithologyName} (RD ${interval.fromRd}–${interval.toRd}m)`,
+            label: `${rockMeta.codeSymbol} (${lr.lithologyName})`,
             polygon: mappedPoly,
             isIntrusionBody:
               rockMeta.rockType === 'Quartz veins' ||
@@ -4356,13 +4356,14 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
       shaftCenterMedianStatus: locationItem.shaftCenterMedianStatus,
     });
 
-    // Add background lithology polygon for this mapped pull
+    // Add background lithology polygon for this mapped pull (concise code label)
     const rockMeta = mapRockNameToStripCode(rItem.rockType);
+    const shortRockName = (rItem.rockType || rockMeta.rockType).split('(')[0].replace(/^[A-Za-z]+\s*-\s*/, '').trim();
     lithologyZones.push({
       id: `lith-pull-${rItem.id}`,
       rockType: rockMeta.rockType,
       codeSymbol: rockMeta.codeSymbol,
-      label: `${rockMeta.codeSymbol} - ${rItem.rockType} (${isShaft ? 'Depth' : 'RD'} ${clipFromRd.toFixed(1)}–${clipToRd.toFixed(1)}m)`,
+      label: `${rockMeta.codeSymbol} (${shortRockName})`,
       polygon: [
         { x: clipFromRd, y: 0 },
         { x: clipToRd, y: 0 },
@@ -4371,27 +4372,30 @@ export function compileContinuousDatasetFromFieldAndSavedRecords(params: {
       ],
     });
 
-    // Populate groundwater seepage symbol for this mapped pull
-    const pullSeepageStr = rItem.fieldRound?.waterMarks?.[0]?.condition || 'Damp / Minor Seepage';
-    const seepLower = pullSeepageStr.toLowerCase();
-    const mappedWaterCond: StripGroundwaterId = seepLower.includes('flow')
-      ? 'Flowing'
-      : seepLower.includes('drip')
-      ? 'Dripping'
-      : seepLower.includes('wet')
-      ? 'Wet'
-      : seepLower.includes('damp') || seepLower.includes('moist')
-      ? 'Moist/Damp'
-      : 'Dry';
-    waterSymbols.push({
-      id: `water-pull-${rItem.id}`,
-      condition: mappedWaterCond,
-      position: {
-        x: Number(((clipFromRd + clipToRd) / 2).toFixed(2)),
-        y: Number((isShaft ? shaftQuadArcM * 1.45 : leftWallArcM + crownArcM * 0.5).toFixed(2)),
-      },
-      label: `${mappedWaterCond} (${pullSeepageStr})`,
-    });
+    // Only add a fallback pull groundwater symbol if the round has no explicit waterMarks and is actively wet/dripping/flowing
+    const hasExplicitWaterMarks = Boolean(rItem.fieldRound?.waterMarks && rItem.fieldRound.waterMarks.length > 0);
+    if (!hasExplicitWaterMarks) {
+      const pullSeepageStr = rItem.fieldRound?.waterMarks?.[0]?.condition || '';
+      const seepLower = pullSeepageStr.toLowerCase();
+      const mappedWaterCond: StripGroundwaterId = seepLower.includes('flow')
+        ? 'Flowing'
+        : seepLower.includes('drip')
+        ? 'Dripping'
+        : seepLower.includes('wet')
+        ? 'Wet'
+        : 'Dry';
+      if (mappedWaterCond !== 'Dry') {
+        waterSymbols.push({
+          id: `water-pull-${rItem.id}`,
+          condition: mappedWaterCond,
+          position: {
+            x: Number(((clipFromRd + clipToRd) / 2).toFixed(2)),
+            y: Number(Math.max(1.0, totalPerimM - 1.2).toFixed(2)),
+          },
+          label: mappedWaterCond,
+        });
+      }
+    }
 
     // Unfold FieldExcavationRound traces, lithology strokes, structural features, dip planes & water marks
     if (rItem.fieldRound && locationItem.fieldLocation) {

@@ -1146,43 +1146,99 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.strokeStyle = isSelected ? '#f97316' : rockDef.color;
         ctx.lineWidth = isSelected ? 2.5 : 1.2;
         ctx.stroke();
+      }
+    }
 
-        // Draw rock type label in centroid - Clean text only (NO boxy design)
-        if (zone.polygon.length > 0) {
+    // Track placed label bounding boxes in screen space so no text ever overlaps
+    const placedLabelBoxes: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+    const overlapsPlacedBox = (x1: number, y1: number, x2: number, y2: number, pad = 3) =>
+      placedLabelBoxes.some(
+        (b) => !(x2 + pad < b.x1 || x1 - pad > b.x2 || y2 + pad < b.y1 || y1 - pad > b.y2)
+      );
+
+    // 2B. Render Clean, Non-Overlapping Lithology Labels (Bottom margin for pull backgrounds, concise code for bodies)
+    if (showLithologyLayer) {
+      let lastPullRockCode = '';
+      let lastPullLabelX = -999;
+      for (const zone of currentDataset.lithologyZones || []) {
+        if (!zone.polygon || zone.polygon.length < 3) continue;
+        const rockDef = ROCK_TYPES.find((r) => r.id === zone.rockType) || ROCK_TYPES[0];
+        const isPullBg = zone.id.startsWith('lith-pull-') || zone.id.includes('-lith-base');
+        const xs = zone.polygon.map((p) => worldToScreenX(p.x));
+        const ys = zone.polygon.map((p) => worldToScreenY(p.y));
+        const zMinX = Math.min(...xs);
+        const zMaxX = Math.max(...xs);
+        const zW = zMaxX - zMinX;
+        if (zW < 36) continue;
+
+        const shortCode = (zone.codeSymbol || rockDef.id || 'Qtz').trim();
+        const rawLbl = (zone.label || rockDef.label || shortCode)
+          .replace(/\((RD|Depth|CH)[^)]*\)/gi, '')
+          .trim();
+        const displayLithText = isPullBg
+          ? shortCode
+          : rawLbl.length > 20
+          ? `${shortCode} (${rockDef.label.replace(/^[A-Za-z]+\s*-\s*/, '')})`
+          : rawLbl;
+
+        if (isPullBg) {
+          // Avoid repeating identical rock code on every adjacent pull unless spaced > 160px apart
+          const lx = (zMinX + zMaxX) / 2;
+          const ly = Math.min(botY - 10, Math.max(topY + 14, botY - 11));
+          if (shortCode === lastPullRockCode && Math.abs(lx - lastPullLabelX) < 160) {
+            continue;
+          }
+          const halfW = Math.max(14, displayLithText.length * 3.2);
+          if (!overlapsPlacedBox(lx - halfW, ly - 7, lx + halfW, ly + 7)) {
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.95)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(displayLithText, lx, ly);
+            ctx.fillStyle = isDarkMode ? '#cbd5e1' : '#475569';
+            ctx.fillText(displayLithText, lx, ly);
+            placedLabelBoxes.push({ x1: lx - halfW, y1: ly - 7, x2: lx + halfW, y2: ly + 7 });
+            lastPullRockCode = shortCode;
+            lastPullLabelX = lx;
+          }
+        } else {
           const avgX = zone.polygon.reduce((sum, p) => sum + p.x, 0) / zone.polygon.length;
           const avgY = zone.polygon.reduce((sum, p) => sum + p.y, 0) / zone.polygon.length;
           const lx = worldToScreenX(avgX);
-          const ly = worldToScreenY(avgY);
-          const lbl = zone.label || rockDef.label;
-
-          ctx.font = 'bold 11px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          // Clean white halo for readability without any box card
-          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
-          ctx.lineWidth = 3;
-          ctx.strokeText(lbl, lx, ly);
-          ctx.fillStyle = isDarkMode ? '#f8fafc' : '#1e293b';
-          ctx.fillText(lbl, lx, ly);
+          const ly = Math.min(botY - 12, Math.max(topY + 16, worldToScreenY(avgY)));
+          const halfW = Math.max(18, displayLithText.length * 3.1);
+          if (!overlapsPlacedBox(lx - halfW, ly - 8, lx + halfW, ly + 8)) {
+            ctx.font = 'bold 9.5px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.95)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(displayLithText, lx, ly);
+            ctx.fillStyle = isDarkMode ? '#f8fafc' : '#334155';
+            ctx.fillText(displayLithText, lx, ly);
+            placedLabelBoxes.push({ x1: lx - halfW, y1: ly - 8, x2: lx + halfW, y2: ly + 8 });
+          }
         }
       }
     }
 
     // 3. Render Excavation Pull Rounds Layer & True-Scale Blank Unlogged Gaps (`MISSING_GAP`)
     if (showPullsLayer) {
-      for (const pull of currentDataset.pulls || []) {
+      (currentDataset.pulls || []).forEach((pull, pullIdx) => {
         const pullStartX = worldToScreenX(pull.fromRd);
         const pullEndX = worldToScreenX(pull.toRd);
+        const pullW = pullEndX - pullStartX;
         const isSelected = selectedObjectType === 'pull' && selectedObjectId === pull.id;
         const isGap = pull.status === 'MISSING_GAP';
 
         if (isGap) {
           // Blank white/dark unlogged gap with dashed RD/depth boundary lines
           ctx.fillStyle = isDarkMode ? '#090d16' : '#ffffff';
-          ctx.fillRect(pullStartX, topY, Math.max(1, pullEndX - pullStartX), botY - topY);
+          ctx.fillRect(pullStartX, topY, Math.max(1, pullW), botY - topY);
 
           ctx.strokeStyle = isDarkMode ? '#94a3b8' : '#64748b';
-          ctx.lineWidth = 1.6;
+          ctx.lineWidth = 1.5;
           ctx.setLineDash([6, 4]);
           ctx.beginPath();
           ctx.moveTo(pullStartX, topY);
@@ -1192,39 +1248,52 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.stroke();
           ctx.setLineDash([]);
 
-          const midX = (pullStartX + pullEndX) / 2;
-          const midY = (topY + botY) / 2;
-          ctx.font = 'bold 10px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = isDarkMode ? '#94a3b8' : '#64748b';
-          ctx.fillText(
-            `UNLOGGED GAP (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`,
-            midX,
-            midY
-          );
+          if (pullW >= 48) {
+            const midX = (pullStartX + pullEndX) / 2;
+            const midY = (topY + botY) / 2;
+            const gapTag = pullW >= 110 ? `UNLOGGED GAP (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)` : 'UNLOGGED GAP';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = isDarkMode ? '#94a3b8' : '#64748b';
+            ctx.fillText(gapTag, midX, midY);
+          }
         } else {
-          ctx.strokeStyle = isSelected ? '#fbbf24' : '#eab308';
-          ctx.lineWidth = isSelected ? 2 : 1;
-          ctx.setLineDash([4, 2]);
+          ctx.strokeStyle = isSelected ? '#fbbf24' : 'rgba(234, 179, 8, 0.65)';
+          ctx.lineWidth = isSelected ? 1.8 : 0.9;
+          ctx.setLineDash([4, 3]);
           ctx.beginPath();
           ctx.moveTo(pullEndX, topY);
           ctx.lineTo(pullEndX, botY);
           ctx.stroke();
           ctx.setLineDash([]);
 
-          const midX = (pullStartX + pullEndX) / 2;
-          ctx.font = 'bold 10px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
-          ctx.lineWidth = 2.5;
-          const pullLabel = `${pull.excavationDefiningNo || 'PULL'} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`;
-          ctx.strokeText(pullLabel, midX, topY + 12);
-          ctx.fillStyle = isDarkMode ? '#fef08a' : '#b45309';
-          ctx.fillText(pullLabel, midX, topY + 12);
+          // Compact pull header tag at top margin only when wide enough
+          if (pullW >= 46) {
+            const midX = (pullStartX + pullEndX) / 2;
+            const rawNo = (pull.excavationDefiningNo || `P${pullIdx + 1}`).trim();
+            const pullLabel =
+              pullW >= 120
+                ? `${rawNo} (${pull.fromRd.toFixed(1)}–${pull.toRd.toFixed(1)}m)`
+                : rawNo.startsWith('RD') || rawNo.startsWith('P')
+                ? rawNo
+                : `P#${rawNo}`;
+            const halfW = Math.max(16, pullLabel.length * 2.8);
+            const py = topY + 9;
+            if (!overlapsPlacedBox(midX - halfW, py - 6, midX + halfW, py + 6)) {
+              ctx.font = 'bold 8.5px monospace';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.strokeStyle = isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)';
+              ctx.lineWidth = 2.5;
+              ctx.strokeText(pullLabel, midX, py);
+              ctx.fillStyle = isDarkMode ? '#fde047' : '#b45309';
+              ctx.fillText(pullLabel, midX, py);
+              placedLabelBoxes.push({ x1: midX - halfW, y1: py - 6, x2: midX + halfW, y2: py + 6 });
+            }
+          }
         }
-      }
+      });
     }
 
     // 4. Render Discontinuity Joint Traces Layer
@@ -1276,7 +1345,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           : isHovered
           ? '#38bdf8'
           : color;
-        ctx.lineWidth = isSelected || isMergeMaster ? 1.65 : (trace.fillingThickness === 'Thin' ? 0.9 : 1.15);
+        ctx.lineWidth = isSelected || isMergeMaster ? 1.75 : (trace.fillingThickness === 'Thin' ? 1.0 : 1.25);
 
         if (trace.structureType === 'Shear Zone') {
           ctx.setLineDash([7, 3]);
@@ -1289,7 +1358,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Highlight endpoints & Interactive Vertex Drag Handles
+        // Highlight endpoints & Interactive Vertex Drag Handles ONLY when selected or editing
         if (isSelected || activeTool === 'edit_joint') {
           points.forEach((pt, i) => {
             const vx = worldToScreenX(pt.x);
@@ -1329,16 +1398,9 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText('✥', cx, cy);
-        } else {
-          points.forEach((pt) => {
-            ctx.fillStyle = isHovered ? '#38bdf8' : color;
-            ctx.beginPath();
-            ctx.arc(worldToScreenX(pt.x), worldToScreenY(pt.y), 1.3, 0, Math.PI * 2);
-            ctx.fill();
-          });
         }
 
-        // Structural Geology Dip Tick & Inline On-Trace Free-Space Label Placement
+        // Structural Geology Dip Tick & Collision-Free On-Trace Label Placement
         if (points.length >= 2) {
           const scrPts = points.map((pt) => ({
             x: worldToScreenX(pt.x),
@@ -1351,7 +1413,7 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
           const segAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
           const tickSide = trace.dipTickSide === 'left' ? -1 : 1;
-          const tickLen = 7.5;
+          const tickLen = 6.5;
           const tickAngle = segAngle + (Math.PI / 2) * tickSide;
 
           const tx = midPt.x + Math.cos(tickAngle) * tickLen;
@@ -1365,13 +1427,10 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
           ctx.lineTo(tx, ty);
           ctx.stroke();
 
-          // Inline On-Trace Label placed at the freest space along the trace strictly inside tunnel outline
+          // Collision-Free Joint Label placed neatly parallel to trace
           if (!trace.hideLabel) {
-            const displayLabel = trace.customLabel !== undefined ? trace.customLabel : trace.setId;
-            const inlineStr =
-              displayLabel && displayLabel.trim() !== ''
-                ? `${displayLabel} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
-                : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`;
+            const rawDisplay = (trace.customLabel !== undefined ? trace.customLabel : trace.setId || 'J1').trim();
+            const shortSet = rawDisplay.length > 8 ? rawDisplay.slice(0, 8) : rawDisplay;
 
             // Build cumulative arc lengths in screen space
             const cum: number[] = [0];
@@ -1379,7 +1438,16 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               cum.push(cum[k - 1] + Math.hypot(scrPts[k].x - scrPts[k - 1].x, scrPts[k].y - scrPts[k - 1].y));
             }
             const totalScrLen = cum[cum.length - 1] || 1;
-            const sampleAtFrac = (frac: number) => {
+
+            // Use full orientation label when trace is long enough or selected/hovered; compact set code when short
+            const inlineStr =
+              totalScrLen >= 38 || isSelected || isHovered
+                ? shortSet
+                  ? `${shortSet} ${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                  : `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`
+                : shortSet || `${trace.dipDirectionDeg}°/${trace.dipDeg}°`;
+
+            const sampleAtFrac = (frac: number, normalOffsetPx: number) => {
               const targetS = Math.max(0, Math.min(1, frac)) * totalScrLen;
               let sIdx = 0;
               while (sIdx < cum.length - 2 && cum[sIdx + 1] < targetS) sIdx++;
@@ -1390,68 +1458,97 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
               let ang = Math.atan2(b.y - a.y, b.x - a.x);
               if (ang > Math.PI / 2) ang -= Math.PI;
               if (ang < -Math.PI / 2) ang += Math.PI;
+              const nx = -Math.sin(ang) * normalOffsetPx;
+              const ny = Math.cos(ang) * normalOffsetPx;
               return {
-                x: a.x + (b.x - a.x) * tLoc,
-                y: a.y + (b.y - a.y) * tLoc,
+                x: a.x + (b.x - a.x) * tLoc + nx,
+                y: a.y + (b.y - a.y) * tLoc + ny,
                 ang,
               };
             };
 
-            const candidateFracs = [0.66, 0.34, 0.74, 0.26, 0.78, 0.22, 0.56];
-            let bestSample = sampleAtFrac(0.66);
+            const candidateFracs = [0.62, 0.38, 0.74, 0.26, 0.5, 0.82, 0.18];
+            const normalOffsets = [-7, 7, 0];
+            let bestSample: { x: number; y: number; ang: number } | null = null;
             let bestScore = -1e9;
             const otherTraces = (currentDataset.traces || []).filter((ot) => ot.id !== trace.id);
+            const halfLabelW = Math.max(14, inlineStr.length * 2.55);
+            const halfLabelH = 6.5;
 
-            for (const frac of candidateFracs) {
-              const cand = sampleAtFrac(frac);
-              // Must stay strictly inside tunnel strip outline
-              const halfLabelW = Math.max(18, inlineStr.length * 2.5);
-              if (
-                cand.x - halfLabelW < startX + 4 ||
-                cand.x + halfLabelW > endX - 4 ||
-                cand.y < topY + 6 ||
-                cand.y > botY - 6
-              ) {
-                continue;
-              }
-              let minClearance = 999;
-              for (const ot of otherTraces) {
-                for (const op of ot.points || []) {
-                  const ox = worldToScreenX(op.x);
-                  const oy = worldToScreenY(op.y);
-                  const d = Math.hypot(cand.x - ox, cand.y - oy);
-                  if (d < minClearance) minClearance = d;
+            for (const nOff of normalOffsets) {
+              for (const frac of candidateFracs) {
+                const cand = sampleAtFrac(frac, nOff);
+                if (
+                  cand.x - halfLabelW < startX + 3 ||
+                  cand.x + halfLabelW > endX - 3 ||
+                  cand.y - halfLabelH < topY + 14 ||
+                  cand.y + halfLabelH > botY - 12
+                ) {
+                  continue;
                 }
-              }
-              const score = Math.min(48, minClearance) - Math.abs(frac - 0.65) * 8;
-              if (score > bestScore) {
-                bestScore = score;
-                bestSample = cand;
+                const boxClash = overlapsPlacedBox(
+                  cand.x - halfLabelW,
+                  cand.y - halfLabelH,
+                  cand.x + halfLabelW,
+                  cand.y + halfLabelH,
+                  2
+                );
+                if (boxClash && !isSelected && !isHovered) continue;
+
+                let minClearance = 999;
+                for (const ot of otherTraces) {
+                  for (const op of ot.points || []) {
+                    const ox = worldToScreenX(op.x);
+                    const oy = worldToScreenY(op.y);
+                    const d = Math.hypot(cand.x - ox, cand.y - oy);
+                    if (d < minClearance) minClearance = d;
+                  }
+                }
+                const score =
+                  Math.min(48, minClearance) -
+                  Math.abs(frac - 0.55) * 6 -
+                  (boxClash ? 100 : 0);
+                if (score > bestScore) {
+                  bestScore = score;
+                  bestSample = cand;
+                }
               }
             }
 
-            ctx.save();
-            ctx.translate(bestSample.x, bestSample.y);
-            ctx.rotate(bestSample.ang);
-            ctx.font = 'bold 8.5px monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.strokeStyle = isDarkMode ? 'rgba(9, 13, 22, 0.96)' : 'rgba(255, 255, 255, 0.96)';
-            ctx.lineWidth = 3.2;
-            ctx.strokeText(inlineStr, 0, 0);
-            ctx.fillStyle = isSelected ? '#ea580c' : color;
-            ctx.fillText(inlineStr, 0, 0);
-            ctx.restore();
+            if (!bestSample && (isSelected || isHovered || totalScrLen >= 22)) {
+              bestSample = sampleAtFrac(0.55, -6);
+            }
+
+            if (bestSample) {
+              placedLabelBoxes.push({
+                x1: bestSample.x - halfLabelW,
+                y1: bestSample.y - halfLabelH,
+                x2: bestSample.x + halfLabelW,
+                y2: bestSample.y + halfLabelH,
+              });
+              ctx.save();
+              ctx.translate(bestSample.x, bestSample.y);
+              ctx.rotate(bestSample.ang);
+              ctx.font = 'bold 8.5px monospace';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.strokeStyle = isDarkMode ? 'rgba(9, 13, 22, 0.96)' : 'rgba(255, 255, 255, 0.96)';
+              ctx.lineWidth = 3.0;
+              ctx.strokeText(inlineStr, 0, 0);
+              ctx.fillStyle = isSelected ? '#ea580c' : color;
+              ctx.fillText(inlineStr, 0, 0);
+              ctx.restore();
+            }
           }
 
           // HW / FW markers for faults/shears
           if (trace.showHwFw) {
-            const hwX = midPt.x + Math.cos(tickAngle) * 18;
-            const hwY = midPt.y + Math.sin(tickAngle) * 18;
-            const fwX = midPt.x - Math.cos(tickAngle) * 18;
-            const fwY = midPt.y - Math.sin(tickAngle) * 18;
+            const hwX = midPt.x + Math.cos(tickAngle) * 16;
+            const hwY = midPt.y + Math.sin(tickAngle) * 16;
+            const fwX = midPt.x - Math.cos(tickAngle) * 16;
+            const fwY = midPt.y - Math.sin(tickAngle) * 16;
             ctx.fillStyle = '#ef4444';
-            ctx.font = 'bold 9px sans-serif';
+            ctx.font = 'bold 8.5px sans-serif';
             ctx.fillText(trace.flipHwFw ? 'FW' : 'HW', hwX, hwY);
             ctx.fillStyle = '#3b82f6';
             ctx.fillText(trace.flipHwFw ? 'HW' : 'FW', fwX, fwY);
@@ -1469,19 +1566,31 @@ export const EswaCadContinuousStripModal: React.FC<EswaCadContinuousStripModalPr
 
         ctx.fillStyle = isSelected ? '#38bdf8' : '#0284c7';
         ctx.beginPath();
-        ctx.arc(scrX, scrY, isSelected ? 8 : 6, 0, Math.PI * 2);
+        ctx.arc(scrX, scrY, isSelected ? 7 : 5.5, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 9px sans-serif';
+        ctx.font = 'bold 8px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('W', scrX, scrY + 3);
+        ctx.textBaseline = 'middle';
+        ctx.fillText('W', scrX, scrY + 0.5);
 
         if (sym.label) {
-          ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0284c7';
-          ctx.font = '11px monospace';
-          ctx.textAlign = 'left';
-          ctx.fillText(sym.label, scrX + 10, scrY + 3.5);
+          const shortWaterLbl = sym.label.replace(/\s*\([^)]*\)/g, '').trim();
+          const lx = scrX + 8;
+          const ly = scrY;
+          const wBoxW = shortWaterLbl.length * 5.2;
+          if (!overlapsPlacedBox(lx, ly - 6, lx + wBoxW, ly + 6, 2) || isSelected) {
+            ctx.font = 'bold 8.5px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = isDarkMode ? 'rgba(9, 13, 22, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+            ctx.lineWidth = 2.5;
+            ctx.strokeText(shortWaterLbl, lx, ly);
+            ctx.fillStyle = isDarkMode ? '#38bdf8' : '#0284c7';
+            ctx.fillText(shortWaterLbl, lx, ly);
+            placedLabelBoxes.push({ x1: lx, y1: ly - 6, x2: lx + wBoxW, y2: ly + 6 });
+          }
         }
       }
     }

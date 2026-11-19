@@ -489,6 +489,53 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     return 'project_setup';
   });
 
+  const stageHistoryStorageKey = `eswa_field_stage_history_v1_${initialMappingDomain}_${undergroundSubMode}`;
+  const stageHistoryRef = useRef<FieldWorkflowStage[]>((() => {
+    if (!resumeAtLastStage || typeof window === 'undefined') {
+      try {
+        sessionStorage.removeItem(stageHistoryStorageKey);
+      } catch {
+        // Ignore
+      }
+      return [];
+    }
+    try {
+      const raw = sessionStorage.getItem(stageHistoryStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? (parsed as FieldWorkflowStage[]) : [];
+    } catch {
+      return [];
+    }
+  })());
+  const prevStageRef = useRef<FieldWorkflowStage>(stage);
+  const isPoppingStageRef = useRef<boolean>(false);
+  const [hasStageHistory, setHasStageHistory] = useState<boolean>(
+    () => stageHistoryRef.current.length > 0
+  );
+
+  useEffect(() => {
+    if (isPoppingStageRef.current) {
+      isPoppingStageRef.current = false;
+      prevStageRef.current = stage;
+      setHasStageHistory(stageHistoryRef.current.length > 0);
+      return;
+    }
+    if (prevStageRef.current !== stage) {
+      const stack = stageHistoryRef.current;
+      if (stack[stack.length - 1] !== prevStageRef.current) {
+        stack.push(prevStageRef.current);
+        if (stack.length > 40) stack.shift();
+      }
+      prevStageRef.current = stage;
+      setHasStageHistory(stack.length > 0);
+      try {
+        sessionStorage.setItem(stageHistoryStorageKey, JSON.stringify(stack));
+      } catch {
+        // Ignore
+      }
+    }
+  }, [stage, stageHistoryStorageKey]);
+
   // Underground Mine Geology interactive sub-tool & interval hover states
   const [activeMineSubTool, setActiveMineSubTool] = useState<
     'none' | 'channel_line' | 'ore_waste_line'
@@ -1568,67 +1615,72 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     embeddedInDigitalTwin3DTo2D?.syncVersion,
   ]);
 
-  // Automatically persist where the user is working (debounced so it never blocks drawing)
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const curDom = mappingDomainRef.current;
-      if (curDom === 'TUNNEL') {
-        const curSub = undergroundSubModeRef.current;
-        saveFieldMappingResumeState(
-          {
-            stage,
-            activeProjectId: activeProject?.id || store.activeProjectId,
-            activeLocationId: activeLocation?.id || store.activeLocationId,
-            activeRoundId: activeRound?.id || store.activeRoundId,
-            activePanel,
-            is3DMappingMode,
-            mappingDomain: 'TUNNEL',
-            undergroundSubMode: curSub,
-            chainageLabel: activeRound
-              ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
-              : 'Field Session',
-            locationLabel: activeLocation?.name || activeProject?.projectName || 'Tunnel Heading',
-            stageLabel: FIELD_STAGE_LABELS[stage] || stage,
-            updatedAt: new Date().toISOString(),
-          },
-          'TUNNEL',
-          curSub
-        );
-      } else {
-        saveSurfaceMappingResumeState({
-          subType: curDom as SurfaceMappingSubType,
+  // Automatically persist where the user is working (debounced so it never blocks drawing, plus immediate flush on unmount)
+  const persistResumeRef = useRef<() => void>(() => {});
+  persistResumeRef.current = () => {
+    const curDom = mappingDomainRef.current;
+    if (curDom === 'TUNNEL') {
+      const curSub = undergroundSubModeRef.current;
+      saveFieldMappingResumeState(
+        {
           stage,
           activeProjectId: activeProject?.id || store.activeProjectId,
           activeLocationId: activeLocation?.id || store.activeLocationId,
           activeRoundId: activeRound?.id || store.activeRoundId,
           activePanel,
-          workflowMode: workflowMode === 'photo_mapping' ? 'PHOTOGRAMMETRY' : 'FIELD',
-          stationLabel: activeRound
+          is3DMappingMode,
+          mappingDomain: 'TUNNEL',
+          undergroundSubMode: curSub,
+          chainageLabel: activeRound
+            ? `CH ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
+            : 'Field Session',
+          locationLabel: activeLocation?.name || activeProject?.projectName || 'Tunnel Heading',
+          stageLabel: FIELD_STAGE_LABELS[stage] || stage,
+          updatedAt: new Date().toISOString(),
+        },
+        'TUNNEL',
+        curSub
+      );
+    } else {
+      saveSurfaceMappingResumeState({
+        subType: curDom as SurfaceMappingSubType,
+        stage,
+        activeProjectId: activeProject?.id || store.activeProjectId,
+        activeLocationId: activeLocation?.id || store.activeLocationId,
+        activeRoundId: activeRound?.id || store.activeRoundId,
+        activePanel,
+        workflowMode: workflowMode === 'photo_mapping' ? 'PHOTOGRAMMETRY' : 'FIELD',
+        stationLabel: activeRound
+          ? `Station ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
+          : 'Surface Session',
+        locationLabel: activeLocation?.name || activeProject?.projectName || 'Surface Exposure',
+        stageLabel: stage,
+        updatedAt: new Date().toISOString(),
+      });
+      saveFieldMappingResumeState(
+        {
+          stage,
+          activeProjectId: activeProject?.id || store.activeProjectId,
+          activeLocationId: activeLocation?.id || store.activeLocationId,
+          activeRoundId: activeRound?.id || store.activeRoundId,
+          activePanel,
+          is3DMappingMode,
+          mappingDomain: curDom,
+          chainageLabel: activeRound
             ? `Station ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
             : 'Surface Session',
           locationLabel: activeLocation?.name || activeProject?.projectName || 'Surface Exposure',
-          stageLabel: stage,
+          stageLabel: FIELD_STAGE_LABELS[stage] || stage,
           updatedAt: new Date().toISOString(),
-        });
-        saveFieldMappingResumeState(
-          {
-            stage,
-            activeProjectId: activeProject?.id || store.activeProjectId,
-            activeLocationId: activeLocation?.id || store.activeLocationId,
-            activeRoundId: activeRound?.id || store.activeRoundId,
-            activePanel,
-            is3DMappingMode,
-            mappingDomain: curDom,
-            chainageLabel: activeRound
-              ? `Station ${activeRound.chainageFrom}m–${activeRound.chainageTo}m`
-              : 'Surface Session',
-            locationLabel: activeLocation?.name || activeProject?.projectName || 'Surface Exposure',
-            stageLabel: FIELD_STAGE_LABELS[stage] || stage,
-            updatedAt: new Date().toISOString(),
-          },
-          curDom
-        );
-      }
+        },
+        curDom
+      );
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      persistResumeRef.current();
     }, 350);
     return () => window.clearTimeout(timer);
   }, [
@@ -1646,6 +1698,12 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
     activePanel,
     is3DMappingMode,
   ]);
+
+  useEffect(() => {
+    return () => {
+      persistResumeRef.current();
+    };
+  }, []);
 
   const canvasViewMode: 'unfolded_t' | 'single_panel' =
     stage === 'joint_grouping' ? 'unfolded_t' : 'single_panel';
@@ -6335,37 +6393,24 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                   setSetupWindowStep('project');
                   return;
                 }
+                if (setupWindowStep === 'project' && mappingDomain !== 'TUNNEL') {
+                  setSetupWindowStep('surface_type');
+                  return;
+                }
               }
-              const isSurface = mappingDomain !== 'TUNNEL';
-              const isSlopeOrBench =
-                mappingDomain === 'SLOPE' || mappingDomain === 'BENCH';
-              const orderedStages: FieldWorkflowStage[] = [
-                'project_setup',
-                'excavation_round',
-              ];
-              if (workflowMode === 'photo_mapping') {
-                orderedStages.push('camera_prompt', 'photo_fit');
-              }
-              orderedStages.push('field_canvas', 'joint_grouping');
-              if (!isSurface) {
-                orderedStages.push('strip_align');
-              }
-              orderedStages.push('discontinuity_sets', 'q_rmr_gsi');
-              if (isSlopeOrBench) {
-                orderedStages.push('support_system');
-              } else if (!isSurface) {
-                orderedStages.push('support_system', 'fem_dem_analysis');
-              }
-              if (!isSurface) {
-                orderedStages.push('survey_overbreak');
-              }
-              orderedStages.push('word_template_export', 'photo_2d_report');
-              if (!isSurface) {
-                orderedStages.push('advance_analysis');
-              }
-              const currIdx = orderedStages.indexOf(stage);
-              if (currIdx > 0) {
-                setStage(orderedStages[currIdx - 1]);
+              const prevStage = stageHistoryRef.current.pop();
+              if (prevStage && prevStage !== stage) {
+                isPoppingStageRef.current = true;
+                setHasStageHistory(stageHistoryRef.current.length > 0);
+                try {
+                  sessionStorage.setItem(
+                    stageHistoryStorageKey,
+                    JSON.stringify(stageHistoryRef.current)
+                  );
+                } catch {
+                  // Ignore
+                }
+                setStage(prevStage);
                 return;
               }
               if (embeddedInDigitalTwin3DTo2D) {
@@ -6376,28 +6421,17 @@ export const FieldMappingModeWorkspace: React.FC<FieldMappingModeWorkspaceProps>
                 onExitToWelcome();
               }
             }}
-            className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] flex items-center gap-1 border border-amber-600 cursor-pointer shrink-0 whitespace-nowrap shadow-2xs"
-            title="Go One Step Back"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-            <span>Step Back</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (embeddedInDigitalTwin3DTo2D) {
-                embeddedInDigitalTwin3DTo2D.onBackTo3DTwin();
-              } else if (onBackToWelcome) {
-                onBackToWelcome();
-              } else if (onExitToWelcome) {
-                onExitToWelcome();
-              }
-            }}
             className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 border border-slate-700 cursor-pointer shrink-0 whitespace-nowrap"
+            title="Return to previous stage or window"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-            <span>{embeddedInDigitalTwin3DTo2D ? '3D Twin' : 'Menu'}</span>
+            <span>
+              {hasStageHistory
+                ? 'Back'
+                : embeddedInDigitalTwin3DTo2D
+                ? '3D Twin'
+                : 'Menu'}
+            </span>
           </button>
 
           {embeddedInDigitalTwin3DTo2D && (

@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   Box,
@@ -226,6 +226,26 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
     onResetCalibrationToOutline,
   } = props;
 
+  const ribbonTabHistoryRef = useRef<CadRibbonTab[]>([]);
+  const prevRibbonTabRef = useRef<CadRibbonTab>(cadRibbonTab);
+  const isPoppingRibbonTabRef = useRef(false);
+
+  useEffect(() => {
+    if (isPoppingRibbonTabRef.current) {
+      isPoppingRibbonTabRef.current = false;
+      prevRibbonTabRef.current = cadRibbonTab;
+      return;
+    }
+    if (prevRibbonTabRef.current !== cadRibbonTab) {
+      const stack = ribbonTabHistoryRef.current;
+      if (stack[stack.length - 1] !== prevRibbonTabRef.current) {
+        stack.push(prevRibbonTabRef.current);
+        if (stack.length > 30) stack.shift();
+      }
+      prevRibbonTabRef.current = cadRibbonTab;
+    }
+  }, [cadRibbonTab]);
+
   const handleFinishOrResetDraft = () => {
     if (draftJointPointsLength >= 2) {
       onFinishDraftJoint();
@@ -299,51 +319,29 @@ export const CadRibbonAndCommandBar: React.FC<CadRibbonAndCommandBarProps> = mem
 
       {/* ROW 2: DEDICATED 4 TUNNEL PORTIONS BAR + QUICK ACTION CONTROLS */}
       <div className="flex flex-nowrap overflow-x-auto no-scrollbar items-center justify-between gap-1.5 px-2 py-1 bg-slate-100 border-b border-slate-200">
-        {/* Left: Step Back + Back to Setup + Save / Projects / Undo / Redo / Delete */}
+        {/* Left: Back + Save / Projects / Undo / Redo / Delete */}
         <div className="flex items-center gap-1 shrink-0">
           <button
-            type="button"
             onClick={() => {
-              const tabOrder = [
-                'TUNNEL_PHOTO',
-                'HOME',
-                'GEOLOGY_3D',
-                'ADVANCED_ANALYSIS',
-                'SURVEY_OVERBREAK',
-                'CLASSIFICATION_SHEET',
-              ] as const;
-              const idx = tabOrder.indexOf(cadRibbonTab);
-              if (idx > 0) {
-                setCadRibbonTab(tabOrder[idx - 1]);
+              const prevTab = ribbonTabHistoryRef.current.pop();
+              if (prevTab && prevTab !== cadRibbonTab) {
+                isPoppingRibbonTabRef.current = true;
+                setCadRibbonTab(prevTab);
                 setCadRibbonCollapsed(false);
                 return;
               }
               onBackToSetup();
             }}
             data-window="cad-ribbon"
-            data-element-id="cad-btn-step-back"
-            data-tool="step-back"
-            data-role="button"
-            data-action="step-back"
-            className="flex items-center gap-1 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-[11px] font-black rounded-lg border border-amber-600 transition-colors cursor-pointer shadow-2xs"
-            title="Go One Step Back"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-950" />
-            <span>Step Back</span>
-          </button>
-
-          <button
-            onClick={onBackToSetup}
-            data-window="cad-ribbon"
             data-element-id="cad-btn-back-setup"
             data-tool="setup"
             data-role="button"
             data-action="return-to-setup"
             className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-mono text-[11px] font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer"
-            title="Return to Project & Tunnel Photo Setup"
+            title="Return to previous tab or window"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-sky-600" />
-            <span>Setup</span>
+            <span>{ribbonTabHistoryRef.current.length > 0 ? 'Back' : 'Setup'}</span>
           </button>
 
           {props.onOpenProjectConfiguration && (

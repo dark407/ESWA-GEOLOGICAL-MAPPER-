@@ -208,9 +208,9 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     target: new THREE.Vector3(0, 4, 15),
   });
 
-  // Display Settings
+  // Display Settings (Wedge blocks off by default to keep 3D tunnel interior crisp & uncluttered)
   const [showJointPlanes, setShowJointPlanes] = useState<boolean>(true);
-  const [showWedgeBlocks, setShowWedgeBlocks] = useState<boolean>(true);
+  const [showWedgeBlocks, setShowWedgeBlocks] = useState<boolean>(false);
   const [showLithologyBands, setShowLithologyBands] = useState<boolean>(true);
   const [showChainageRings, setShowChainageRings] = useState<boolean>(true);
   const [show3DLabels, setShow3DLabels] = useState<boolean>(true);
@@ -547,10 +547,10 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         ringLine.userData.isTunnelEntity = true;
         scene.add(ringLine);
 
-        // Chainage / Depth Billboard Text Sprite
-        const crownTop = unrolledToTunnel3D(
+        // Chainage / Depth Billboard Text Sprite placed cleanly at right springline/invert margin
+        const chTagPos = unrolledToTunnel3D(
           ch,
-          isShaft ? 0 : leftWallHeight + crownWidth / 2,
+          isShaft ? 0 : totalPerimeter,
           fromRd,
           toRd,
           leftWallHeight,
@@ -562,27 +562,40 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           shapeOpts
         );
         if (isShaft) {
-          crownTop.z -= 1.2;
+          chTagPos.z -= 1.05;
         } else {
-          crownTop.y += 0.8;
+          chTagPos.x += 0.95;
+          chTagPos.y = Math.max(0.25, chTagPos.y + 0.15);
         }
 
         const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 64;
+        canvas.width = 220;
+        canvas.height = 48;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 26px monospace';
+          ctx.fillStyle = 'rgba(248, 250, 252, 0.92)';
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(4, 4, 212, 40, 8);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#ea580c';
+          ctx.font = 'bold 20px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(`${isShaft ? 'DEPTH' : 'RD'} ${ch.toFixed(1)}m`, 128, 32);
+          ctx.fillText(`${isShaft ? 'DEPTH' : 'RD'} ${ch.toFixed(1)}m`, 110, 25);
 
           const tex = new THREE.CanvasTexture(canvas);
-          const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+          const spriteMat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthTest: false,
+          });
           const sprite = new THREE.Sprite(spriteMat);
-          sprite.position.copy(crownTop);
-          sprite.scale.set(4, 1, 1);
+          sprite.position.copy(chTagPos);
+          sprite.scale.set(1.95, 0.42, 1);
           sprite.userData.isTunnelEntity = true;
           scene.add(sprite);
         }
@@ -765,8 +778,10 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       scene.add(dropMesh);
     });
 
-    // 4. Render Discontinuity Joint Traces in 3D (Crisp Tubes + 3D Dip Surface Ribbons + Oriented Plane Discs + 3D Tetrahedral Wedge Blocks)
-    (dataset.traces || []).forEach((trace) => {
+    // 4. Render Discontinuity Joint Traces in 3D (Crisp Tubes + Compact Orientation Discs + Staggered Single-Line Labels)
+    const placed3DLabelPositions: THREE.Vector3[] = [];
+
+    (dataset.traces || []).forEach((trace, traceIdx) => {
       const points = trace.points || [];
       if (points.length < 2) return;
 
@@ -826,7 +841,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       pts3D.forEach((p) => centroid3D.add(p));
       centroid3D.divideScalar(pts3D.length);
 
-      // 5. Continuous 3D Dip Surface Ribbon & Oriented Geological Plane Disc
+      // 5. Continuous 3D Dip Surface Ribbon & Compact Oriented Geological Plane Disc
       if (showJointPlanes) {
         const dipDirRad = (trace.dipDirectionDeg * Math.PI) / 180;
         const dipRad = (trace.dipDeg * Math.PI) / 180;
@@ -844,11 +859,10 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           Math.cos(dipRad) * Math.cos(dipDirRad)
         ).normalize();
 
-        // Only extrude a 3D Dip Surface Ribbon when the structure is explicitly a Dip Surface ('Joint Plane/Surface')
-        // Regular joint traces (J1, J2, J3, etc.) remain crisp 3D trace lines without dip-surface ribbon extrusion.
-        if (trace.structureType === 'Joint Plane/Surface') {
+        // Only extrude a 3D Dip Surface Ribbon when the structure is explicitly a Dip Surface ('Joint Plane/Surface') or selected
+        if (trace.structureType === 'Joint Plane/Surface' || isSelected) {
           const sampledPts = curve.getPoints(Math.max(12, points.length * 3));
-          const ribbonDepthM = isSelected ? 1.15 : 0.78;
+          const ribbonDepthM = isSelected ? 0.95 : 0.65;
           const ribVerts: number[] = [];
           for (let i = 0; i < sampledPts.length - 1; i++) {
             const p1 = sampledPts[i];
@@ -867,7 +881,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
               color: isSelected ? 0xf59e0b : colorNum,
               side: THREE.DoubleSide,
               transparent: true,
-              opacity: isSelected ? 0.42 : 0.24,
+              opacity: isSelected ? 0.38 : 0.22,
               roughness: 0.45,
               depthWrite: false,
             });
@@ -877,17 +891,15 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           }
         }
 
-        const discRadius = Math.max(
-          1.4,
-          Math.min(
-            2.8,
-            Math.hypot(
-              pts3D[pts3D.length - 1].x - pts3D[0].x,
-              pts3D[pts3D.length - 1].z - pts3D[0].z
-            ) * 0.45
-          )
+        // Keep orientation discs compact on unselected traces so discs never overlap across the tunnel
+        const span3D = Math.hypot(
+          pts3D[pts3D.length - 1].x - pts3D[0].x,
+          pts3D[pts3D.length - 1].z - pts3D[0].z
         );
-        const discGeo = new THREE.CircleGeometry(discRadius, 32);
+        const discRadius = isSelected || isHovered
+          ? Math.max(0.95, Math.min(1.45, span3D * 0.32))
+          : Math.max(0.48, Math.min(0.82, span3D * 0.2));
+        const discGeo = new THREE.CircleGeometry(discRadius, 28);
 
         // Align circle normal (default +Z) to joint plane normal
         const defaultNormal = new THREE.Vector3(0, 0, 1);
@@ -897,8 +909,9 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
           color: isSelected ? 0xf59e0b : colorNum,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: isSelected ? 0.45 : 0.18,
+          opacity: isSelected ? 0.42 : isHovered ? 0.28 : 0.14,
           roughness: 0.5,
+          depthWrite: false,
         });
 
         const discMesh = new THREE.Mesh(discGeo, discMat);
@@ -914,7 +927,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
             color: isSelected ? 0xf59e0b : colorNum,
             linewidth: isSelected ? 2 : 1,
             transparent: true,
-            opacity: 0.7,
+            opacity: isSelected ? 0.8 : 0.45,
           })
         );
         ringEdges.position.copy(centroid3D);
@@ -923,10 +936,11 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         scene.add(ringEdges);
       }
 
-      // 5B. 3D Tetrahedral Kinematic Wedge Block on Selected or Critical Traces
-      if (showWedgeBlocks && (isSelected || pts3D.length >= 2)) {
-        const insp = jointInspectionList.find((j) => j.traceId === trace.id);
-        const apexH = insp ? insp.wedgeApexHeightM : 1.4;
+      // 5B. 3D Tetrahedral Kinematic Wedge Block ONLY on Selected or Critical Traces
+      const insp = jointInspectionList.find((j) => j.traceId === trace.id);
+      const isCritWedge = Boolean(insp && (insp.riskRating === 'CRITICAL' || insp.fosUnreinforced < 1.25));
+      if (showWedgeBlocks && (isSelected || isCritWedge)) {
+        const apexH = Math.min(1.35, insp ? insp.wedgeApexHeightM : 1.0);
         const dipDirRad = (trace.dipDirectionDeg * Math.PI) / 180;
         const dipRad = (trace.dipDeg * Math.PI) / 180;
         const normal = new THREE.Vector3(
@@ -937,7 +951,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
         const pStart = pts3D[0];
         const pEnd = pts3D[pts3D.length - 1];
-        const pMid = centroid3D.clone().add(new THREE.Vector3(0, isShaft ? 0.6 : 0.4, isShaft ? 0.4 : 0.8));
+        const pMid = centroid3D.clone().add(new THREE.Vector3(0, isShaft ? 0.45 : 0.3, isShaft ? 0.3 : 0.55));
         const pApex = centroid3D.clone().addScaledVector(normal, apexH);
 
         const wedgeGeo = new THREE.BufferGeometry();
@@ -961,47 +975,79 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         wedgeGeo.setAttribute('position', new THREE.BufferAttribute(wVerts, 3));
         wedgeGeo.computeVertexNormals();
 
-        const isCrit = insp && insp.fosUnreinforced < 1.15;
         const wedgeMat = new THREE.MeshStandardMaterial({
-          color: isSelected ? 0xf59e0b : isCrit ? 0xef4444 : 0x0ea5e9,
+          color: isSelected ? 0xf59e0b : isCritWedge ? 0xef4444 : 0x0ea5e9,
           transparent: true,
-          opacity: isSelected ? 0.48 : 0.22,
+          opacity: isSelected ? 0.42 : 0.24,
           side: THREE.DoubleSide,
           roughness: 0.4,
+          depthWrite: false,
         });
         const wedgeMesh = new THREE.Mesh(wedgeGeo, wedgeMat);
         wedgeMesh.userData = { isTunnelEntity: true, traceId: trace.id };
         scene.add(wedgeMesh);
       }
 
-      // 6. 3D Billboard Text Label (Clean text, NO boxy cards)
+      // 6. Crisp Single-Line 3D Billboard Text Label with Collision Avoidance
       if (show3DLabels && !trace.hideLabel) {
-        const labelText = trace.customLabel || trace.setId || 'J';
-        const orientText = `${trace.dipDirectionDeg}°/${trace.dipDeg}°`;
+        const rawLabel = (trace.customLabel || trace.setId || 'J').trim();
+        const shortLabel = rawLabel.length > 10 ? rawLabel.slice(0, 10) : rawLabel;
+        const orientText = `${String(trace.dipDirectionDeg).padStart(3, '0')}°/${trace.dipDeg}°`;
+        const fullTag = `${shortLabel} • ${orientText}`;
+
+        // Sample along curve & stagger vertically if another 3D label is nearby
+        const candidateFracs = [0.5, 0.32, 0.68, 0.22, 0.78];
+        let bestPos = curve.getPointAt(candidateFracs[traceIdx % candidateFracs.length]);
+        bestPos.y += 0.42;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const frac = candidateFracs[(traceIdx + attempt) % candidateFracs.length];
+          const cand = curve.getPointAt(frac);
+          cand.y += 0.38 + (attempt % 3) * 0.36;
+          const hasCollision = placed3DLabelPositions.some((p) => p.distanceTo(cand) < 1.85);
+          if (!hasCollision) {
+            bestPos = cand;
+            break;
+          }
+        }
+        placed3DLabelPositions.push(bestPos.clone());
 
         const canvas = document.createElement('canvas');
-        canvas.width = 300;
-        canvas.height = 100;
+        canvas.width = 280;
+        canvas.height = 54;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
-          ctx.shadowBlur = 4;
+          // Clean subtle pill halo
+          ctx.fillStyle = isSelected ? 'rgba(254, 243, 199, 0.96)' : 'rgba(255, 255, 255, 0.92)';
+          ctx.strokeStyle = isSelected ? '#f59e0b' : colorHex;
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.beginPath();
+          ctx.roundRect(4, 4, 272, 46, 10);
+          ctx.fill();
+          ctx.stroke();
 
+          // Color dot indicator on left
           ctx.fillStyle = colorHex;
-          ctx.font = 'bold 34px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(labelText, 150, 42);
+          ctx.beginPath();
+          ctx.arc(22, 27, 6, 0, Math.PI * 2);
+          ctx.fill();
 
-          ctx.fillStyle = '#1e293b';
-          ctx.font = 'bold 22px monospace';
-          ctx.fillText(orientText, 150, 78);
+          // Crisp single-line monospace text
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 20px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(fullTag, 148, 28);
 
           const tex = new THREE.CanvasTexture(canvas);
-          const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+          const spriteMat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthTest: false,
+          });
           const sprite = new THREE.Sprite(spriteMat);
-          sprite.position.copy(centroid3D);
-          sprite.position.y += 0.8;
-          sprite.scale.set(3.2, 1.1, 1);
+          sprite.position.copy(bestPos);
+          sprite.scale.set(isSelected ? 2.15 : 1.75, isSelected ? 0.42 : 0.34, 1);
           sprite.userData.isTunnelEntity = true;
           scene.add(sprite);
         }

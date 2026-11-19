@@ -238,6 +238,7 @@ import { AdvancedBruntonCompassModal } from './components/AdvancedBruntonCompass
 import { AdvancedShiftReminderAlarmModal } from './components/AdvancedShiftReminderAlarmModal';
 import { SupportAndGeotechnicalReferenceModal } from './components/SupportAndGeotechnicalReferenceModal';
 import { KeyboardShortcutsAndPermissionsModal } from './components/KeyboardShortcutsAndPermissionsModal';
+import { BlastReadinessCalculatorModal } from './components/BlastReadinessCalculatorModal';
 import {
   initializeGlobalKeyboardShortcuts,
   registerKeyboardShortcut,
@@ -365,6 +366,7 @@ export default function App({
   const [isBruntonCompassOpen, setIsBruntonCompassOpen] = useState<boolean>(false);
   const [isShiftReminderOpen, setIsShiftReminderOpen] = useState<boolean>(false);
   const [isSupportReferenceOpen, setIsSupportReferenceOpen] = useState<boolean>(false);
+  const [isBlastCalculatorOpen, setIsBlastCalculatorOpen] = useState<boolean>(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
   const [shortcutsModalDefaultTab, setShortcutsModalDefaultTab] = useState<'shortcuts' | 'permissions'>('shortcuts');
   const [backToastMessage, setBackToastMessage] = useState<string | null>(null);
@@ -564,6 +566,115 @@ export default function App({
     }
     return (initialDraft?.settings?.industryMode as IndustryMode) || 'NATM';
   });
+
+  // Top-level Window Navigation History Stack so clicking Back in any window returns to the exact previous window where the user was working
+  interface TopWindowSnapshot {
+    industryMode: IndustryMode;
+    screen: ScreenStep;
+    isFieldMappingModeOpen: boolean;
+    activeFieldWorkflowMode: 'field_mapping' | 'photo_mapping';
+    activeMappingDomain: MappingDomainType;
+    isDigitalTwinBetaOpen: boolean;
+    isDigitalTwinContinuousLogOpen: boolean;
+    isCoreLoggingOpen: boolean;
+  }
+
+  const getTopWindowKey = (s: TopWindowSnapshot) =>
+    `${s.industryMode}|${s.screen}|${s.isFieldMappingModeOpen}|${s.activeFieldWorkflowMode}|${s.activeMappingDomain}|${s.isDigitalTwinBetaOpen}|${s.isDigitalTwinContinuousLogOpen}|${s.isCoreLoggingOpen}`;
+
+  const windowHistoryStackRef = useRef<TopWindowSnapshot[]>([]);
+  const prevTopWindowRef = useRef<TopWindowSnapshot>({
+    industryMode,
+    screen,
+    isFieldMappingModeOpen,
+    activeFieldWorkflowMode,
+    activeMappingDomain,
+    isDigitalTwinBetaOpen,
+    isDigitalTwinContinuousLogOpen,
+    isCoreLoggingOpen,
+  });
+  const isRestoringTopWindowRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const currentSnapshot: TopWindowSnapshot = {
+      industryMode,
+      screen,
+      isFieldMappingModeOpen,
+      activeFieldWorkflowMode,
+      activeMappingDomain,
+      isDigitalTwinBetaOpen,
+      isDigitalTwinContinuousLogOpen,
+      isCoreLoggingOpen,
+    };
+    if (isRestoringTopWindowRef.current) {
+      isRestoringTopWindowRef.current = false;
+      prevTopWindowRef.current = currentSnapshot;
+      return;
+    }
+    const prev = prevTopWindowRef.current;
+    if (getTopWindowKey(prev) !== getTopWindowKey(currentSnapshot)) {
+      const stack = windowHistoryStackRef.current;
+      const top = stack[stack.length - 1];
+      if (!top || getTopWindowKey(top) !== getTopWindowKey(prev)) {
+        stack.push(prev);
+        if (stack.length > 25) stack.shift();
+      }
+      prevTopWindowRef.current = currentSnapshot;
+    }
+  }, [
+    industryMode,
+    screen,
+    isFieldMappingModeOpen,
+    activeFieldWorkflowMode,
+    activeMappingDomain,
+    isDigitalTwinBetaOpen,
+    isDigitalTwinContinuousLogOpen,
+    isCoreLoggingOpen,
+  ]);
+
+  const handleReturnToPreviousWindow = useCallback(() => {
+    const prev = windowHistoryStackRef.current.pop();
+    if (prev) {
+      isRestoringTopWindowRef.current = true;
+      setIndustryMode(prev.industryMode);
+      try {
+        localStorage.setItem('eswa_active_industry_mode', prev.industryMode);
+        localStorage.setItem('eswa_active_industry_mode_v1', prev.industryMode);
+      } catch {
+        // Ignore
+      }
+      setActiveFieldWorkflowMode(prev.activeFieldWorkflowMode);
+      setActiveMappingDomain(prev.activeMappingDomain);
+      setResumeFieldAtLastStage(prev.isFieldMappingModeOpen);
+      setResumeDigitalTwinBeta(prev.isDigitalTwinBetaOpen);
+      setIsCoreLoggingOpen(prev.isCoreLoggingOpen);
+      setIsFieldMappingModeOpen(prev.isFieldMappingModeOpen);
+      setIsDigitalTwinContinuousLogOpen(prev.isDigitalTwinContinuousLogOpen);
+      setIsDigitalTwinBetaOpen(prev.isDigitalTwinBetaOpen);
+      setScreen(prev.screen);
+      return;
+    }
+
+    // Fallback when no prior window exists in stack
+    setIsCoreLoggingOpen(false);
+    setIsFieldMappingModeOpen(false);
+    setResumeFieldAtLastStage(false);
+    setIsDigitalTwinContinuousLogOpen(false);
+    setIsDigitalTwinBetaOpen(false);
+    setResumeDigitalTwinBeta(false);
+    if (screen === 'mapping') {
+      setScreen('drive_and_photos');
+    } else if (
+      screen === 'drive_and_photos' ||
+      screen === 'geometry_manual' ||
+      screen === 'geometry_cad' ||
+      screen === 'geometry_custom'
+    ) {
+      setScreen('start');
+    } else {
+      setScreen('welcome');
+    }
+  }, [screen]);
 
   const [tbmParams, setTbmParams] = useState<TbmMachineParameters | undefined>(
     () => initialDraft?.settings?.tbmParams
@@ -2914,6 +3025,12 @@ export default function App({
   }, [isSupportReferenceOpen]);
 
   useEffect(() => {
+    if (isBlastCalculatorOpen) {
+      return registerStepBackHandler('blast_calculator', () => setIsBlastCalculatorOpen(false), 100, 'Close Blast Calculator');
+    }
+  }, [isBlastCalculatorOpen]);
+
+  useEffect(() => {
     if (isNatmRockMechanicsModalOpen) {
       return registerStepBackHandler('rock_mechanics', () => setIsNatmRockMechanicsModalOpen(false), 100, 'Close Rock Mechanics');
     }
@@ -2957,47 +3074,42 @@ export default function App({
 
   useEffect(() => {
     if (isCoreLoggingOpen) {
-      return registerStepBackHandler('core_logging', () => setIsCoreLoggingOpen(false), 85, 'Exit Core Logging');
+      return registerStepBackHandler('core_logging', () => handleReturnToPreviousWindow(), 85, 'Return to Previous Window');
     }
-  }, [isCoreLoggingOpen]);
+  }, [isCoreLoggingOpen, handleReturnToPreviousWindow]);
 
   useEffect(() => {
     if (isFieldMappingModeOpen) {
-      return registerStepBackHandler('field_mapping', () => setIsFieldMappingModeOpen(false), 80, 'Exit Field Mapping');
+      return registerStepBackHandler('field_mapping', () => handleReturnToPreviousWindow(), 80, 'Return to Previous Window');
     }
-  }, [isFieldMappingModeOpen]);
+  }, [isFieldMappingModeOpen, handleReturnToPreviousWindow]);
 
   useEffect(() => {
     if (isDigitalTwinBetaOpen) {
-      return registerStepBackHandler('digital_twin_beta', () => setIsDigitalTwinBetaOpen(false), 82, 'Exit 3D Digital Twin');
+      return registerStepBackHandler('digital_twin_beta', () => handleReturnToPreviousWindow(), 82, 'Return to Previous Window');
     }
-  }, [isDigitalTwinBetaOpen]);
+  }, [isDigitalTwinBetaOpen, handleReturnToPreviousWindow]);
 
   useEffect(() => {
     if (isDigitalTwinContinuousLogOpen) {
-      return registerStepBackHandler('digital_twin_continuous', () => setIsDigitalTwinContinuousLogOpen(false), 83, 'Exit Continuous 3D Twin Log');
+      return registerStepBackHandler('digital_twin_continuous', () => handleReturnToPreviousWindow(), 83, 'Return to Previous Window');
     }
-  }, [isDigitalTwinContinuousLogOpen]);
+  }, [isDigitalTwinContinuousLogOpen, handleReturnToPreviousWindow]);
 
   useEffect(() => {
-    if (screen === 'mapping') {
-      return registerStepBackHandler('screen_mapping', () => {
-        navigateScreen('drive_and_photos');
-      }, 50, 'Return to Drive & Photos');
-    } else if (screen === 'drive_and_photos') {
-      return registerStepBackHandler('screen_drive', () => {
-        navigateScreen('start');
-      }, 50, 'Return to Project Setup');
-    } else if (
+    if (
+      screen === 'mapping' ||
+      screen === 'drive_and_photos' ||
       screen === 'geometry_manual' ||
       screen === 'geometry_cad' ||
-      screen === 'geometry_custom'
+      screen === 'geometry_custom' ||
+      screen === 'start'
     ) {
-      return registerStepBackHandler('screen_geom', () => {
-        navigateScreen('start');
-      }, 50, 'Return to Start');
+      return registerStepBackHandler('screen_nav', () => {
+        handleReturnToPreviousWindow();
+      }, 50, 'Return to Previous Window');
     }
-  }, [screen, navigateScreen]);
+  }, [screen, handleReturnToPreviousWindow]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -3944,6 +4056,13 @@ export default function App({
     />
   );
 
+  const blastCalculatorModalNode = (
+    <BlastReadinessCalculatorModal
+      isOpen={isBlastCalculatorOpen}
+      onClose={() => setIsBlastCalculatorOpen(false)}
+    />
+  );
+
   const userFeedbackModalNode = (
     <>
       <UserFeedbackModal
@@ -4158,12 +4277,7 @@ export default function App({
           }}
         >
           <CoreLoggingWorkspace
-            onBackToMain={() => {
-              setIsCoreLoggingOpen(false);
-              if (industryMode === 'NATM') {
-                setScreen('welcome');
-              }
-            }}
+            onBackToMain={handleReturnToPreviousWindow}
             onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
             activeGeologistProfile={activeGeologist}
             industryMode={industryMode}
@@ -4203,20 +4317,8 @@ export default function App({
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
-          onBackToWelcome={() => {
-            setIsFieldMappingModeOpen(false);
-            setResumeFieldAtLastStage(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
-          }}
-          onExitToWelcome={() => {
-            setIsFieldMappingModeOpen(false);
-            setResumeFieldAtLastStage(false);
-            if (industryMode === 'NATM') {
-              setScreen('welcome');
-            }
-          }}
+          onBackToWelcome={handleReturnToPreviousWindow}
+          onExitToWelcome={handleReturnToPreviousWindow}
         />
         {projectMemoryModalNode}
         {continuousLoggingModalsNode}
@@ -4234,12 +4336,7 @@ export default function App({
   if (isDigitalTwinContinuousLogOpen) {
     return (
       <DigitalTwinContinuous3DLogWorkspace
-        onBackToMainMenu={() => {
-          setIsDigitalTwinContinuousLogOpen(false);
-          if (industryMode === 'NATM') {
-            setScreen('welcome');
-          }
-        }}
+        onBackToMainMenu={handleReturnToPreviousWindow}
         onOpenSingleRoundIn3DTwin={(
           projectId,
           locationId,
@@ -4280,13 +4377,7 @@ export default function App({
           setIsDigitalTwinBetaOpen(false);
           setIsDigitalTwinContinuousLogOpen(true);
         }}
-        onBackToMainMenu={() => {
-          setIsDigitalTwinBetaOpen(false);
-          setResumeDigitalTwinBeta(false);
-          if (industryMode === 'NATM') {
-            setScreen('welcome');
-          }
-        }}
+        onBackToMainMenu={handleReturnToPreviousWindow}
       />
     );
   }
@@ -4345,6 +4436,7 @@ export default function App({
         onOpenDigitalTwinContinuousLog={() => {
           setIsDigitalTwinContinuousLogOpen(true);
         }}
+        onOpenBlastCalculator={() => setIsBlastCalculatorOpen(true)}
         projectMemoryModalNode={projectMemoryModalNode}
         natmRockMechanicsModalNode={natmRockMechanicsModalNode}
         tunnelMonitoringModalNode={tunnelMonitoringModalNode}
@@ -4352,6 +4444,7 @@ export default function App({
         groutingModalNode={groutingModalNode}
         continuousLoggingModalsNode={continuousLoggingModalsNode}
         globalSettingsModalNode={globalSettingsModalNode}
+        blastCalculatorModalNode={blastCalculatorModalNode}
         modeSwitchConfirmationModalNode={modeSwitchConfirmationModalNode}
         bottomThreeTogglesNode={bottomThreeTogglesNode}
       />
@@ -4378,6 +4471,7 @@ export default function App({
           pendingRequestCount={pendingRequestCount}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
+          onOpenBlastCalculator={() => setIsBlastCalculatorOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -4400,6 +4494,7 @@ export default function App({
         />
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
+        {blastCalculatorModalNode}
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
@@ -4424,6 +4519,7 @@ export default function App({
           pendingRequestCount={pendingRequestCount}
           onOpenGlobalSettings={() => setIsGlobalSettingsOpen(true)}
           onOpenFeedback={!isMasterSoftware ? () => setIsUserFeedbackModalOpen(true) : undefined}
+          onOpenBlastCalculator={() => setIsBlastCalculatorOpen(true)}
           onOpenContinuousTunnelLog={() => {
             setIsContinuousLogSetupOpen(true);
           }}
@@ -4448,6 +4544,7 @@ export default function App({
         />
         {continuousLoggingModalsNode}
         {globalSettingsModalNode}
+        {blastCalculatorModalNode}
         {projectConfigModalNode}
         {modeSwitchConfirmationModalNode}
         {bottomThreeTogglesNode}
@@ -4973,12 +5070,12 @@ export default function App({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setScreen('welcome')}
-                className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 border border-amber-600 cursor-pointer shadow-xs"
-                title="Go One Step Back to Welcome Window"
+                onClick={handleReturnToPreviousWindow}
+                className={layoutStyles.backButton}
+                title="Return to Previous Window"
               >
-                <ArrowLeft className="w-4 h-4 text-slate-950" />
-                <span>Step Back</span>
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back</span>
               </button>
               <EswaTunnelLogo size="sm" animated={false} />
 
@@ -6529,7 +6626,7 @@ export default function App({
         qIndexParams={qIndexParams}
         qParamStatus={qParamStatus}
         responsive={responsive}
-        onBack={() => navigateScreen('start')}
+        onBack={handleReturnToPreviousWindow}
         onOpenProjectConfiguration={() => setIsProjectConfigModalOpen(true)}
         onOpenCustomEditor={(initialTab, returnScreen) => {
           setCustomEditorInitialTab(initialTab);
@@ -6716,7 +6813,7 @@ export default function App({
           onRedo={handleRedo}
           canUndo={historyPast.length > 0}
           canRedo={historyFuture.length > 0}
-          onBackToSetup={() => navigateScreen('drive_and_photos')}
+          onBackToSetup={handleReturnToPreviousWindow}
           onOpenProjectConfiguration={() => setIsProjectConfigModalOpen(true)}
           onOpenExportSheet={(mode = 'FINAL_ENGINEERING_SHEET') => {
             handleSaveCurrentProjectToMemory();

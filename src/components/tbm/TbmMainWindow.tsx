@@ -9,6 +9,7 @@
 
 import React, { useState, useMemo } from 'react';
 import {
+  Calculator,
   CircleDot,
   Database,
   ArrowRight,
@@ -49,6 +50,7 @@ interface TbmMainWindowProps {
   onOpenAdminPortal?: () => void;
   pendingRequestCount?: number;
   onOpenFeedback?: () => void;
+  onOpenBlastCalculator?: () => void;
 }
 
 export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
@@ -58,6 +60,7 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
   activeGeologist,
   onOpenGlobalSettings,
   onOpenFeedback,
+  onOpenBlastCalculator,
   onOpenContinuousTunnelLog,
   onOpenCoreLogging,
   isAuthBusy = false,
@@ -171,6 +174,17 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
           >
             <MessageSquare className="w-4 h-4 text-cyan-400" />
             <span className="font-semibold">Feedback</span>
+          </button>
+        )}
+        {onOpenBlastCalculator && (
+          <button
+            type="button"
+            onClick={onOpenBlastCalculator}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900/90 border border-slate-700 hover:border-cyan-500 text-slate-200 shadow-sm transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
+            title="Open Standalone Next-Blast Clearance & Stand-Up Time Calculator"
+          >
+            <Calculator className="w-4 h-4 text-cyan-400" />
+            <span className="font-semibold">Blast Calc</span>
           </button>
         )}
         <button

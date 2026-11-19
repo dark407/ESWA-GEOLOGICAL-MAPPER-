@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpen,
   Box,
+  Calculator,
   Cloud,
   Compass,
   Crosshair,
@@ -109,6 +110,7 @@ export interface WelcomeScreenProps {
   onOpenGrouting?: () => void;
   onOpenDigitalTwinTunnelBeta?: (resume?: boolean) => void;
   onOpenDigitalTwinContinuousLog?: () => void;
+  onOpenBlastCalculator?: () => void;
   projectMemoryModalNode?: React.ReactNode;
   natmRockMechanicsModalNode?: React.ReactNode;
   tunnelMonitoringModalNode?: React.ReactNode;
@@ -116,6 +118,7 @@ export interface WelcomeScreenProps {
   groutingModalNode?: React.ReactNode;
   continuousLoggingModalsNode?: React.ReactNode;
   globalSettingsModalNode?: React.ReactNode;
+  blastCalculatorModalNode?: React.ReactNode;
   modeSwitchConfirmationModalNode?: React.ReactNode;
   bottomThreeTogglesNode?: React.ReactNode;
 }
@@ -159,6 +162,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenGrouting,
   onOpenDigitalTwinTunnelBeta,
   onOpenDigitalTwinContinuousLog,
+  onOpenBlastCalculator,
   projectMemoryModalNode,
   natmRockMechanicsModalNode,
   tunnelMonitoringModalNode,
@@ -166,6 +170,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   groutingModalNode,
   continuousLoggingModalsNode,
   globalSettingsModalNode,
+  blastCalculatorModalNode,
   modeSwitchConfirmationModalNode,
   bottomThreeTogglesNode,
 }) => {
@@ -252,6 +257,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 style={{ color: palette.accentIconColor }}
               />
               <span className="font-semibold">Feedback</span>
+            </button>
+          )}
+
+          {onOpenBlastCalculator && (
+            <button
+              type="button"
+              onClick={onOpenBlastCalculator}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/95 border text-slate-800 shadow-sm transition-all cursor-pointer active:scale-95 hover:bg-stone-50 whitespace-nowrap shrink-0"
+              style={{ borderColor: palette.primaryHex + '45' }}
+              title="Open Standalone Next-Blast Clearance, Stand-Up Time & Conditional Support Calculator"
+            >
+              <Calculator
+                className="w-4 h-4"
+                style={{ color: palette.accentIconColor }}
+              />
+              <span className="font-semibold">Blast Calc</span>
             </button>
           )}
 
@@ -959,6 +980,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {groutingModalNode}
       {continuousLoggingModalsNode}
       {globalSettingsModalNode}
+      {blastCalculatorModalNode}
       {modeSwitchConfirmationModalNode}
       {bottomThreeTogglesNode}
       <UserFeedbackModal

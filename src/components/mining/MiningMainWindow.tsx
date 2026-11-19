@@ -10,6 +10,7 @@
 
 import React, { useState, useMemo } from 'react';
 import {
+  Calculator,
   Pickaxe,
   Layers,
   Database,
@@ -63,6 +64,7 @@ export interface MiningMainWindowProps {
   onOpenAdminPortal?: () => void;
   pendingRequestCount?: number;
   onOpenFeedback?: () => void;
+  onOpenBlastCalculator?: () => void;
 }
 
 export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
@@ -72,6 +74,7 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   activeGeologist,
   onOpenGlobalSettings,
   onOpenFeedback,
+  onOpenBlastCalculator,
   onOpenContinuousTunnelLog,
   onOpenCoreLogging,
   isAuthBusy = false,
@@ -183,6 +186,17 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
           >
             <MessageSquare className="w-4 h-4 text-amber-400" />
             <span className="font-semibold">Feedback</span>
+          </button>
+        )}
+        {onOpenBlastCalculator && (
+          <button
+            type="button"
+            onClick={onOpenBlastCalculator}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900/90 border border-slate-700 hover:border-amber-500 text-slate-200 shadow-sm transition-all cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
+            title="Open Standalone Next-Blast Clearance & Stand-Up Time Calculator"
+          >
+            <Calculator className="w-4 h-4 text-amber-400" />
+            <span className="font-semibold">Blast Calc</span>
           </button>
         )}
         <button
