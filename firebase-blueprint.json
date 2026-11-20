@@ -437,6 +437,67 @@
         "isCurrent": { "type": "boolean" }
       },
       "required": ["releaseId", "version", "title", "publishedAtIso", "isCurrent"]
+    },
+    "ProjectRecord": {
+      "title": "ProjectRecord",
+      "description": "Saved NATM/Mining/TBM project, heading, round geometry, and geological mapping payload synced per verified Google user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "projectName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "locationName": { "type": "string", "maxLength": 160 },
+        "industryMode": { "type": "string", "enum": ["NATM", "TBM", "MINING"] },
+        "chainageLabel": { "type": "string", "maxLength": 120 },
+        "updatedAtIso": { "type": "string", "maxLength": 64 },
+        "payloadJson": { "type": "string", "maxLength": 850000 }
+      },
+      "required": ["id", "uid", "projectName", "industryMode", "updatedAtIso", "payloadJson"]
+    },
+    "CoreLoggingRun": {
+      "title": "CoreLoggingRun",
+      "description": "Geotechnical borehole core logging run (RQD, TCR, SCR, fracture density, weathering) synced per verified Google user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "boreholeId": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "projectName": { "type": "string", "maxLength": 160 },
+        "industryMode": { "type": "string", "enum": ["NATM", "TBM", "MINING"] },
+        "updatedAtIso": { "type": "string", "maxLength": 64 },
+        "payloadJson": { "type": "string", "maxLength": 850000 }
+      },
+      "required": ["id", "uid", "boreholeId", "industryMode", "updatedAtIso", "payloadJson"]
+    },
+    "MonitoringReading": {
+      "title": "MonitoringReading",
+      "description": "Convergence extensometer, optical prism, MPBX, load cell, and piezometer monitoring dataset per location.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "project": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "location": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "structureType": { "type": "string", "enum": ["tunnel", "vertical_shaft"] },
+        "updatedAtIso": { "type": "string", "maxLength": 64 },
+        "payloadJson": { "type": "string", "maxLength": 850000 }
+      },
+      "required": ["id", "uid", "project", "location", "structureType", "updatedAtIso", "payloadJson"]
+    },
+    "BlastClearanceAssessment": {
+      "title": "BlastClearanceAssessment",
+      "description": "Saved Next-Blast Clearance, Stand-Up Time, Overburden Stress, and Support Capacity assessment snapshot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "projectName": { "type": "string", "maxLength": 160 },
+        "tunnelShape": { "type": "string", "maxLength": 80 },
+        "verdict": { "type": "string", "maxLength": 64 },
+        "updatedAtIso": { "type": "string", "maxLength": 64 },
+        "payloadJson": { "type": "string", "maxLength": 450000 }
+      },
+      "required": ["id", "uid", "verdict", "updatedAtIso", "payloadJson"]
     }
   },
   "firestore": {
@@ -459,6 +520,22 @@
     "/user_workspaces/{uid}": {
       "schema": { "$ref": "#/entities/UserWorkspace" },
       "description": "Cloud-synced app and mapping data for Google-authenticated users."
+    },
+    "/user_workspaces/{uid}/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/ProjectRecord" },
+      "description": "Owner-scoped saved tunnel/stope/TBM projects, headings, and rounds."
+    },
+    "/user_workspaces/{uid}/core_logs/{runId}": {
+      "schema": { "$ref": "#/entities/CoreLoggingRun" },
+      "description": "Owner-scoped borehole core logging runs."
+    },
+    "/user_workspaces/{uid}/monitoring/{readingId}": {
+      "schema": { "$ref": "#/entities/MonitoringReading" },
+      "description": "Owner-scoped convergence and piezometer monitoring datasets."
+    },
+    "/user_workspaces/{uid}/blast_assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/BlastClearanceAssessment" },
+      "description": "Owner-scoped Blast Readiness & Stand-Up Time assessment snapshots."
     },
     "/device_directory/{deviceId}": {
       "schema": { "$ref": "#/entities/DeviceDirectoryEntry" },

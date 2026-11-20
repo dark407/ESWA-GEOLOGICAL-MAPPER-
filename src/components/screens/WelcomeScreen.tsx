@@ -56,6 +56,7 @@ import {
 } from '../EswaBrandIdentity';
 import { DeviceIdAndNotificationHeaderWidget } from '../DeviceIdReviewAndNotificationCenter';
 import { ThemeToggleButton } from '../../context/ThemeContext';
+import { GoogleCloudSyncHeaderControl } from '../GoogleCloudSyncHeaderControl';
 
 export interface WelcomeScreenProps {
   industryMode: IndustryMode;
@@ -275,6 +276,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <span className="font-semibold">Blast Calc</span>
             </button>
           )}
+
+          <GoogleCloudSyncHeaderControl
+            googleUser={googleUser}
+            onUserChanged={setGoogleUser}
+            onOpenSettingsAccount={() => setIsGlobalSettingsOpen(true)}
+            variant="light"
+            accentBorderColor={palette.primaryHex}
+          />
 
           <button
             type="button"

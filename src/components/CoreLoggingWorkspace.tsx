@@ -23,6 +23,7 @@ import {
   GeologistUserProfile,
   syncCoreLogForAiTraining,
 } from '../engine/userCloudAndPackageEngine';
+import { syncEngineeringModuleRecord } from '../engine/engineeringPersistenceEngine';
 import {
   CoreLogReportModal,
 } from './CoreLogReportModal';
@@ -649,6 +650,15 @@ export const CoreLoggingWorkspace: React.FC<CoreLoggingWorkspaceProps> = React.m
       if (activeId) {
         localStorage.setItem(getModeActiveIdKey(activeIndustryMode), activeId);
         setActiveBoreholeId(activeId);
+      }
+      const targetBh =
+        (activeId ? list.find((b) => b.id === activeId) : list[0]) || list[0];
+      if (targetBh) {
+        void syncEngineeringModuleRecord('core_logs', targetBh.id, {
+          ...targetBh,
+          industryMode: activeIndustryMode,
+          updatedAtIso: targetBh.updatedAt || new Date().toISOString(),
+        } as unknown as Record<string, unknown>);
       }
     } catch {}
   };

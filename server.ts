@@ -56,7 +56,7 @@ async function startServer() {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, X-ESWA-Hardware-ID, X-ESWA-Signature'
+      'Content-Type, Authorization, X-ESWA-Hardware-ID, X-ESWA-Signature, X-ESWA-User-UID'
     );
     if (req.method === 'OPTIONS') {
       res.status(204).end();
@@ -3877,6 +3877,160 @@ ${safeJsContent}
       res.status(500).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to prepare OTA bundle',
+      });
+    }
+  });
+
+  // ==================== HYBRID ENGINEERING WORKSPACE PERSISTENCE (/api/engineering/*) ====================
+  type EngineeringModuleKey = 'projects' | 'core_logs' | 'monitoring' | 'blast_assessments';
+  interface EngineeringStorePayload {
+    scopes: Record<
+      string,
+      Record<EngineeringModuleKey, Record<string, Record<string, unknown>>>
+    >;
+  }
+
+  const engineeringStorePath = path.join(runtimeCacheDir, 'engineering-store.json');
+
+  const sanitizeEngineeringScope = (raw: unknown): string => {
+    const clean = String(raw || 'local_workstation')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 120);
+    return clean || 'local_workstation';
+  };
+
+  const isEngineeringModuleKey = (val: unknown): val is EngineeringModuleKey =>
+    val === 'projects' ||
+    val === 'core_logs' ||
+    val === 'monitoring' ||
+    val === 'blast_assessments';
+
+  const readEngineeringStore = (): EngineeringStorePayload => {
+    try {
+      if (fs.existsSync(engineeringStorePath)) {
+        const raw = fs.readFileSync(engineeringStorePath, 'utf8');
+        const parsed = JSON.parse(raw) as Partial<EngineeringStorePayload>;
+        if (parsed && parsed.scopes && typeof parsed.scopes === 'object') {
+          return { scopes: parsed.scopes };
+        }
+      }
+    } catch {
+      // Fall through to empty store
+    }
+    return { scopes: {} };
+  };
+
+  const writeEngineeringStoreAtomic = (data: EngineeringStorePayload): void => {
+    fs.mkdirSync(runtimeCacheDir, { recursive: true });
+    const tmpPath = `${engineeringStorePath}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data), 'utf8');
+    fs.renameSync(tmpPath, engineeringStorePath);
+  };
+
+  app.get('/api/engineering/state', (req, res) => {
+    try {
+      const ownerScope = sanitizeEngineeringScope(
+        req.query.ownerScope || req.headers['x-eswa-user-uid']
+      );
+      const storeData = readEngineeringStore();
+      const scopeData = storeData.scopes[ownerScope] || {
+        projects: {},
+        core_logs: {},
+        monitoring: {},
+        blast_assessments: {},
+      };
+      res.json({
+        ok: true,
+        ownerScope,
+        modules: {
+          projects: Object.values(scopeData.projects || {}),
+          core_logs: Object.values(scopeData.core_logs || {}),
+          monitoring: Object.values(scopeData.monitoring || {}),
+          blast_assessments: Object.values(scopeData.blast_assessments || {}),
+        },
+      });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load engineering state',
+      });
+    }
+  });
+
+  app.post('/api/engineering/upsert', (req, res) => {
+    try {
+      const body = req.body as {
+        ownerScope?: string;
+        module?: string;
+        id?: string;
+        record?: Record<string, unknown>;
+      };
+      if (!isEngineeringModuleKey(body?.module)) {
+        res.status(400).json({ ok: false, error: 'Invalid engineering module key' });
+        return;
+      }
+      const ownerScope = sanitizeEngineeringScope(
+        body.ownerScope || req.headers['x-eswa-user-uid']
+      );
+      const docId = sanitizeEngineeringScope(body.id || 'item');
+      const record = body.record;
+      if (!record || typeof record !== 'object' || Array.isArray(record)) {
+        res.status(400).json({ ok: false, error: 'Missing record payload' });
+        return;
+      }
+
+      const storeData = readEngineeringStore();
+      if (!storeData.scopes[ownerScope]) {
+        storeData.scopes[ownerScope] = {
+          projects: {},
+          core_logs: {},
+          monitoring: {},
+          blast_assessments: {},
+        };
+      }
+      if (!storeData.scopes[ownerScope][body.module]) {
+        storeData.scopes[ownerScope][body.module] = {};
+      }
+      storeData.scopes[ownerScope][body.module][docId] = {
+        ...record,
+        _serverSyncedAtIso: new Date().toISOString(),
+      };
+      writeEngineeringStoreAtomic(storeData);
+      res.json({ ok: true, ownerScope, module: body.module, id: docId });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to save engineering record',
+      });
+    }
+  });
+
+  app.post('/api/engineering/delete', (req, res) => {
+    try {
+      const body = req.body as {
+        ownerScope?: string;
+        module?: string;
+        id?: string;
+      };
+      if (!isEngineeringModuleKey(body?.module)) {
+        res.status(400).json({ ok: false, error: 'Invalid engineering module key' });
+        return;
+      }
+      const ownerScope = sanitizeEngineeringScope(
+        body.ownerScope || req.headers['x-eswa-user-uid']
+      );
+      const docId = sanitizeEngineeringScope(body.id || 'item');
+      const storeData = readEngineeringStore();
+      if (storeData.scopes[ownerScope]?.[body.module]?.[docId]) {
+        delete storeData.scopes[ownerScope][body.module][docId];
+        writeEngineeringStoreAtomic(storeData);
+      }
+      res.json({ ok: true, ownerScope, module: body.module, id: docId });
+    } catch (err: unknown) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to delete engineering record',
       });
     }
   });

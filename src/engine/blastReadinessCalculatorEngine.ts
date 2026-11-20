@@ -1,5 +1,9 @@
 import { TunnelGeometry } from '../types/tunnel';
 import { createTunnelGeometry } from './geometryEngine';
+import {
+  deleteEngineeringModuleRecord,
+  syncEngineeringModuleRecord,
+} from './engineeringPersistenceEngine';
 
 export type BlastCalcSupportTier =
   | 'none'
@@ -2609,6 +2613,25 @@ export function saveBlastCalcSnapshot(
   } catch {
     // Ignore storage quota issues
   }
+  void syncEngineeringModuleRecord('blast_assessments', record.id, {
+    id: record.id,
+    savedAt: record.savedAt,
+    updatedAtIso: record.savedAt,
+    projectName: input.scenarioLabel || input.chainageLabel || 'Blast Scenario',
+    tunnelShape:
+      input.geometry?.profileType ||
+      input.geometry?.crownGeometry ||
+      input.geometry?.profileName ||
+      'horseshoe',
+    verdict: result.verdict || 'ANALYZED',
+    input: record.input,
+    resultSummary: {
+      verdict: result.verdict,
+      supportedStandUpPostBlastHrs: result.supportedStandUpPostBlastHrs,
+      maxSafeNextPullM: result.maxSafeNextPullM,
+      qEffectiveBlastAdjusted: result.qEffectiveBlastAdjusted,
+    },
+  });
   return next;
 }
 
@@ -2620,6 +2643,7 @@ export function deleteBlastCalcSnapshot(id: string): BlastCalcHistoryRecord[] {
   } catch {
     // Ignore
   }
+  void deleteEngineeringModuleRecord('blast_assessments', id);
   return next;
 }
 

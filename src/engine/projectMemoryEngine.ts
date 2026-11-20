@@ -10,6 +10,10 @@ import {
   loadHighCapacityCollection,
   saveHighCapacityCollection,
 } from './fastAsyncStorageEngine';
+import {
+  deleteEngineeringModuleRecord,
+  syncEngineeringModuleRecord,
+} from './engineeringPersistenceEngine';
 
 const SAVED_GEOMETRIES_STORAGE_KEY = 'eswa_tunnel_saved_geometries_v20_fresh';
 const PROJECT_MEMORY_STORAGE_KEY = 'eswa_tunnel_project_memory_v20_fresh';
@@ -264,6 +268,14 @@ export function saveProjectRecordToMemory(
   }
 
   saveHighCapacityCollection(PROJECT_MEMORY_STORAGE_KEY, next);
+  for (const oldId of replacedIds) {
+    void deleteEngineeringModuleRecord('projects', oldId);
+  }
+  void syncEngineeringModuleRecord(
+    'projects',
+    record.id,
+    record as unknown as Record<string, unknown>
+  );
   return { records: next, savedRecord: record };
 }
 
@@ -273,6 +285,7 @@ export function deleteProjectRecordFromMemory(id: string): SavedProjectRecord[] 
     window.akashDesktop.deleteProjectFromDisk(id).catch(() => {});
   }
   saveHighCapacityCollection(PROJECT_MEMORY_STORAGE_KEY, next);
+  void deleteEngineeringModuleRecord('projects', id);
   return next;
 }
 

@@ -70,6 +70,10 @@ import {
   saveDesignGeometryToLibrary,
   saveProjectRecordToMemory,
 } from './engine/projectMemoryEngine';
+import {
+  flushPendingEngineeringQueue,
+  pullEngineeringModulesFromServerAndCloud,
+} from './engine/engineeringPersistenceEngine';
 import { ProjectMemoryModal } from './components/OverbreakAndProjectMemoryPanel';
 import { NatmRockMechanicsAndLookAheadHub } from './components/NatmRockMechanicsAndLookAheadHub';
 import {
@@ -380,10 +384,18 @@ export default function App({
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
+    const handleOnlineFlush = () => {
+      void flushPendingEngineeringQueue();
+    };
+    window.addEventListener('online', handleOnlineFlush);
+    void flushPendingEngineeringQueue();
+
     const unsub = subscribeToGoogleUserAccount(async (userInfo) => {
       setGoogleUser(userInfo);
       if (userInfo) {
+        await flushPendingEngineeringQueue();
         const res = await pullUserWorkspaceFromCloud();
+        await pullEngineeringModulesFromServerAndCloud();
         if (res.pulled && res.updatedLocal) {
           setSavedProjects(loadSavedProjectsFromMemory());
           setSavedGeometries(loadSavedDesignGeometries());
@@ -391,7 +403,10 @@ export default function App({
         }
       }
     });
-    return () => unsub();
+    return () => {
+      window.removeEventListener('online', handleOnlineFlush);
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
@@ -4465,6 +4480,7 @@ export default function App({
           industryMode={industryMode}
           onChangeIndustryMode={handleSwitchIndustryMode}
           googleUser={googleUser}
+          onUserChanged={setGoogleUser}
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenAdminPortal={onOpenAdminPortal}
@@ -4513,6 +4529,7 @@ export default function App({
           industryMode={industryMode}
           onChangeIndustryMode={handleSwitchIndustryMode}
           googleUser={googleUser}
+          onUserChanged={setGoogleUser}
           activeGeologist={activeGeologist}
           isMasterSoftware={isMasterSoftware}
           onOpenAdminPortal={onOpenAdminPortal}

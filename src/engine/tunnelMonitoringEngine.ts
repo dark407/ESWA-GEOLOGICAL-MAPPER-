@@ -3,6 +3,7 @@
 // Supports: Load Cells, Inclinometers, Piezometers, MPBX, Crackmeters,
 // Extensometers (Tape Convergence), and 3D Optical Prisms.
 // ============================================================================
+import { syncEngineeringModuleRecord } from './engineeringPersistenceEngine';
 
 export type MonitoringStructureType = 'tunnel' | 'vertical_shaft';
 
@@ -797,6 +798,12 @@ export function saveLocationMonitoringData(data: LocationMonitoringRecord): void
   } catch (err) {
     console.error('Failed to save monitoring data to localStorage:', err);
   }
+  const docId = data.id || key;
+  void syncEngineeringModuleRecord('monitoring', docId, {
+    ...data,
+    id: docId,
+    updatedAtIso: data.lastUpdated || new Date().toISOString(),
+  } as unknown as Record<string, unknown>);
 }
 
 // Export monitoring data to CSV

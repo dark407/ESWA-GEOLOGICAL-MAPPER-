@@ -8,6 +8,8 @@ import {
   ArrowRight,
   Box,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Compass,
   Download,
   FileSpreadsheet,
@@ -16,12 +18,14 @@ import {
   MapPin,
   Plus,
   Scissors,
+  Shield,
   Sparkles,
 } from 'lucide-react';
 import { EswaTunnelLogo } from './EswaBrandIdentity';
 import {
   appendNextSequential3DDigitalTwinRound,
   buildContinuous3DDigitalTwinCorridorAnalysis,
+  buildTheoreticalDesignReferenceLoop,
   Continuous3DDigitalTwinCorridorAnalysis,
   DigitalTwinBetaStore,
   ensureMultiRound3DDigitalTwinDrive,
@@ -33,6 +37,15 @@ import {
   sync3DDigitalTwinRoundTo2DUndergroundStore,
   syncAll3DDigitalTwinLocationRoundsTo2DStore,
 } from '../engine/digitalTwin20PhotoEngine';
+import {
+  afterDrawSync,
+  buildInstancedTunnelSupports,
+  createProceduralRockTextures,
+  dampVector3,
+  detectSoftwareGl,
+  ProceduralPbrTextureSet,
+  TunnelSupportPointSample,
+} from '../engine/threeTunnelPbrKit';
 
 export interface DigitalTwinContinuous3DLogWorkspaceProps {
   onBackToMainMenu: () => void;
@@ -176,7 +189,11 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
   const [show3DJointTraces, setShow3DJointTraces] = useState<boolean>(true);
   const [showCrossRoundRibbons, setShowCrossRoundRibbons] = useState<boolean>(true);
   const [show3DWedges, setShow3DWedges] = useState<boolean>(true);
+  const [showCorridorSupports, setShowCorridorSupports] = useState<boolean>(true);
   const [showChainageScrubber, setShowChainageScrubber] = useState<boolean>(true);
+  const [showSliceCard, setShowSliceCard] = useState<boolean>(false);
+  const [isCorridorDockCollapsed, setIsCorridorDockCollapsed] =
+    useState<boolean>(false);
   const [selectedChainageM, setSelectedChainageM] = useState<number>(103.5);
 
   // Selection states for right-hand analytical panel & 3D highlighting
@@ -334,13 +351,25 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
   // THREE.JS MULTI-ROUND CONTINUOUS 3D DIGITAL TWIN CORRIDOR VIEWPORT
   // ============================================================================
   const viewportContainerRef = useRef<HTMLDivElement | null>(null);
+  const requestRenderRef = useRef<(() => void) | null>(null);
+  const rockTexRef = useRef<ProceduralPbrTextureSet | null>(null);
+  const cameraTransitionRef = useRef<{
+    active: boolean;
+    camPos: THREE.Vector3;
+    targetPos: THREE.Vector3;
+  }>({
+    active: false,
+    camPos: new THREE.Vector3(),
+    targetPos: new THREE.Vector3(),
+  });
   const threeCtxRef = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
+    isSoftwareGl: boolean;
+    maxAniso: number;
     corridorRootGroup: THREE.Group | null;
-    animId: number;
   } | null>(null);
 
   const resetCorridorCamera = useCallback(
@@ -361,22 +390,27 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
       const midZ = -L * 0.5;
 
       if (preset === 'portal_to_face') {
-        ctx.camera.position.set(0, H * 0.48, Math.max(4.5, L * 0.35));
-        ctx.controls.target.set(0, H * 0.45, -L * 0.65);
+        cameraTransitionRef.current.camPos.set(0, H * 0.48, Math.max(4.5, L * 0.35));
+        cameraTransitionRef.current.targetPos.set(0, H * 0.45, -L * 0.65);
       } else if (preset === 'crown_arch') {
-        ctx.camera.position.set(0, H * 0.18, midZ + L * 0.35);
-        ctx.controls.target.set(0, H * 0.88, midZ - L * 0.15);
+        cameraTransitionRef.current.camPos.set(0, H * 0.18, midZ + L * 0.35);
+        cameraTransitionRef.current.targetPos.set(0, H * 0.88, midZ - L * 0.15);
       } else if (preset === 'left_wall') {
-        ctx.camera.position.set(W * 0.75, H * 0.48, midZ + L * 0.25);
-        ctx.controls.target.set(-W * 0.45, H * 0.45, midZ - L * 0.1);
+        cameraTransitionRef.current.camPos.set(W * 0.75, H * 0.48, midZ + L * 0.25);
+        cameraTransitionRef.current.targetPos.set(-W * 0.45, H * 0.45, midZ - L * 0.1);
       } else if (preset === 'right_wall') {
-        ctx.camera.position.set(-W * 0.75, H * 0.48, midZ + L * 0.25);
-        ctx.controls.target.set(W * 0.45, H * 0.45, midZ - L * 0.1);
+        cameraTransitionRef.current.camPos.set(-W * 0.75, H * 0.48, midZ + L * 0.25);
+        cameraTransitionRef.current.targetPos.set(W * 0.45, H * 0.45, midZ - L * 0.1);
       } else {
-        ctx.camera.position.set(W * 1.15, H * 0.92, Math.max(5.5, L * 0.42));
-        ctx.controls.target.set(0, H * 0.42, midZ);
+        cameraTransitionRef.current.camPos.set(
+          W * 1.15,
+          H * 0.92,
+          Math.max(5.5, L * 0.42)
+        );
+        cameraTransitionRef.current.targetPos.set(0, H * 0.42, midZ);
       }
-      ctx.controls.update();
+      cameraTransitionRef.current.active = true;
+      requestRenderRef.current?.();
     },
     [corridorAnalysis, activeLocation]
   );
@@ -386,36 +420,52 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
     const container = viewportContainerRef.current;
     if (!container) return;
 
+    const isSoftwareGl = detectSoftwareGl();
     const width = Math.max(320, container.clientWidth);
     const height = Math.max(320, container.clientHeight);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isSoftwareGl,
       powerPreference: 'high-performance',
     });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(
+      isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+    );
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = !isSoftwareGl;
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
+    const maxAniso = isSoftwareGl
+      ? 1
+      : Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+    rockTexRef.current = createProceduralRockTextures(maxAniso, 4, 4);
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf8fafc);
+    scene.fog = new THREE.FogExp2(0xf8fafc, 0.0085);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(
-      new RoomEnvironment(),
-      0.04
-    ).texture;
+    const roomEnv = new RoomEnvironment();
+    scene.environment = pmremGenerator.fromScene(roomEnv, 0.04).texture;
+    roomEnv.dispose();
+    pmremGenerator.dispose();
 
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 500);
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    controls.enableDamping = !isSoftwareGl;
     controls.dampingFactor = 0.07;
     controls.maxDistance = 240;
     controls.minDistance = 0.6;
+
+    const onControlStart = () => {
+      cameraTransitionRef.current.active = false;
+    };
+    controls.addEventListener('start', onControlStart);
 
     // Bright studio & engineering inspection lighting
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 1.15);
@@ -429,22 +479,78 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
     dirLight2.position.set(-18, 14, -28);
     scene.add(dirLight2);
 
-    let animId = 0;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
+    let frameId = 0;
+    const syncTimerRef = { id: 0 };
+    let renderBusy = false;
+    let renderDirty = false;
+    let lastStepMs = performance.now();
+
+    function requestRender() {
+      if (renderBusy) {
+        renderDirty = true;
+        return;
+      }
+      renderBusy = true;
+      frameId = requestAnimationFrame((nowMs) => {
+        renderDirty = false;
+        const dtSec = Math.min(Math.max((nowMs - lastStepMs) * 0.001, 0.004), 0.05);
+        lastStepMs = nowMs;
+
+        let needsFollowUp = false;
+        if (cameraTransitionRef.current.active) {
+          if (isSoftwareGl) {
+            camera.position.copy(cameraTransitionRef.current.camPos);
+            controls.target.copy(cameraTransitionRef.current.targetPos);
+            cameraTransitionRef.current.active = false;
+          } else {
+            const cMoving = dampVector3(
+              camera.position,
+              cameraTransitionRef.current.camPos,
+              8.5,
+              dtSec
+            );
+            const tMoving = dampVector3(
+              controls.target,
+              cameraTransitionRef.current.targetPos,
+              8.5,
+              dtSec
+            );
+            if (cMoving || tMoving) {
+              needsFollowUp = true;
+            } else {
+              cameraTransitionRef.current.active = false;
+            }
+          }
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+        const done = () => {
+          renderBusy = false;
+          if (renderDirty || needsFollowUp) requestRender();
+        };
+        if (isSoftwareGl) afterDrawSync(renderer, syncTimerRef, done);
+        else done();
+      });
+    }
+
+    requestRenderRef.current = requestRender;
+    controls.addEventListener('change', requestRender);
 
     threeCtxRef.current = {
       renderer,
       scene,
       camera,
       controls,
+      isSoftwareGl,
+      maxAniso,
       corridorRootGroup: null,
-      animId,
     };
+
+    if (!isSoftwareGl) {
+      renderer.compile(scene, camera);
+    }
+    requestRender();
 
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -453,16 +559,23 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
         camera.aspect = cw / ch;
         camera.updateProjectionMatrix();
         renderer.setSize(cw, ch);
+        requestRender();
       }
     });
     ro.observe(container);
 
     return () => {
       ro.disconnect();
-      cancelAnimationFrame(animId);
-      pmremGenerator.dispose();
+      controls.removeEventListener('change', requestRender);
+      controls.removeEventListener('start', onControlStart);
+      cancelAnimationFrame(frameId);
+      clearTimeout(syncTimerRef.id);
+      rockTexRef.current?.dispose();
+      rockTexRef.current = null;
+      controls.dispose();
       renderer.dispose();
       threeCtxRef.current = null;
+      requestRenderRef.current = null;
     };
   }, []);
 
@@ -474,6 +587,16 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
     const { scene } = ctx;
     if (ctx.corridorRootGroup) {
       scene.remove(ctx.corridorRootGroup);
+      ctx.corridorRootGroup.traverse((child: any) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m: any) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
     }
 
     const rootGroup = new THREE.Group();
@@ -540,6 +663,10 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
           new THREE.BufferAttribute(shiftedPositions, 3)
         );
         meshGeom.setAttribute(
+          'uv',
+          new THREE.BufferAttribute(model.uvs, 2)
+        );
+        meshGeom.setAttribute(
           'color',
           new THREE.BufferAttribute(activeColors, 3)
         );
@@ -550,6 +677,8 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
           vertexColors: true,
           roughness: 0.78,
           metalness: 0.08,
+          bumpMap: rockTexRef.current?.bumpMap ?? null,
+          bumpScale: 0.03,
           side: THREE.DoubleSide,
           polygonOffset: true,
           polygonOffsetFactor: 1,
@@ -806,8 +935,56 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
       rootGroup.add(slicerGroup);
     }
 
+    // 5. Instanced Rockbolts & Steel Arch Ribs across Stitched Corridor Rounds
+    if (showCorridorSupports && corridorAnalysis.stitchedRounds.length > 0) {
+      const refLoop = buildTheoreticalDesignReferenceLoop(activeLocation);
+      const archPts = refLoop.points.filter((p) => p.y >= 0.32);
+      const cy = H * 0.45;
+      const ribLoops: THREE.Vector3[][] = [];
+      const boltStations: TunnelSupportPointSample[][] = [];
+      const boltStep = Math.max(2, Math.floor(archPts.length / 8));
+      const ribStep = Math.max(1, Math.floor(archPts.length / 26));
+
+      for (const seg of corridorAnalysis.stitchedRounds) {
+        const pullLen = seg.round.pullLengthM || 3.5;
+        const stationZs = [
+          seg.zWorldStartM - pullLen * 0.28,
+          seg.zWorldStartM + pullLen * 0.28,
+        ];
+        for (const z of stationZs) {
+          const loop: THREE.Vector3[] = [];
+          for (let k = 0; k < archPts.length; k += ribStep) {
+            loop.push(new THREE.Vector3(archPts[k].x, archPts[k].y, z));
+          }
+          if (archPts.length > 0) {
+            const lastP = archPts[archPts.length - 1];
+            loop.push(new THREE.Vector3(lastP.x, lastP.y, z));
+          }
+          ribLoops.push(loop);
+
+          const stBolts: TunnelSupportPointSample[] = [];
+          for (let k = 1; k < archPts.length - 1; k += boltStep) {
+            const p = archPts[k];
+            stBolts.push({
+              position: new THREE.Vector3(p.x, p.y, z),
+              inwardNormal: new THREE.Vector3(-p.x, cy - p.y, 0).normalize(),
+            });
+          }
+          boltStations.push(stBolts);
+        }
+      }
+
+      const supportGroup = buildInstancedTunnelSupports({
+        boltStations,
+        ribLoops,
+        boltLengthM: 1.5,
+      });
+      rootGroup.add(supportGroup);
+    }
+
     scene.add(rootGroup);
     ctx.corridorRootGroup = rootGroup;
+    requestRenderRef.current?.();
   }, [
     corridorAnalysis,
     activeLocation,
@@ -817,6 +994,7 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
     show3DJointTraces,
     showCrossRoundRibbons,
     show3DWedges,
+    showCorridorSupports,
     showChainageScrubber,
     activeChainageSliceInfo,
     selectedRoundId,
@@ -1056,8 +1234,8 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         {/* ==================== LEFT 7 COLUMNS: STITCHED MULTI-ROUND 3D DIGITAL TWIN CORRIDOR VIEWPORT ==================== */}
         <div className="lg:col-span-7 relative flex flex-col bg-[#F8FAFC] border-r border-slate-200 min-h-[380px] overflow-hidden">
-          {/* Top-Left Floating 3D Corridor Toolbar */}
-          <div className="w-full bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mouse-scrollable whitespace-nowrap z-10 shrink-0">
+          {/* Top-Left 3D Corridor Toolbar */}
+          <div className="w-full bg-white border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mouse-scrollable whitespace-nowrap z-10 shrink-0">
             <div
               className="flex items-center gap-1.5 shrink-0"
               style={{ minWidth: 'max-content' }}
@@ -1136,6 +1314,18 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
               >
                 Design Wireframe
               </button>
+              <button
+                type="button"
+                onClick={() => setShowCorridorSupports((v) => !v)}
+                className={`px-2 py-1 rounded text-[10.5px] font-bold border cursor-pointer shrink-0 flex items-center gap-1 ${
+                  showCorridorSupports
+                    ? 'bg-amber-600 text-white border-amber-700'
+                    : 'bg-white text-slate-700 border-slate-300'
+                }`}
+              >
+                <Shield className="w-3 h-3" />
+                <span>Bolts &amp; Ribs</span>
+              </button>
             </div>
           </div>
 
@@ -1192,104 +1382,155 @@ export const DigitalTwinContinuous3DLogWorkspace: React.FC<
           <div className="relative flex-1 min-h-0 w-full">
             <div ref={viewportContainerRef} className="w-full h-full" />
 
-            {/* Live 2D Cross-Section Overbreak Profile Overlay (Top-Right of 3D Viewport) */}
-            {showChainageScrubber && activeChainageSliceInfo && activeLocation && (
-              <div className="absolute top-3 right-3 w-56 bg-white/95 backdrop-blur-md border border-slate-300 rounded-xl p-2.5 shadow-md z-10 pointer-events-auto">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">
-                    3D Slice @ CH {activeChainageSliceInfo.slice.chainageM.toFixed(2)}m
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-mono font-bold text-[9.5px]">
-                    R-{activeChainageSliceInfo.segment.round.roundNumber}
-                  </span>
+            {/* Live 2D Cross-Section Overbreak Profile Overlay (Toggleable Top-Right of 3D Viewport, zero backdrop-blur) */}
+            {showSliceCard &&
+              showChainageScrubber &&
+              activeChainageSliceInfo &&
+              activeLocation && (
+                <div className="absolute top-3 right-3 w-56 bg-white border border-slate-300 rounded-xl p-2.5 shadow-md z-10 pointer-events-auto">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800">
+                      3D Slice @ CH {activeChainageSliceInfo.slice.chainageM.toFixed(2)}m
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-mono font-bold text-[9.5px]">
+                        R-{activeChainageSliceInfo.segment.round.roundNumber}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowSliceCard(false)}
+                        className="text-slate-500 hover:text-slate-900 text-xs font-bold cursor-pointer px-1"
+                        title="Hide slice preview card"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <svg
+                    viewBox={`${-activeLocation.widthM * 0.72} ${-activeLocation.heightM * 1.15} ${
+                      activeLocation.widthM * 1.44
+                    } ${activeLocation.heightM * 1.3}`}
+                    className="w-full h-28 bg-slate-50 rounded-lg border border-slate-200"
+                  >
+                    {/* Theoretical Design Profile Loop */}
+                    <polyline
+                      fill="rgba(2,132,199,0.08)"
+                      stroke="#0284c7"
+                      strokeWidth={0.09}
+                      strokeDasharray="0.22 0.14"
+                      points={activeChainageSliceInfo.slice.designPoints2D
+                        .map((p) => `${p.x.toFixed(3)},${(-p.y).toFixed(3)}`)
+                        .join(' ')}
+                    />
+                    {/* Reconstructed Real-Edge 3D Rock Loop */}
+                    <polyline
+                      fill="none"
+                      stroke="#ea580c"
+                      strokeWidth={0.12}
+                      points={activeChainageSliceInfo.slice.realRockPoints2D
+                        .map((p) => `${p.x.toFixed(3)},${(-p.y).toFixed(3)}`)
+                        .join(' ')}
+                    />
+                  </svg>
+                  <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9.5px] font-mono">
+                    <div className="bg-slate-100 rounded px-1.5 py-0.5 text-slate-700">
+                      Overbreak:{' '}
+                      <strong>
+                        +{activeChainageSliceInfo.slice.overbreakAreaM2.toFixed(2)}m²
+                      </strong>
+                    </div>
+                    <div className="bg-orange-50 rounded px-1.5 py-0.5 text-orange-900">
+                      Underbreak:{' '}
+                      <strong>
+                        {activeChainageSliceInfo.slice.underbreakAreaM2.toFixed(2)}m²
+                      </strong>
+                    </div>
+                    <div className="col-span-2 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 text-rose-900 font-bold">
+                      Max Radial Overbreak:{' '}
+                      {activeChainageSliceInfo.slice.maxOverbreakCm.toFixed(1)} cm
+                    </div>
+                  </div>
                 </div>
-                <svg
-                  viewBox={`${-activeLocation.widthM * 0.72} ${-activeLocation.heightM * 1.15} ${
-                    activeLocation.widthM * 1.44
-                  } ${activeLocation.heightM * 1.3}`}
-                  className="w-full h-28 bg-slate-50 rounded-lg border border-slate-200"
-                >
-                  {/* Theoretical Design Profile Loop */}
-                  <polyline
-                    fill="rgba(2,132,199,0.08)"
-                    stroke="#0284c7"
-                    strokeWidth={0.09}
-                    strokeDasharray="0.22 0.14"
-                    points={activeChainageSliceInfo.slice.designPoints2D
-                      .map((p) => `${p.x.toFixed(3)},${(-p.y).toFixed(3)}`)
-                      .join(' ')}
-                  />
-                  {/* Reconstructed Real-Edge 3D Rock Loop */}
-                  <polyline
-                    fill="none"
-                    stroke="#ea580c"
-                    strokeWidth={0.12}
-                    points={activeChainageSliceInfo.slice.realRockPoints2D
-                      .map((p) => `${p.x.toFixed(3)},${(-p.y).toFixed(3)}`)
-                      .join(' ')}
-                  />
-                </svg>
-                <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9.5px] font-mono">
-                  <div className="bg-slate-100 rounded px-1.5 py-0.5 text-slate-700">
-                    Overbreak:{' '}
-                    <strong>
-                      +{activeChainageSliceInfo.slice.overbreakAreaM2.toFixed(2)}m²
-                    </strong>
-                  </div>
-                  <div className="bg-orange-50 rounded px-1.5 py-0.5 text-orange-900">
-                    Underbreak:{' '}
-                    <strong>
-                      {activeChainageSliceInfo.slice.underbreakAreaM2.toFixed(2)}m²
-                    </strong>
-                  </div>
-                  <div className="col-span-2 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 text-rose-900 font-bold">
-                    Max Radial Overbreak:{' '}
-                    {activeChainageSliceInfo.slice.maxOverbreakCm.toFixed(1)} cm
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
 
-            {/* Bottom Longitudinal Chainage Scrubber Bar */}
+            {/* Collapsible Bottom Longitudinal Chainage Scrubber HUD Dock (<= 15% viewport height, zero backdrop-blur) */}
             {corridorAnalysis && corridorAnalysis.stitchedRounds.length > 0 && (
-              <div className="absolute bottom-3 left-3 right-3 bg-white/95 backdrop-blur-md border border-slate-300 rounded-xl px-3 py-2 shadow-md z-10 flex items-center gap-3">
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[min(96%,780px)] z-10 flex flex-col items-center">
                 <button
                   type="button"
-                  onClick={() => setShowChainageScrubber((v) => !v)}
-                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer border shrink-0 ${
-                    showChainageScrubber
-                      ? 'bg-sky-600 text-white border-sky-700'
-                      : 'bg-slate-100 text-slate-700 border-slate-300'
-                  }`}
+                  onClick={() => setIsCorridorDockCollapsed((v) => !v)}
+                  className="px-3 py-0.5 rounded-t-lg bg-white border border-b-0 border-slate-300 text-[10.5px] font-bold text-slate-700 hover:text-slate-950 flex items-center gap-1 cursor-pointer shadow-xs"
                 >
-                  <Scissors className="w-3.5 h-3.5 shrink-0" />
-                  <span>Chainage Slicer</span>
+                  {isCorridorDockCollapsed ? (
+                    <>
+                      <ChevronUp className="w-3 h-3 text-sky-600" />
+                      <span>
+                        Show Chainage Slicer (CH {selectedChainageM.toFixed(2)}m)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-3 h-3 text-sky-600" />
+                      <span>Hide Slicer</span>
+                    </>
+                  )}
                 </button>
+                {!isCorridorDockCollapsed && (
+                  <div className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 shadow-md flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowChainageScrubber((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer border shrink-0 ${
+                        showChainageScrubber
+                          ? 'bg-sky-600 text-white border-sky-700'
+                          : 'bg-slate-100 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      <Scissors className="w-3.5 h-3.5 shrink-0" />
+                      <span>Chainage Slicer</span>
+                    </button>
 
-                <span className="text-[11px] font-mono font-bold text-slate-700 shrink-0">
-                  CH {corridorAnalysis.startChainageM.toFixed(1)}m
-                </span>
+                    <span className="text-[11px] font-mono font-bold text-slate-700 shrink-0">
+                      CH {corridorAnalysis.startChainageM.toFixed(1)}m
+                    </span>
 
-                <input
-                  type="range"
-                  min={corridorAnalysis.startChainageM}
-                  max={corridorAnalysis.endChainageM}
-                  step={0.1}
-                  value={selectedChainageM}
-                  onChange={(e) => {
-                    setShowChainageScrubber(true);
-                    setSelectedChainageM(parseFloat(e.target.value));
-                  }}
-                  className="flex-1 accent-sky-600 cursor-pointer"
-                />
+                    <input
+                      type="range"
+                      min={corridorAnalysis.startChainageM}
+                      max={corridorAnalysis.endChainageM}
+                      step={0.1}
+                      value={selectedChainageM}
+                      onChange={(e) => {
+                        setShowChainageScrubber(true);
+                        setSelectedChainageM(parseFloat(e.target.value));
+                      }}
+                      className="flex-1 accent-sky-600 cursor-pointer"
+                    />
 
-                <span className="text-[11px] font-mono font-bold text-slate-700 shrink-0">
-                  CH {corridorAnalysis.endChainageM.toFixed(1)}m
-                </span>
+                    <span className="text-[11px] font-mono font-bold text-slate-700 shrink-0">
+                      CH {corridorAnalysis.endChainageM.toFixed(1)}m
+                    </span>
 
-                <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-950 border border-sky-300 font-mono font-black text-xs shrink-0">
-                  Active Slice: CH {selectedChainageM.toFixed(2)}m
-                </span>
+                    <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-950 border border-sky-300 font-mono font-black text-xs shrink-0">
+                      CH {selectedChainageM.toFixed(2)}m
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowChainageScrubber(true);
+                        setShowSliceCard((v) => !v);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold border cursor-pointer shrink-0 ${
+                        showSliceCard
+                          ? 'bg-indigo-600 text-white border-indigo-700'
+                          : 'bg-slate-100 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      2D Slice Card
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

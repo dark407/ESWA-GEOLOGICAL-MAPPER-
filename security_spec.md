@@ -1,13 +1,14 @@
 # Security Specification (`security_spec.md`)
 
 ## 1. Data Invariants & Master Source of Truth
-- **Master Admin Authority**: Only the Master Owner (`dhoniakash407@gmail.com` with `email_verified == true`, or a verified document in `/admins/{uid}`) has full administrative privileges to list all access requests, issue/modify/revoke `software_licenses`, manage `master_pcs`, and publish `software_releases`.
+- **Master Admin Authority**: Only the Master Owner (`dhoniakash407@gmail.com` or `akashdhanusheswar@gmail.com` or `hrvphpl@gmail.com` with `email_verified == true`, or a verified document in `/admins/{uid}`) has full administrative privileges to list all access requests, issue/modify/revoke `software_licenses`, manage `master_pcs`, publish `software_releases`/`website_releases`, and read/export `ai_training_telemetry`.
 - **1-PC Hardware Lock Invariant**: A `SoftwareLicense` document (`/software_licenses/{userId}`) can only be activated/updated by a client PC if:
   1. The license `status` is `'ACTIVE'`.
-  2. The client provides the matching `password` and `licenseKey` (unchanged from existing document).
+  2. The client does not alter `password`, `licenseKey`, `userId`, or `status` (`affectedKeys().hasOnly(['boundPcHardwareId', 'boundPcName', 'installedVersion', 'lastSeenAtIso'])`).
   3. Either `existing().boundPcHardwareId == ''` (first-time activation on a single PC) OR `existing().boundPcHardwareId == incoming().boundPcHardwareId` (same locked PC). Any attempt to bind a different `boundPcHardwareId` once bound is rejected by Firestore rules unless performed by `isAdmin()`.
-- **Access Request Submission**: Unauthenticated or newly downloaded clients can `create` a strictly schema-validated `AccessRequest` with initial `status == 'PENDING'`, `assignedUserId == ''`, and `assignedLicenseKey == ''`. Clients can `get` their own submitted request by its `requestId` to view approval status, but cannot `list` all requests.
-- **Software Update Broadcasts**: Published `software_releases` (`status == 'PUBLISHED'`) can be read by software clients to receive update alerts, while creation, modification, and deletion are strictly restricted to `isAdmin()`.
+- **Access Request Submission**: Clients can `create` a strictly schema-validated `AccessRequest` with initial `status == 'PENDING'`, `assignedUserId == ''`, and `assignedLicenseKey == ''`. Clients can `get` their own submitted request by its `requestId` to view approval status, but cannot `list` all requests.
+- **Software Update Broadcasts**: Published `software_releases` (`status == 'PUBLISHED'`) and `website_releases` can be read by software clients to receive update alerts, while creation, modification, and deletion are strictly restricted to `isAdmin()`.
+- **Owner-Scoped Engineering Subcollections**: All synced engineering modules under `/user_workspaces/{uid}/projects/{projectId}`, `/user_workspaces/{uid}/core_logs/{runId}`, `/user_workspaces/{uid}/monitoring/{readingId}`, and `/user_workspaces/{uid}/blast_assessments/{assessmentId}` obey the Master Gate invariant (`isSignedIn() && request.auth.token.email_verified == true && request.auth.uid == uid`), require `isValidId()` on document IDs, enforce `isValid[Entity](incoming())` with `uid == request.auth.uid`, enforce `affectedKeys().hasOnly(...)` on update, and restrict `allow list` to `resource.data.uid == request.auth.uid`.
 
 ## 2. The "Dirty Dozen" Payloads
 1. **Shadow Field Injection on AccessRequest**: Adding `"isAdmin": true` to `/access_requests/{id}` -> Rejected by `hasOnly()`.
@@ -22,3 +23,4 @@
 10. **Unauthorized Master PC Registration**: Non-admin creating `/master_pcs/PC-HACK` -> Rejected by `isAdmin()`.
 11. **Blanket Scraping of Access Requests**: Non-admin executing `list` on `/access_requests` -> Rejected by `allow list: if isAdmin()`.
 12. **Blanket Scraping of Licenses**: Non-admin executing `list` on `/software_licenses` -> Rejected by `allow list: if isAdmin()`.
+13. **Cross-Tenant Engineering Subcollection Access**: Authenticated user B attempting `get`/`list`/`create`/`update` on `/user_workspaces/userA/projects/proj_1` -> Rejected by `uid == request.auth.uid` and `incoming().uid == request.auth.uid`.

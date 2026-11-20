@@ -34,11 +34,13 @@ import {
 import { TbmDataStorageModal } from './TbmDataStorageModal';
 import { TbmWorkflowShell, TbmWorkflowStage } from './TbmWorkflowShell';
 import { DeviceIdAndNotificationHeaderWidget } from '../DeviceIdReviewAndNotificationCenter';
+import { GoogleCloudSyncHeaderControl } from '../GoogleCloudSyncHeaderControl';
 
 interface TbmMainWindowProps {
   industryMode: IndustryMode;
   onChangeIndustryMode: (mode: IndustryMode) => void;
   googleUser?: GoogleUserAccountInfo | null;
+  onUserChanged?: (user: GoogleUserAccountInfo | null) => void;
   activeGeologist?: GeologistUserProfile | null;
   onOpenGlobalSettings: () => void;
   onOpenContinuousTunnelLog?: () => void;
@@ -57,6 +59,7 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
   industryMode,
   onChangeIndustryMode,
   googleUser,
+  onUserChanged,
   activeGeologist,
   onOpenGlobalSettings,
   onOpenFeedback,
@@ -187,6 +190,12 @@ export const TbmMainWindow: React.FC<TbmMainWindowProps> = React.memo(({
             <span className="font-semibold">Blast Calc</span>
           </button>
         )}
+        <GoogleCloudSyncHeaderControl
+          googleUser={googleUser}
+          onUserChanged={onUserChanged}
+          onOpenSettingsAccount={onOpenGlobalSettings}
+          variant="dark-cyan"
+        />
         <button
           type="button"
           onClick={onOpenGlobalSettings}

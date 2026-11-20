@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Ruler,
   Scissors,
+  Shield,
   ShieldAlert,
   Sliders,
   Sparkles,
@@ -66,6 +67,15 @@ import {
   syncAll3DDigitalTwinLocationRoundsTo2DStore,
   Tunnel3DExcavationZone,
 } from '../engine/digitalTwin20PhotoEngine';
+import {
+  afterDrawSync,
+  buildInstancedTunnelSupports,
+  createProceduralRockTextures,
+  dampVector3,
+  detectSoftwareGl,
+  ProceduralPbrTextureSet,
+  TunnelSupportPointSample,
+} from '../engine/threeTunnelPbrKit';
 
 export interface DigitalTwinTunnelBetaWorkspaceProps {
   onBackToMainMenu: () => void;
@@ -272,6 +282,9 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     useState<boolean>(false);
   const [showFacetDiscs, setShowFacetDiscs] = useState<boolean>(false);
   const [showKeyBlockWedges, setShowKeyBlockWedges] = useState<boolean>(true);
+  const [showSupportOverlay, setShowSupportOverlay] = useState<boolean>(true);
+  const [showBetaInspectorDrawer, setShowBetaInspectorDrawer] =
+    useState<boolean>(false);
   const [showChainageSlicer, setShowChainageSlicer] = useState<boolean>(false);
   const [activeSliceIndex, setActiveSliceIndex] = useState<number>(18);
 
@@ -854,10 +867,22 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
   // ==================== THREE.JS WHITE-LIGHT REAL-EDGE 3D TUNNEL VIEWPORT ====================
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const requestRenderRef = useRef<(() => void) | null>(null);
+  const rockTexRef = useRef<ProceduralPbrTextureSet | null>(null);
+  const cameraTransitionRef = useRef<{
+    active: boolean;
+    camPos: THREE.Vector3;
+    targetPos: THREE.Vector3;
+  }>({
+    active: false,
+    camPos: new THREE.Vector3(),
+    targetPos: new THREE.Vector3(),
+  });
   const sceneObjectsRef = useRef<{
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
+    isSoftwareGl: boolean;
+    maxAniso: number;
     rockMesh: THREE.Mesh | null;
     breakEdgesMesh: THREE.LineSegments | null;
     pointCloud: THREE.Points | null;
@@ -867,6 +892,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     jointTracesGroup: THREE.Group | null;
     facetDiscsGroup: THREE.Group | null;
     wedgesGroup: THREE.Group | null;
+    supportGroup: THREE.Group | null;
     slicePlaneGroup: THREE.Group | null;
     rulerGroup: THREE.Group | null;
   } | null>(null);
@@ -967,14 +993,14 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       if (!ctx) return;
       const c = joint.center3D;
       const n = joint.normal3D;
-      // Position camera 2.6m away along inward normal so the 3D joint & dip surface is centered
-      ctx.camera.position.set(
+      // Smoothly transition camera 2.4m away along inward normal so the 3D joint & dip surface is centered
+      cameraTransitionRef.current.camPos.set(
         c.x - n.nx * 2.4,
         Math.max(1.0, c.y - n.ny * 1.6),
         c.z - n.nz * 2.4 + 1.2
       );
-      ctx.controls.target.set(c.x, c.y, c.z);
-      ctx.controls.update();
+      cameraTransitionRef.current.targetPos.set(c.x, c.y, c.z);
+      cameraTransitionRef.current.active = true;
       setSelected3DJointId(joint.id);
       requestRenderRef.current?.();
     },
@@ -1006,32 +1032,32 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         const pitchRad = THREE.MathUtils.degToRad(spec.pitchDeg);
         const lookDist = spec.standoffFromFaceM;
 
-        ctx.camera.position.set(camX, camY, camZ + 0.35);
-        ctx.controls.target.set(
+        cameraTransitionRef.current.camPos.set(camX, camY, camZ + 0.35);
+        cameraTransitionRef.current.targetPos.set(
           camX + Math.sin(yawRad) * lookDist,
           camY + Math.sin(pitchRad) * lookDist,
           faceZ
         );
         setInspectedPhotoSlot(preset);
       } else if (preset === 'portal') {
-        ctx.camera.position.set(0, H * 0.48, W * 0.95);
-        ctx.controls.target.set(0, H * 0.42, -0.4);
+        cameraTransitionRef.current.camPos.set(0, H * 0.48, W * 0.95);
+        cameraTransitionRef.current.targetPos.set(0, H * 0.42, -0.4);
         setInspectedPhotoSlot(null);
       } else if (preset === 'face_closeup') {
-        ctx.camera.position.set(0, H * 0.46, pullLen * 0.32);
-        ctx.controls.target.set(0, H * 0.45, -pullLen * 0.55);
+        cameraTransitionRef.current.camPos.set(0, H * 0.46, pullLen * 0.32);
+        cameraTransitionRef.current.targetPos.set(0, H * 0.45, -pullLen * 0.55);
         setInspectedPhotoSlot(null);
       } else if (preset === 'top_plan') {
-        ctx.camera.position.set(0, H * 2.4, 0.2);
-        ctx.controls.target.set(0, H * 0.4, 0);
+        cameraTransitionRef.current.camPos.set(0, H * 2.4, 0.2);
+        cameraTransitionRef.current.targetPos.set(0, H * 0.4, 0);
         setInspectedPhotoSlot(null);
       } else if (preset === 'side_profile') {
-        ctx.camera.position.set(W * 1.65, H * 0.52, 0);
-        ctx.controls.target.set(0, H * 0.45, 0);
+        cameraTransitionRef.current.camPos.set(W * 1.65, H * 0.52, 0);
+        cameraTransitionRef.current.targetPos.set(0, H * 0.45, 0);
         setInspectedPhotoSlot(null);
       }
 
-      ctx.controls.update();
+      cameraTransitionRef.current.active = true;
       requestRenderRef.current?.();
     },
     []
@@ -1043,15 +1069,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     const container = canvasMountRef.current;
     if (!container) return;
 
-    const isSoftwareGl = (() => {
-      const gl = document.createElement('canvas').getContext('webgl2');
-      if (!gl) return true;
-      const ext = gl.getExtension('WEBGL_debug_renderer_info');
-      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
-      const gpu = String(gl.getParameter(param));
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
-    })();
+    const isSoftwareGl = detectSoftwareGl();
 
     const width = container.clientWidth || 960;
     const height = container.clientHeight || 600;
@@ -1063,6 +1081,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.18;
+    renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.setPixelRatio(
       isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
     );
@@ -1070,16 +1089,20 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
+    const maxAniso = isSoftwareGl
+      ? 1
+      : Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+    rockTexRef.current = createProceduralRockTextures(maxAniso, 3, 3);
+
     const scene = new THREE.Scene();
     // Crisp White-Light Engineering CAD Studio Theme (#f8fafc)
     scene.background = new THREE.Color(0xf8fafc);
     scene.fog = new THREE.FogExp2(0xf8fafc, 0.012);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(
-      new RoomEnvironment(),
-      0.04
-    ).texture;
+    const roomEnv = new RoomEnvironment();
+    scene.environment = pmremGenerator.fromScene(roomEnv, 0.04).texture;
+    roomEnv.dispose();
     pmremGenerator.dispose();
 
     const locH = activeLocationRef.current?.heightM || 7.5;
@@ -1094,6 +1117,11 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     controls.dampingFactor = 0.08;
     controls.maxDistance = 48;
     controls.minDistance = 0.6;
+
+    const onControlStart = () => {
+      cameraTransitionRef.current.active = false;
+    };
+    controls.addEventListener('start', onControlStart);
 
     // Bright Daylight Studio Rig for White Light Theme
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 1.35);
@@ -1117,24 +1145,10 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     scene.add(gridHelper);
 
     let frameId = 0;
+    const syncTimerRef = { id: 0 };
     let renderBusy = false;
     let renderDirty = false;
-
-    function afterDraw(cb: () => void) {
-      const gl = renderer.getContext() as WebGL2RenderingContext;
-      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-      gl.flush();
-      const poll = () => {
-        const state = sync && gl.getSyncParameter(sync, gl.SYNC_STATUS);
-        if (state === gl.UNSIGNALED) {
-          frameId = window.setTimeout(poll, 5);
-        } else {
-          if (sync) gl.deleteSync(sync);
-          frameId = window.setTimeout(cb, 80);
-        }
-      };
-      frameId = window.setTimeout(poll, 5);
-    }
+    let lastStepMs = performance.now();
 
     function requestRender() {
       if (renderBusy) {
@@ -1142,15 +1156,45 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         return;
       }
       renderBusy = true;
-      frameId = requestAnimationFrame(() => {
+      frameId = requestAnimationFrame((nowMs) => {
         renderDirty = false;
+        const dtSec = Math.min(Math.max((nowMs - lastStepMs) * 0.001, 0.004), 0.05);
+        lastStepMs = nowMs;
+
+        let needsFollowUp = false;
+        if (cameraTransitionRef.current.active) {
+          if (isSoftwareGl) {
+            camera.position.copy(cameraTransitionRef.current.camPos);
+            controls.target.copy(cameraTransitionRef.current.targetPos);
+            cameraTransitionRef.current.active = false;
+          } else {
+            const cMoving = dampVector3(
+              camera.position,
+              cameraTransitionRef.current.camPos,
+              9,
+              dtSec
+            );
+            const tMoving = dampVector3(
+              controls.target,
+              cameraTransitionRef.current.targetPos,
+              9,
+              dtSec
+            );
+            if (cMoving || tMoving) {
+              needsFollowUp = true;
+            } else {
+              cameraTransitionRef.current.active = false;
+            }
+          }
+        }
+
         controls.update();
         renderer.render(scene, camera);
         const done = () => {
           renderBusy = false;
-          if (renderDirty) requestRender();
+          if (renderDirty || needsFollowUp) requestRender();
         };
-        if (isSoftwareGl) afterDraw(done);
+        if (isSoftwareGl) afterDrawSync(renderer, syncTimerRef, done);
         else done();
       });
     }
@@ -1314,6 +1358,8 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       scene,
       camera,
       controls,
+      isSoftwareGl,
+      maxAniso,
       rockMesh: null,
       breakEdgesMesh: null,
       pointCloud: null,
@@ -1323,20 +1369,27 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       jointTracesGroup: null,
       facetDiscsGroup: null,
       wedgesGroup: null,
+      supportGroup: null,
       slicePlaneGroup: null,
       rulerGroup: null,
     };
 
+    if (!isSoftwareGl) {
+      renderer.compile(scene, camera);
+    }
     requestRender();
 
     return () => {
       resizeObs?.disconnect();
       window.removeEventListener('resize', handleResize);
       controls.removeEventListener('change', requestRender);
+      controls.removeEventListener('start', onControlStart);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       cancelAnimationFrame(frameId);
-      clearTimeout(frameId);
+      clearTimeout(syncTimerRef.id);
+      rockTexRef.current?.dispose();
+      rockTexRef.current = null;
       controls.dispose();
       renderer.dispose();
       sceneObjectsRef.current = null;
@@ -1377,6 +1430,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     removeAndDispose(ctx.jointTracesGroup);
     removeAndDispose(ctx.facetDiscsGroup);
     removeAndDispose(ctx.wedgesGroup);
+    removeAndDispose(ctx.supportGroup);
     removeAndDispose(ctx.slicePlaneGroup);
     removeAndDispose(ctx.rulerGroup);
 
@@ -1407,6 +1461,8 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
       vertexColors: true,
       roughness: 0.76,
       metalness: 0.06,
+      bumpMap: rockTexRef.current?.bumpMap ?? null,
+      bumpScale: 0.035,
       flatShading: renderSurfaceMode !== 'textured_rock_mesh',
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -1430,6 +1486,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
         }
         const tex = new THREE.CanvasTexture(atlasCanvas);
         tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = ctx.maxAniso;
         tex.needsUpdate = true;
         rockMat.map = tex;
         rockMat.vertexColors = false;
@@ -1889,6 +1946,54 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     ctx.jointDipSurfacesGroup = jointDipSurfacesGroup;
     ctx.jointTracesGroup = jointTracesGroup;
 
+    // 10. Instanced Rockbolts (Plate + Hex Collar + Shank) & Arch Steel Ribs
+    if (showSupportOverlay) {
+      const refLoop = buildTheoreticalDesignReferenceLoop(activeLocation);
+      const archPts = refLoop.points.filter((p) => p.y >= 0.32);
+      const cy = H * 0.45;
+      const ribZStations = [-pullLen * 0.42, 0, pullLen * 0.42];
+      const ribLoops: THREE.Vector3[][] = [];
+      const boltStations: TunnelSupportPointSample[][] = [];
+
+      const boltStep = Math.max(2, Math.floor(archPts.length / 8));
+      const ribStep = Math.max(1, Math.floor(archPts.length / 26));
+
+      for (let s = 0; s < ribZStations.length; s++) {
+        const z = ribZStations[s];
+        const loop: THREE.Vector3[] = [];
+        for (let k = 0; k < archPts.length; k += ribStep) {
+          loop.push(new THREE.Vector3(archPts[k].x, archPts[k].y, z));
+        }
+        if (archPts.length > 0) {
+          const lastP = archPts[archPts.length - 1];
+          loop.push(new THREE.Vector3(lastP.x, lastP.y, z));
+        }
+        ribLoops.push(loop);
+
+        const stBolts: TunnelSupportPointSample[] = [];
+        for (let k = 1; k < archPts.length - 1; k += boltStep) {
+          const p = archPts[k];
+          const nx = -p.x;
+          const ny = cy - p.y;
+          stBolts.push({
+            position: new THREE.Vector3(p.x, p.y, z),
+            inwardNormal: new THREE.Vector3(nx, ny, 0).normalize(),
+          });
+        }
+        boltStations.push(stBolts);
+      }
+
+      const supportGroup = buildInstancedTunnelSupports({
+        boltStations,
+        ribLoops,
+        boltLengthM: 1.5,
+      });
+      scene.add(supportGroup);
+      ctx.supportGroup = supportGroup;
+    } else {
+      ctx.supportGroup = null;
+    }
+
     requestRenderRef.current?.();
     return () => {
       cancelledTextureLoad = true;
@@ -1908,6 +2013,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
     pendingNewJointClicks,
     showFacetDiscs,
     showKeyBlockWedges,
+    showSupportOverlay,
     showChainageSlicer,
     activeSliceIndex,
     rulerPoints,
@@ -3426,6 +3532,17 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                       >
                         Key-Blocks
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSupportOverlay((v) => !v)}
+                        className={`px-1.5 py-0.5 rounded border font-bold cursor-pointer ${
+                          showSupportOverlay
+                            ? 'bg-amber-100 text-amber-900 border-amber-400'
+                            : 'bg-white text-slate-600 border-slate-300'
+                        }`}
+                      >
+                        Bolts &amp; Ribs
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -3483,9 +3600,44 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                   </div>
                 )}
 
-                {/* Top-Left White-Light Engineering Telemetry & 4-Engine Launcher Bar (Only in Full-Bleed Step 3) */}
-                {activeStep === 'reconstruct_3d' && (
-                  <div className="absolute top-3 left-3 z-10 bg-white/95 border border-slate-300 rounded-xl p-2.5 space-y-2 max-w-sm shadow-lg">
+                {/* Compact Corner Status Bar when Step 3 Inspector Drawer is Collapsed */}
+                {activeStep === 'reconstruct_3d' && !showBetaInspectorDrawer && (
+                  <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowBetaInspectorDrawer(true)}
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 shadow-sm text-xs font-extrabold text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Twin Telemetry &amp; 3D Joints</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[10px]">
+                        {capturedCount}/20
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => teleportCameraToPreset('portal')}
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 shadow-sm text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-1 cursor-pointer"
+                      title="Reset 3D Camera View"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isRunning4EnginePipeline}
+                      onClick={handleRun4EngineConsensus}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>4-Engine Analysis</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Top-Left White-Light Engineering Telemetry & 4-Engine Launcher Bar (Expandable Drawer in Step 3) */}
+                {activeStep === 'reconstruct_3d' && showBetaInspectorDrawer && (
+                  <div className="absolute top-3 left-3 z-10 bg-white border border-slate-300 rounded-xl p-2.5 space-y-2 max-w-sm shadow-lg">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-extrabold text-slate-900">
@@ -3495,6 +3647,14 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                           {capturedCount}/20 Photos
                         </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowBetaInspectorDrawer(false)}
+                        className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-bold cursor-pointer"
+                        title="Hide floating drawers for full 3D viewport"
+                      >
+                        ✕ Hide
+                      </button>
                       <button
                         type="button"
                         onClick={() => teleportCameraToPreset('portal')}
@@ -3812,13 +3972,13 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
               </div>
             )}
 
-            {/* Step 3 Floating Overlays (Hidden when inside Step 4 Dedicated Working Window) */}
-            {activeStep === 'reconstruct_3d' && (
+            {/* Step 3 Floating Inspector Drawer (Hidden by default & in Step 4 so center 3D scene stays unobstructed) */}
+            {activeStep === 'reconstruct_3d' && showBetaInspectorDrawer && (
               <>
             {/* Top-Right Inspector Stack: Live 3D Joint & Dip Surface Quick-Editor, Key-Blocks & Slicer */}
             <div className="absolute top-3 right-3 z-10 flex flex-col gap-2 w-84 max-h-[calc(100dvh-155px)] overflow-y-auto no-scrollbar">
               {/* 4-Engine 3D Joint & Dip Surface Quick Inspector + Persistence Editor Card */}
-              <div className="bg-white/95 border border-slate-300 rounded-xl p-2.5 space-y-2 shadow-lg">
+              <div className="bg-white border border-slate-300 rounded-xl p-2.5 space-y-2 shadow-lg">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                   <span className="text-[11px] font-black text-slate-900 flex items-center gap-1">
                     <Compass className="w-3.5 h-3.5 text-indigo-600" />
@@ -4265,9 +4425,11 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                 </div>
               )}
             </div>
+              </>
+            )}
 
             {/* ==================== 4-ENGINE 3D JOINT, PERSISTENCE & STEREONET ANALYSIS MODAL ==================== */}
-            {showJointAnalysisModal && (
+            {activeStep === 'reconstruct_3d' && showJointAnalysisModal && (
               <div className="absolute inset-3 z-30 bg-white border-2 border-slate-300 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                 {/* Modal Header */}
                 <div className="px-4 py-2.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -5001,7 +5163,8 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
               </div>
             )}
 
-            {/* Collapsible White-Light Bottom Control Dock (Zero Viewport Occlusion) */}
+            {/* Collapsible White-Light Bottom Control Dock (Zero Viewport Occlusion, Step 3 only) */}
+            {activeStep === 'reconstruct_3d' && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[min(1140px,97vw)] flex flex-col items-center">
               <button
                 type="button"
@@ -5022,7 +5185,7 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
               </button>
 
               {!isBottomDockCollapsed && (
-                <div className="w-full bg-white/95 border border-slate-300 rounded-xl p-2.5 shadow-2xl flex flex-wrap items-center justify-between gap-2">
+                <div className="w-full bg-white border border-slate-300 rounded-xl p-2.5 shadow-2xl flex flex-wrap items-center justify-between gap-2">
                   {/* 1. 3D Surface Technology Render Modes */}
                   <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
                     {(
@@ -5134,7 +5297,41 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
 
                     <button
                       type="button"
-                      onClick={() => setShowChainageSlicer((v) => !v)}
+                      onClick={() => setShowSupportOverlay((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold border flex items-center gap-1 cursor-pointer ${
+                        showSupportOverlay
+                          ? 'bg-amber-50 border-amber-500 text-amber-900'
+                          : 'bg-white border-slate-300 text-slate-600'
+                      }`}
+                      title="Toggle Instanced Rockbolts & Arch Steel Ribs"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Bolts &amp; Ribs</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowBetaInspectorDrawer((v) => !v)}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold border flex items-center gap-1 cursor-pointer ${
+                        showBetaInspectorDrawer
+                          ? 'bg-indigo-600 text-white border-indigo-700'
+                          : 'bg-white border-slate-300 text-slate-700'
+                      }`}
+                      title="Show/Hide Floating 3D Joint Editor & Telemetry Panels"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Inspector Panels</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowChainageSlicer((v) => {
+                          const next = !v;
+                          if (next) setShowBetaInspectorDrawer(true);
+                          return next;
+                        });
+                      }}
                       className={`px-2 py-1 rounded-lg text-[10.5px] font-bold border flex items-center gap-1 cursor-pointer ${
                         showChainageSlicer
                           ? 'bg-amber-50 border-amber-500 text-amber-900'
@@ -5186,7 +5383,6 @@ export const DigitalTwinTunnelBetaWorkspace: React.FC<
                 </div>
               )}
             </div>
-              </>
             )}
               </div>
             </div>

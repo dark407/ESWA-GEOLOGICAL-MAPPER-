@@ -1,18 +1,14 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   Compass,
-  Maximize2,
-  Minimize2,
   RotateCcw,
-  Eye,
-  Sliders,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
-  Layers,
-  Move,
-  Info,
+  ChevronDown,
+  ChevronUp,
+  Shield,
   Type,
   Trash2,
   Edit2,
@@ -28,6 +24,20 @@ import {
   computeContinuous3DJointInspectionSchedule,
   extendStripTraceAcrossPull,
 } from '../engine/continuous3DStripEngine';
+import {
+  afterDrawSync,
+  buildInstancedTunnelSupports,
+  createProceduralRockTextures,
+  detectSoftwareGl,
+  ProceduralPbrTextureSet,
+  TunnelSupportPointSample,
+} from '../engine/threeTunnelPbrKit';
+
+// Reusable scratch math objects (zero allocations in pointer/render loop)
+const _panForward = new THREE.Vector3();
+const _panRight = new THREE.Vector3();
+const _rayPointer = new THREE.Vector2();
+const _raycaster = new THREE.Raycaster();
 
 export interface ContinuousTunnel3DCanvasProps {
   dataset: ContinuousTunnelStripDataset;
@@ -196,7 +206,9 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const reqIdRef = useRef<number | null>(null);
+  const reqIdRef = useRef<{ id: number }>({ id: 0 });
+  const requestRenderRef = useRef<(() => void) | null>(null);
+  const proceduralRockTexRef = useRef<ProceduralPbrTextureSet | null>(null);
 
   // Interaction & Orbit
   const isPointerDownRef = useRef(false);
@@ -207,6 +219,19 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     phi: 1.1, // polar angle (rad)
     target: new THREE.Vector3(0, 4, 15),
   });
+  const desiredOrbitRef = useRef<{
+    active: boolean;
+    radius: number;
+    theta: number;
+    phi: number;
+    target: THREE.Vector3;
+  }>({
+    active: false,
+    radius: 35,
+    theta: 0.7,
+    phi: 1.1,
+    target: new THREE.Vector3(0, 4, 15),
+  });
 
   // Display Settings (Wedge blocks off by default to keep 3D tunnel interior crisp & uncluttered)
   const [showJointPlanes, setShowJointPlanes] = useState<boolean>(true);
@@ -214,6 +239,8 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   const [showLithologyBands, setShowLithologyBands] = useState<boolean>(true);
   const [showChainageRings, setShowChainageRings] = useState<boolean>(true);
   const [show3DLabels, setShow3DLabels] = useState<boolean>(true);
+  const [showSupportPattern, setShowSupportPattern] = useState<boolean>(true);
+  const [isDockCollapsed, setIsDockCollapsed] = useState<boolean>(false);
   const [tunnelOpacity, setTunnelOpacity] = useState<number>(0.55);
   const [hoveredTraceId, setHoveredTraceId] = useState<string | null>(null);
 
@@ -295,9 +322,12 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 600;
 
-    // 1. Scene
+    const isSoftwareGl = detectSoftwareGl();
+
+    // 1. Scene + Horizon-Matched Fog
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xffffff); // Pure crisp white background
+    scene.background = new THREE.Color(0xf8fafc);
+    scene.fog = new THREE.FogExp2(0xf8fafc, 0.011);
     sceneRef.current = scene;
 
     // 2. Camera
@@ -311,6 +341,10 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       isShaft ? 0 : totalLengthM / 2
     );
     cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.85);
+    desiredOrbitRef.current.target.copy(cameraOrbitRef.current.target);
+    desiredOrbitRef.current.radius = cameraOrbitRef.current.radius;
+    desiredOrbitRef.current.theta = cameraOrbitRef.current.theta;
+    desiredOrbitRef.current.phi = cameraOrbitRef.current.phi;
 
     const updateCameraPos = () => {
       const { radius, theta, phi, target } = cameraOrbitRef.current;
@@ -322,54 +356,152 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     };
     updateCameraPos();
 
-    // 3. Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // 3. Renderer (ACESFilmic + SRGB + Software-WebGL guarded cost)
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isSoftwareGl,
+      alpha: false,
+      powerPreference: 'high-performance',
+    });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(
+      isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+    );
+    renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
-    scene.add(ambientLight);
+    // 4. Studio Environment Map & Warm/Cool 3-Point Lighting
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmremGenerator.fromScene(
+      new RoomEnvironment(),
+      0.04
+    ).texture;
+    pmremGenerator.dispose();
 
-    const dirLight1 = new THREE.DirectionalLight(0xfff8ee, 0.85);
-    dirLight1.position.set(30, 45, 20);
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    proceduralRockTexRef.current?.dispose();
+    proceduralRockTexRef.current = createProceduralRockTextures(
+      maxAniso,
+      Math.max(2, Math.round(totalLengthM / 6)),
+      2
+    );
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 1.05);
+    scene.add(hemiLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xfffbeb, 1.2);
+    dirLight1.position.set(28, 42, 20);
+    dirLight1.castShadow = !isSoftwareGl;
+    dirLight1.shadow.bias = -0.0005;
+    dirLight1.shadow.normalBias = 0.02;
     scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0xe0f2fe, 0.5);
-    dirLight2.position.set(-30, 20, -10);
+    const dirLight2 = new THREE.DirectionalLight(0xe0f2fe, 0.72);
+    dirLight2.position.set(-28, 22, -12);
     scene.add(dirLight2);
 
     // 5. Floor Reference Grid
-    const gridHelper = new THREE.GridHelper(Math.max(60, totalLengthM + 20), 40, 0x94a3b8, 0xe2e8f0);
+    const gridHelper = new THREE.GridHelper(
+      Math.max(60, totalLengthM + 20),
+      40,
+      0x94a3b8,
+      0xe2e8f0
+    );
     gridHelper.position.set(0, -0.05, isShaft ? 0 : totalLengthM / 2);
     scene.add(gridHelper);
 
-    // Render loop
-    const animate = () => {
-      reqIdRef.current = requestAnimationFrame(animate);
-      renderer.render(scene, camera);
+    if (!isSoftwareGl) {
+      renderer.compile(scene, camera);
+    }
+
+    // On-demand coalesced render loop + exponential camera preset damping
+    let renderBusy = false;
+    let renderDirty = false;
+    let lastTickMs = performance.now();
+
+    const requestRender = () => {
+      if (renderBusy) {
+        renderDirty = true;
+        return;
+      }
+      renderBusy = true;
+      reqIdRef.current.id = requestAnimationFrame((nowMs) => {
+        renderDirty = false;
+        const dt = Math.min(Math.max((nowMs - lastTickMs) * 0.001, 0.001), 0.05);
+        lastTickMs = nowMs;
+
+        let animatingCamera = false;
+        if (desiredOrbitRef.current.active) {
+          const cur = cameraOrbitRef.current;
+          const tgt = desiredOrbitRef.current;
+          cur.radius = THREE.MathUtils.damp(cur.radius, tgt.radius, 11, dt);
+          cur.theta = THREE.MathUtils.damp(cur.theta, tgt.theta, 11, dt);
+          cur.phi = THREE.MathUtils.damp(cur.phi, tgt.phi, 11, dt);
+          cur.target.x = THREE.MathUtils.damp(cur.target.x, tgt.target.x, 11, dt);
+          cur.target.y = THREE.MathUtils.damp(cur.target.y, tgt.target.y, 11, dt);
+          cur.target.z = THREE.MathUtils.damp(cur.target.z, tgt.target.z, 11, dt);
+          updateCameraPos();
+
+          const settled =
+            Math.abs(cur.radius - tgt.radius) < 0.04 &&
+            Math.abs(cur.theta - tgt.theta) < 0.004 &&
+            Math.abs(cur.phi - tgt.phi) < 0.004 &&
+            cur.target.distanceTo(tgt.target) < 0.03;
+          if (settled) {
+            cur.radius = tgt.radius;
+            cur.theta = tgt.theta;
+            cur.phi = tgt.phi;
+            cur.target.copy(tgt.target);
+            tgt.active = false;
+            updateCameraPos();
+          } else {
+            animatingCamera = true;
+          }
+        }
+
+        renderer.render(scene, camera);
+        const done = () => {
+          renderBusy = false;
+          if (renderDirty || animatingCamera) requestRender();
+        };
+        if (isSoftwareGl) afterDrawSync(renderer, reqIdRef.current, done);
+        else done();
+      });
     };
-    animate();
+
+    requestRenderRef.current = requestRender;
+    requestRender();
 
     // Resize handler
     const handleResize = () => {
       if (!container || !renderer || !camera) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = container.clientWidth || 800;
+      const h = container.clientHeight || 600;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      requestRender();
     };
     window.addEventListener('resize', handleResize);
+    const resizeObs =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => handleResize())
+        : null;
+    resizeObs?.observe(container);
 
     return () => {
+      resizeObs?.disconnect();
       window.removeEventListener('resize', handleResize);
-      if (reqIdRef.current) cancelAnimationFrame(reqIdRef.current);
+      cancelAnimationFrame(reqIdRef.current.id);
+      clearTimeout(reqIdRef.current.id);
+      proceduralRockTexRef.current?.dispose();
+      proceduralRockTexRef.current = null;
+      requestRenderRef.current = null;
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -471,12 +603,17 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     }
 
     tunnelGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    tunnelGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     tunnelGeo.setIndex(indices);
     tunnelGeo.computeVertexNormals();
 
+    const texSet = proceduralRockTexRef.current;
     const tunnelMat = new THREE.MeshStandardMaterial({
       color: 0xf1f5f9,
-      roughness: 0.85,
+      map: texSet?.colorMap || null,
+      bumpMap: texSet?.bumpMap || null,
+      bumpScale: 0.045,
+      roughness: 0.84,
       metalness: 0.05,
       side: THREE.DoubleSide,
       transparent: true,
@@ -1053,6 +1190,79 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         }
       }
     });
+
+    // 6. Instanced Rock Bolt Grid & Steel Arch Rib Support Pattern
+    if (showSupportPattern && totalLengthM >= 1) {
+      const boltSpacingM = Math.max(1.8, Math.min(3.0, totalLengthM / 8));
+      const ribSpacingM = Math.max(2.2, Math.min(4.0, totalLengthM / 6));
+      const boltStations: TunnelSupportPointSample[][] = [];
+      const ribLoops: THREE.Vector3[][] = [];
+
+      for (let ch = fromRd + 0.6; ch <= toRd - 0.4; ch += boltSpacingM) {
+        const ringSamples: TunnelSupportPointSample[] = [];
+        const centerZ = isShaft ? 0 : ch - fromRd;
+        const centerY = isShaft ? Math.max(0, totalLengthM - (ch - fromRd)) : leftWallHeight * 0.48;
+        const nBolts = 7;
+        for (let bi = 1; bi < nBolts; bi++) {
+          const uPerim = (bi / nBolts) * totalPerimeter;
+          const pos = unrolledToTunnel3D(
+            ch,
+            uPerim,
+            fromRd,
+            toRd,
+            leftWallHeight,
+            crownWidth,
+            rightWallHeight,
+            tunnelWidth,
+            excavationMode,
+            totalPerimeter,
+            shapeOpts
+          );
+          const inward = new THREE.Vector3(0 - pos.x, centerY - pos.y, centerZ - pos.z);
+          if (!isShaft) inward.z = 0;
+          else inward.y = 0;
+          if (inward.lengthSq() < 0.001) inward.set(0, -1, 0);
+          inward.normalize();
+          ringSamples.push({ position: pos, inwardNormal: inward });
+        }
+        boltStations.push(ringSamples);
+      }
+
+      for (let ch = fromRd + 0.8; ch <= toRd - 0.4; ch += ribSpacingM) {
+        const loop: THREE.Vector3[] = [];
+        const segs = 22;
+        for (let si = 0; si <= segs; si++) {
+          const uPerim = (si / segs) * totalPerimeter;
+          const pos = unrolledToTunnel3D(
+            ch,
+            uPerim,
+            fromRd,
+            toRd,
+            leftWallHeight,
+            crownWidth,
+            rightWallHeight,
+            tunnelWidth,
+            excavationMode,
+            totalPerimeter,
+            shapeOpts
+          );
+          loop.push(pos);
+        }
+        ribLoops.push(loop);
+      }
+
+      const supportGroup = buildInstancedTunnelSupports({
+        boltStations,
+        ribLoops,
+        boltLengthM: 1.5,
+      });
+      supportGroup.traverse((obj) => {
+        obj.userData.isTunnelEntity = true;
+      });
+      scene.add(supportGroup);
+    }
+
+    requestRenderRef.current?.();
   }, [
     dataset,
     selectedTraceId,
@@ -1062,6 +1272,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     showLithologyBands,
     showChainageRings,
     show3DLabels,
+    showSupportPattern,
     tunnelOpacity,
     fromRd,
     toRd,
@@ -1079,6 +1290,7 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
 
   // Handle Mouse Events for Orbit / Pan / Raycast selection
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    desiredOrbitRef.current.active = false;
     isPointerDownRef.current = true;
     pointerStartRef.current = { x: e.clientX, y: e.clientY };
   };
@@ -1093,39 +1305,36 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
       pointerStartRef.current = { x: e.clientX, y: e.clientY };
 
       if (e.buttons === 1 && !e.shiftKey) {
-        // Orbit
         cameraOrbitRef.current.theta -= dx * 0.007;
-        cameraOrbitRef.current.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraOrbitRef.current.phi - dy * 0.007));
+        cameraOrbitRef.current.phi = Math.max(
+          0.1,
+          Math.min(Math.PI - 0.1, cameraOrbitRef.current.phi - dy * 0.007)
+        );
       } else if (e.buttons === 2 || (e.buttons === 1 && e.shiftKey)) {
-        // Pan
         const panSpeed = 0.04;
-        const forward = new THREE.Vector3();
-        cameraRef.current.getWorldDirection(forward);
-        const right = new THREE.Vector3().crossVectors(forward, cameraRef.current.up).normalize();
-
-        cameraOrbitRef.current.target.addScaledVector(right, -dx * panSpeed);
+        cameraRef.current.getWorldDirection(_panForward);
+        _panRight.crossVectors(_panForward, cameraRef.current.up).normalize();
+        cameraOrbitRef.current.target.addScaledVector(_panRight, -dx * panSpeed);
         cameraOrbitRef.current.target.y += dy * panSpeed;
       }
 
-      // Update camera position
       const { radius, theta, phi, target } = cameraOrbitRef.current;
       const cx = target.x + radius * Math.sin(phi) * Math.sin(theta);
       const cy = target.y + radius * Math.cos(phi);
       const cz = target.z + radius * Math.sin(phi) * Math.cos(theta);
       cameraRef.current.position.set(cx, cy, cz);
       cameraRef.current.lookAt(target);
+      requestRenderRef.current?.();
     } else {
-      // Raycasting for trace hover highlight
       const rect = container.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
+      _rayPointer.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
 
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, cameraRef.current);
+      _raycaster.setFromCamera(_rayPointer, cameraRef.current);
       const targets = traceMeshesRef.current.map((t) => t.mesh);
-      const intersects = raycaster.intersectObjects(targets, false);
+      const intersects = _raycaster.intersectObjects(targets, false);
 
       if (intersects.length > 0) {
         const hitId = intersects[0].object.userData.traceId;
@@ -1141,35 +1350,40 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     const container = mountRef.current;
     if (!container || !cameraRef.current) return;
 
-    // Detect click vs drag
-    const moveDist = Math.hypot(e.clientX - pointerStartRef.current.x, e.clientY - pointerStartRef.current.y);
+    const moveDist = Math.hypot(
+      e.clientX - pointerStartRef.current.x,
+      e.clientY - pointerStartRef.current.y
+    );
     if (moveDist < 4) {
       const rect = container.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
+      _rayPointer.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
 
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, cameraRef.current);
+      _raycaster.setFromCamera(_rayPointer, cameraRef.current);
       const targets = traceMeshesRef.current.map((t) => t.mesh);
-      const intersects = raycaster.intersectObjects(targets, false);
+      const intersects = _raycaster.intersectObjects(targets, false);
 
       if (intersects.length > 0) {
         const hitId = intersects[0].object.userData.traceId;
         onSelectTrace(hitId);
       } else {
-        // Deselect if clicked empty space
         onSelectTrace(null);
       }
+      requestRenderRef.current?.();
     }
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!cameraRef.current) return;
+    desiredOrbitRef.current.active = false;
     const zoomDelta = e.deltaY * 0.04;
-    cameraOrbitRef.current.radius = Math.max(5, Math.min(120, cameraOrbitRef.current.radius + zoomDelta));
+    cameraOrbitRef.current.radius = Math.max(
+      5,
+      Math.min(120, cameraOrbitRef.current.radius + zoomDelta)
+    );
 
     const { radius, theta, phi, target } = cameraOrbitRef.current;
     const cx = target.x + radius * Math.sin(phi) * Math.sin(theta);
@@ -1177,62 +1391,60 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
     const cz = target.z + radius * Math.sin(phi) * Math.cos(theta);
     cameraRef.current.position.set(cx, cy, cz);
     cameraRef.current.lookAt(target);
+    requestRenderRef.current?.();
   };
 
-  // Camera Presets
-  const setCameraPreset = (preset: 'iso' | 'ahead' | 'back' | 'top' | 'left' | 'right' | 'crown') => {
+  // Damped Smooth Camera Presets (interpolated inside coalesced requestRender)
+  const setCameraPreset = (
+    preset: 'iso' | 'ahead' | 'back' | 'top' | 'left' | 'right' | 'crown'
+  ) => {
     if (!cameraRef.current) return;
-    const center = new THREE.Vector3(
+    desiredOrbitRef.current.target.set(
       0,
       isShaft ? totalLengthM * 0.5 : leftWallHeight * 0.6,
       isShaft ? 0 : totalLengthM / 2
     );
-    cameraOrbitRef.current.target.copy(center);
 
     switch (preset) {
       case 'iso':
-        cameraOrbitRef.current.theta = 0.75;
-        cameraOrbitRef.current.phi = 1.1;
-        cameraOrbitRef.current.radius = Math.max(30, totalLengthM * 0.9);
+        desiredOrbitRef.current.theta = 0.75;
+        desiredOrbitRef.current.phi = 1.1;
+        desiredOrbitRef.current.radius = Math.max(30, totalLengthM * 0.9);
         break;
       case 'ahead':
-        cameraOrbitRef.current.theta = 0;
-        cameraOrbitRef.current.phi = Math.PI / 2;
-        cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
+        desiredOrbitRef.current.theta = 0;
+        desiredOrbitRef.current.phi = Math.PI / 2;
+        desiredOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
         break;
       case 'back':
-        cameraOrbitRef.current.theta = Math.PI;
-        cameraOrbitRef.current.phi = Math.PI / 2;
-        cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
+        desiredOrbitRef.current.theta = Math.PI;
+        desiredOrbitRef.current.phi = Math.PI / 2;
+        desiredOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
         break;
       case 'top':
-        cameraOrbitRef.current.theta = 0;
-        cameraOrbitRef.current.phi = 0.05;
-        cameraOrbitRef.current.radius = Math.max(35, totalLengthM * 1.1);
+        desiredOrbitRef.current.theta = 0;
+        desiredOrbitRef.current.phi = 0.05;
+        desiredOrbitRef.current.radius = Math.max(35, totalLengthM * 1.1);
         break;
       case 'left':
-        cameraOrbitRef.current.theta = Math.PI / 2;
-        cameraOrbitRef.current.phi = Math.PI / 2;
-        cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
+        desiredOrbitRef.current.theta = Math.PI / 2;
+        desiredOrbitRef.current.phi = Math.PI / 2;
+        desiredOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
         break;
       case 'right':
-        cameraOrbitRef.current.theta = -Math.PI / 2;
-        cameraOrbitRef.current.phi = Math.PI / 2;
-        cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
+        desiredOrbitRef.current.theta = -Math.PI / 2;
+        desiredOrbitRef.current.phi = Math.PI / 2;
+        desiredOrbitRef.current.radius = Math.max(25, totalLengthM * 0.8);
         break;
       case 'crown':
-        cameraOrbitRef.current.theta = 0;
-        cameraOrbitRef.current.phi = 0.4;
-        cameraOrbitRef.current.radius = Math.max(25, totalLengthM * 0.7);
+        desiredOrbitRef.current.theta = 0;
+        desiredOrbitRef.current.phi = 0.4;
+        desiredOrbitRef.current.radius = Math.max(25, totalLengthM * 0.7);
         break;
     }
 
-    const { radius, theta, phi, target } = cameraOrbitRef.current;
-    const cx = target.x + radius * Math.sin(phi) * Math.sin(theta);
-    const cy = target.y + radius * Math.cos(phi);
-    const cz = target.z + radius * Math.sin(phi) * Math.cos(theta);
-    cameraRef.current.position.set(cx, cy, cz);
-    cameraRef.current.lookAt(target);
+    desiredOrbitRef.current.active = true;
+    requestRenderRef.current?.();
   };
 
   // Next / Prev trace cycler
@@ -1270,106 +1482,17 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
   };
 
   return (
-    <div className={`relative w-full h-full flex flex-col bg-white overflow-hidden select-none ${className}`}>
-      {/* 3D Top Controls & Camera Ribbon Bar */}
-      <div className="h-10 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 flex items-center justify-between shrink-0 z-10 shadow-xs">
-        {/* Left: 3D View Presets */}
-        <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-sans">
-          <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1 mr-1">
-            <Box className="w-3.5 h-3.5 text-blue-600" />
-            3D Views:
-          </span>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('iso')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Isometric
-          </button>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('ahead')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Drive Heading
-          </button>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('left')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Left Wall
-          </button>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('crown')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Crown
-          </button>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('right')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Right Wall
-          </button>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('top')}
-            className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
-          >
-            Top Plan
-          </button>
-        </div>
-
-        {/* Right: Layer Toggles in 3D */}
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showJointPlanes}
-              onChange={(e) => setShowJointPlanes(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-0"
-            />
-            <span>3D Joint Planes</span>
-          </label>
-          <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showWedgeBlocks}
-              onChange={(e) => setShowWedgeBlocks(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-0"
-            />
-            <span>3D Wedge Blocks</span>
-          </label>
-          <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={show3DLabels}
-              onChange={(e) => setShow3DLabels(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-0"
-            />
-            <span>Text Labels</span>
-          </label>
-          <label className="flex items-center gap-1 text-[11px] text-slate-700 font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showLithologyBands}
-              onChange={(e) => setShowLithologyBands(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-0"
-            />
-            <span>Lithology</span>
-          </label>
-          <button
-            type="button"
-            onClick={() => setCameraPreset('iso')}
-            className="p-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
-            title="Reset 3D Camera View"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </div>
+    <div className={`relative w-full h-full flex flex-col bg-slate-50 overflow-hidden select-none ${className}`}>
+      {/* Minimal Top-Left Spec Badge (Unobstructed Viewport) */}
+      <div className="absolute top-3 left-3 z-10 bg-white border border-slate-300 rounded-lg px-2.5 py-1 shadow-xs flex items-center gap-2 text-[11px] font-mono text-slate-700 pointer-events-none">
+        <Box className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+        <span className="font-bold text-slate-900">
+          {isShaft ? 'Vertical Shaft' : '3D Tunnel Strip'}
+        </span>
+        <span className="text-slate-400">|</span>
+        <span>
+          CH {fromRd.toFixed(1)}m–{toRd.toFixed(1)}m ({(dataset.traces || []).length} joints)
+        </span>
       </div>
 
       {/* Main Three.js Viewport */}
@@ -1382,55 +1505,152 @@ export const ContinuousTunnel3DCanvas: React.FC<ContinuousTunnel3DCanvasProps> =
         className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing touch-none"
       />
 
-      {/* 3D Navigation Overlay Tip */}
-      <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm text-[11px] text-slate-600 font-mono pointer-events-none flex items-center gap-2">
-        <span>🖱 Left Click + Drag: Orbit</span>
-        <span>•</span>
-        <span>Right Click / Shift+Drag: Pan</span>
-        <span>•</span>
-        <span>Wheel: Zoom</span>
-        <span>•</span>
-        <span className="text-blue-600 font-bold">Click Joint to Inspect</span>
+      {/* Unified Collapsible Bottom HUD Dock (Zero Backdrop-Blur Over WebGL, <=15% Height) */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[min(960px,96vw)] flex flex-col items-center">
+        <button
+          type="button"
+          onClick={() => setIsDockCollapsed((v) => !v)}
+          className="px-3 py-1 rounded-t-lg bg-white border border-b-0 border-slate-300 text-[11px] font-bold text-slate-700 hover:text-slate-950 flex items-center gap-1.5 cursor-pointer shadow-xs"
+        >
+          {isDockCollapsed ? (
+            <>
+              <ChevronUp className="w-3.5 h-3.5 text-blue-600" />
+              <span>Show 3D View, Support &amp; Joint Controls</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3.5 h-3.5 text-blue-600" />
+              <span>Hide Controls</span>
+            </>
+          )}
+        </button>
+
+        {!isDockCollapsed && (
+          <div className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 shadow-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+            {/* View Presets */}
+            <div className="flex flex-wrap items-center gap-1">
+              {(
+                [
+                  { id: 'iso', label: 'Iso' },
+                  { id: 'ahead', label: 'Drive' },
+                  { id: 'left', label: 'L-Wall' },
+                  { id: 'crown', label: 'Crown' },
+                  { id: 'right', label: 'R-Wall' },
+                  { id: 'top', label: 'Plan' },
+                ] as const
+              ).map((vp) => (
+                <button
+                  key={vp.id}
+                  type="button"
+                  onClick={() => setCameraPreset(vp.id)}
+                  className="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-[11px] cursor-pointer transition border border-slate-200"
+                >
+                  {vp.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCameraPreset('iso')}
+                className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
+                title="Reset 3D Camera View"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Layer & Support Pattern Toggles */}
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-700 font-medium">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showJointPlanes}
+                  onChange={(e) => setShowJointPlanes(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-0"
+                />
+                <span>Joints</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showSupportPattern}
+                  onChange={(e) => setShowSupportPattern(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-0"
+                />
+                <Shield className="w-3 h-3 text-blue-600" />
+                <span>Bolts &amp; Ribs</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showWedgeBlocks}
+                  onChange={(e) => setShowWedgeBlocks(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-0"
+                />
+                <span>Wedges</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={show3DLabels}
+                  onChange={(e) => setShow3DLabels(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-0"
+                />
+                <span>Labels</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showLithologyBands}
+                  onChange={(e) => setShowLithologyBands(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-0"
+                />
+                <span>Lithology</span>
+              </label>
+            </div>
+
+            {/* Joint Cycler */}
+            {(dataset.traces || []).length > 0 && (
+              <div className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 flex items-center gap-1.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => handleCycleTrace(-1)}
+                  className="p-0.5 rounded hover:bg-slate-200 text-slate-600 cursor-pointer"
+                  title="Inspect Previous Joint"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="font-semibold text-slate-800 min-w-24 text-center truncate">
+                  {activeTrace ? (
+                    <span className="inline-flex items-center gap-1">
+                      <span
+                        className="w-2 h-2 rounded-full inline-block"
+                        style={{ backgroundColor: resolveStripTraceColor(activeTrace) }}
+                      />
+                      {activeTrace.customLabel || activeTrace.setId}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500">
+                      {(dataset.traces || []).length} Joints
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCycleTrace(1)}
+                  className="p-0.5 rounded hover:bg-slate-200 text-slate-600 cursor-pointer"
+                  title="Inspect Next Joint"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Joint Cycler Pill at Bottom Center */}
-      {(dataset.traces || []).length > 0 && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-slate-300 rounded-full px-3 py-1 shadow-md flex items-center gap-2 z-10 text-xs">
-          <button
-            type="button"
-            onClick={() => handleCycleTrace(-1)}
-            className="p-1 rounded-full hover:bg-slate-100 text-slate-600 cursor-pointer"
-            title="Inspect Previous Joint"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="font-semibold text-slate-800 min-w-28 text-center">
-            {activeTrace ? (
-              <span className="flex items-center justify-center gap-1.5">
-                <span
-                  className="w-2.5 h-2.5 rounded-full inline-block"
-                  style={{ backgroundColor: resolveStripTraceColor(activeTrace) }}
-                />
-                {activeTrace.customLabel || activeTrace.setId} ({activeTrace.orientationLabel})
-              </span>
-            ) : (
-              <span className="text-slate-400">Select a Joint ({(dataset.traces || []).length} mapped)</span>
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => handleCycleTrace(1)}
-            className="p-1 rounded-full hover:bg-slate-100 text-slate-600 cursor-pointer"
-            title="Inspect Next Joint"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* 3D Interactive Joint Inspector HUD (Floating Card) */}
+      {/* 3D Interactive Joint Inspector HUD (Solid Surface - Zero Backdrop-Blur Over WebGL) */}
       {activeTrace && (
-        <div className="absolute top-12 right-3 w-80 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-right-4 duration-200">
+        <div className="absolute top-12 right-3 w-80 bg-white border border-slate-300 rounded-2xl shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-right-4 duration-200">
           {/* Header */}
           <div className="p-3 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">

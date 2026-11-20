@@ -3,88 +3,569 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // GLOBAL HARDENED PRIMITIVES
+    // ------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128;
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Connection health check
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isEmailVerified() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'dhoniakash407@gmail.com' ||
+        request.auth.token.email == 'akashdhanusheswar@gmail.com' ||
+        request.auth.token.email == 'hrvphpl@gmail.com'
+      );
+    }
+
+    function isValidStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // ------------------------------------------------------------------------
+    // ENTITY VALIDATION BLUEPRINTS (ANTI-UPDATE-GAP)
+    // ------------------------------------------------------------------------
+    function isValidAccessRequest(data) {
+      return data.keys().hasAll([
+        'requestId', 'fullName', 'email', 'phone', 'organization',
+        'roleTitle', 'pcHardwareId', 'pcName', 'purposeNotes',
+        'status', 'assignedUserId', 'assignedLicenseKey', 'createdAtIso'
+      ]) &&
+      data.keys().hasOnly([
+        'requestId', 'fullName', 'email', 'phone', 'organization',
+        'roleTitle', 'pcHardwareId', 'pcName', 'purposeNotes',
+        'status', 'assignedUserId', 'assignedLicenseKey', 'createdAtIso'
+      ]) &&
+      isValidId(data.requestId) &&
+      isValidStr(data.fullName, 1, 120) &&
+      isValidStr(data.email, 3, 160) &&
+      isValidStr(data.phone, 3, 60) &&
+      isValidStr(data.organization, 1, 160) &&
+      isValidStr(data.roleTitle, 1, 100) &&
+      isValidStr(data.pcHardwareId, 4, 128) &&
+      isValidStr(data.pcName, 1, 120) &&
+      isValidStr(data.purposeNotes, 0, 500) &&
+      data.status in ['PENDING', 'APPROVED', 'REJECTED'] &&
+      isValidStr(data.assignedUserId, 0, 80) &&
+      isValidStr(data.assignedLicenseKey, 0, 80) &&
+      isValidStr(data.createdAtIso, 1, 64);
+    }
+
+    function isValidSoftwareLicense(data) {
+      return data.keys().hasAll([
+        'userId', 'password', 'licenseKey', 'fullName', 'email', 'phone',
+        'organization', 'boundPcHardwareId', 'boundPcName', 'status',
+        'installedVersion', 'lastSeenAtIso', 'createdAtIso'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'password', 'licenseKey', 'fullName', 'email', 'phone',
+        'organization', 'boundPcHardwareId', 'boundPcName', 'status',
+        'installedVersion', 'lastSeenAtIso', 'createdAtIso', 'adminAuthSig'
+      ]) &&
+      isValidId(data.userId) &&
+      isValidStr(data.password, 3, 120) &&
+      isValidStr(data.licenseKey, 6, 80) &&
+      isValidStr(data.fullName, 1, 120) &&
+      isValidStr(data.email, 0, 160) &&
+      isValidStr(data.phone, 0, 60) &&
+      isValidStr(data.organization, 0, 160) &&
+      isValidStr(data.boundPcHardwareId, 0, 128) &&
+      isValidStr(data.boundPcName, 0, 120) &&
+      data.status in ['ACTIVE', 'SUSPENDED', 'REVOKED'] &&
+      isValidStr(data.installedVersion, 0, 40) &&
+      isValidStr(data.lastSeenAtIso, 0, 64) &&
+      isValidStr(data.createdAtIso, 1, 64) &&
+      (!('adminAuthSig' in data) || isValidStr(data.adminAuthSig, 0, 128));
+    }
+
+    function isValidSoftwareRelease(data) {
+      return data.keys().hasAll([
+        'releaseId', 'version', 'title', 'releaseNotes', 'downloadUrl',
+        'targetScope', 'targetIdentifierCsv', 'isMandatory', 'status', 'publishedAtIso'
+      ]) &&
+      data.keys().hasOnly([
+        'releaseId', 'version', 'title', 'releaseNotes', 'downloadUrl',
+        'targetScope', 'targetIdentifierCsv', 'isMandatory', 'status', 'publishedAtIso',
+        'githubRepo', 'gdriveExeFileId', 'gdriveApkFileId'
+      ]) &&
+      isValidId(data.releaseId) &&
+      isValidStr(data.version, 1, 40) &&
+      isValidStr(data.title, 1, 160) &&
+      isValidStr(data.releaseNotes, 1, 2000) &&
+      isValidStr(data.downloadUrl, 0, 500) &&
+      data.targetScope in ['ALL_PCS', 'SPECIFIC_PCS'] &&
+      isValidStr(data.targetIdentifierCsv, 0, 1500) &&
+      data.isMandatory is bool &&
+      data.status in ['PUBLISHED', 'ARCHIVED'] &&
+      isValidStr(data.publishedAtIso, 1, 64);
+    }
+
+    function isValidMasterPc(data) {
+      return data.keys().hasAll(['pcHardwareId', 'label', 'bypassLogin', 'registeredAtIso']) &&
+        data.keys().hasOnly(['pcHardwareId', 'label', 'bypassLogin', 'registeredAtIso']) &&
+        isValidId(data.pcHardwareId) &&
+        isValidStr(data.label, 1, 120) &&
+        data.bypassLogin is bool &&
+        isValidStr(data.registeredAtIso, 1, 64);
+    }
+
+    function isValidUserWorkspace(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'updatedAtIso', 'payloadJson']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'updatedAtIso', 'payloadJson']) &&
+        data.uid == uid &&
+        isValidStr(data.uid, 1, 128) &&
+        isValidStr(data.email, 0, 160) &&
+        isValidStr(data.displayName, 0, 160) &&
+        isValidStr(data.updatedAtIso, 1, 64) &&
+        isValidStr(data.payloadJson, 2, 900000);
+    }
+
+    function isValidProjectRecord(data, uid) {
+      return data.keys().hasAll(['id', 'uid', 'projectName', 'industryMode', 'updatedAtIso', 'payloadJson']) &&
+        data.keys().hasOnly(['id', 'uid', 'projectName', 'locationName', 'industryMode', 'chainageLabel', 'updatedAtIso', 'payloadJson']) &&
+        isValidId(data.id) &&
+        data.uid == uid &&
+        isValidStr(data.projectName, 1, 160) &&
+        (!('locationName' in data) || isValidStr(data.locationName, 0, 160)) &&
+        data.industryMode in ['NATM', 'TBM', 'MINING'] &&
+        (!('chainageLabel' in data) || isValidStr(data.chainageLabel, 0, 120)) &&
+        isValidStr(data.updatedAtIso, 1, 64) &&
+        isValidStr(data.payloadJson, 2, 850000);
+    }
+
+    function isValidCoreLoggingRun(data, uid) {
+      return data.keys().hasAll(['id', 'uid', 'boreholeId', 'industryMode', 'updatedAtIso', 'payloadJson']) &&
+        data.keys().hasOnly(['id', 'uid', 'boreholeId', 'projectName', 'industryMode', 'updatedAtIso', 'payloadJson']) &&
+        isValidId(data.id) &&
+        data.uid == uid &&
+        isValidStr(data.boreholeId, 1, 120) &&
+        (!('projectName' in data) || isValidStr(data.projectName, 0, 160)) &&
+        data.industryMode in ['NATM', 'TBM', 'MINING'] &&
+        isValidStr(data.updatedAtIso, 1, 64) &&
+        isValidStr(data.payloadJson, 2, 850000);
+    }
+
+    function isValidMonitoringReading(data, uid) {
+      return data.keys().hasAll(['id', 'uid', 'project', 'location', 'structureType', 'updatedAtIso', 'payloadJson']) &&
+        data.keys().hasOnly(['id', 'uid', 'project', 'location', 'structureType', 'updatedAtIso', 'payloadJson']) &&
+        isValidId(data.id) &&
+        data.uid == uid &&
+        isValidStr(data.project, 1, 160) &&
+        isValidStr(data.location, 1, 160) &&
+        data.structureType in ['tunnel', 'vertical_shaft'] &&
+        isValidStr(data.updatedAtIso, 1, 64) &&
+        isValidStr(data.payloadJson, 2, 850000);
+    }
+
+    function isValidBlastAssessment(data, uid) {
+      return data.keys().hasAll(['id', 'uid', 'verdict', 'updatedAtIso', 'payloadJson']) &&
+        data.keys().hasOnly(['id', 'uid', 'projectName', 'tunnelShape', 'verdict', 'updatedAtIso', 'payloadJson']) &&
+        isValidId(data.id) &&
+        data.uid == uid &&
+        (!('projectName' in data) || isValidStr(data.projectName, 0, 160)) &&
+        (!('tunnelShape' in data) || isValidStr(data.tunnelShape, 0, 80)) &&
+        isValidStr(data.verdict, 1, 64) &&
+        isValidStr(data.updatedAtIso, 1, 64) &&
+        isValidStr(data.payloadJson, 2, 450000);
+    }
+
+    function isValidDeviceDirectoryEntry(data) {
+      return data.keys().hasAll(['deviceId', 'customAlias', 'uid', 'email', 'displayName', 'updatedAtIso']) &&
+        data.keys().hasOnly(['deviceId', 'customAlias', 'uid', 'email', 'displayName', 'updatedAtIso']) &&
+        isValidStr(data.deviceId, 1, 40) &&
+        isValidStr(data.customAlias, 0, 40) &&
+        data.uid == request.auth.uid &&
+        isValidStr(data.email, 0, 160) &&
+        isValidStr(data.displayName, 0, 160) &&
+        isValidStr(data.updatedAtIso, 1, 64);
+    }
+
+    function isValidDeviceTransferRecord(data) {
+      return data.keys().hasAll([
+        'transferId', 'portalScope', 'transferType', 'senderUid', 'senderDeviceId',
+        'senderName', 'senderEmail', 'recipientDeviceId', 'projectTitle', 'locationTitle',
+        'chainageLabel', 'mappingDomain', 'mappingMethod', 'roundId', 'status',
+        'senderNotes', 'reviewerRemarks', 'reviewerName', 'reviewerSign',
+        'packageJson', 'createdAtIso', 'updatedAtIso'
+      ]) &&
+      data.keys().hasOnly([
+        'transferId', 'portalScope', 'transferType', 'senderUid', 'senderDeviceId',
+        'senderName', 'senderEmail', 'recipientDeviceId', 'projectTitle', 'locationTitle',
+        'chainageLabel', 'mappingDomain', 'mappingMethod', 'roundId', 'status',
+        'senderNotes', 'reviewerRemarks', 'reviewerName', 'reviewerSign',
+        'packageJson', 'createdAtIso', 'updatedAtIso'
+      ]) &&
+      isValidId(data.transferId) &&
+      data.portalScope == 'ESWA_GLOBAL' &&
+      data.transferType in ['REVIEW_REQUEST', 'DATA_EXPORT'] &&
+      isValidStr(data.senderUid, 1, 128) &&
+      isValidStr(data.senderDeviceId, 1, 40) &&
+      isValidStr(data.senderName, 1, 120) &&
+      isValidStr(data.senderEmail, 0, 160) &&
+      isValidStr(data.recipientDeviceId, 1, 40) &&
+      isValidStr(data.projectTitle, 0, 160) &&
+      isValidStr(data.locationTitle, 0, 160) &&
+      isValidStr(data.chainageLabel, 0, 80) &&
+      isValidStr(data.mappingDomain, 1, 32) &&
+      isValidStr(data.mappingMethod, 1, 32) &&
+      isValidStr(data.roundId, 0, 120) &&
+      data.status in ['PENDING', 'APPROVED', 'CHANGES_REQUESTED', 'IMPORTED'] &&
+      isValidStr(data.senderNotes, 0, 500) &&
+      isValidStr(data.reviewerRemarks, 0, 500) &&
+      isValidStr(data.reviewerName, 0, 120) &&
+      isValidStr(data.reviewerSign, 0, 120) &&
+      isValidStr(data.packageJson, 2, 900000) &&
+      isValidStr(data.createdAtIso, 1, 64) &&
+      isValidStr(data.updatedAtIso, 1, 64);
+    }
+
+    function isValidSharedProject(data) {
+      return data.keys().hasAll(['id', 'projectName']) &&
+        isValidId(data.id) &&
+        isValidStr(data.projectName, 1, 160) &&
+        (!('portalScope' in data) || isValidStr(data.portalScope, 0, 32)) &&
+        (!('lastSyncTimestamp' in data) || isValidStr(data.lastSyncTimestamp, 0, 64)) &&
+        (!('ownerUid' in data) || isValidStr(data.ownerUid, 1, 128));
+    }
+
+    function isValidProjectJoinCode(data) {
+      return data.keys().hasAll(['joinCode', 'projectId']) &&
+        data.keys().hasOnly(['joinCode', 'projectId']) &&
+        isValidStr(data.joinCode, 1, 32) &&
+        isValidId(data.projectId);
+    }
+
+    function isValidAiTelemetry(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'userEmail', 'boundPcHardwareId', 'timestamp',
+        'appVersion', 'mappingMethod', 'projectName', 'locationName'
+      ]) &&
+      isValidId(data.id) &&
+      isValidStr(data.userId, 1, 128) &&
+      isValidStr(data.userEmail, 0, 160) &&
+      isValidStr(data.boundPcHardwareId, 0, 128) &&
+      isValidStr(data.timestamp, 1, 64) &&
+      isValidStr(data.appVersion, 1, 40) &&
+      data.mappingMethod in ['FIELD', 'PHOTOGRAMMETRY', 'CORE_LOG'] &&
+      isValidStr(data.projectName, 0, 160) &&
+      isValidStr(data.locationName, 0, 160);
+    }
+
+    function isValidMasterAuthChallenge(data) {
+      return data.keys().hasAll(['email', 'code', 'createdAt', 'expiresAt']) &&
+        data.keys().hasOnly(['email', 'code', 'createdAt', 'expiresAt']) &&
+        isValidStr(data.email, 3, 160) &&
+        isValidStr(data.code, 4, 10) &&
+        isValidStr(data.createdAt, 1, 64) &&
+        isValidStr(data.expiresAt, 1, 64);
+    }
+
+    function isValidUserFeedback(data) {
+      return data.keys().hasAll(['id', 'userName', 'message', 'createdAt', 'status']) &&
+        data.keys().hasOnly(['id', 'userName', 'userEmail', 'deviceId', 'industryMode', 'message', 'photoUrl', 'createdAt', 'status', 'uid']) &&
+        isValidId(data.id) &&
+        isValidStr(data.userName, 1, 120) &&
+        (!('userEmail' in data) || isValidStr(data.userEmail, 0, 160)) &&
+        (!('deviceId' in data) || isValidStr(data.deviceId, 0, 80)) &&
+        (!('industryMode' in data) || isValidStr(data.industryMode, 0, 40)) &&
+        isValidStr(data.message, 1, 2000) &&
+        (!('photoUrl' in data) || isValidStr(data.photoUrl, 0, 500000)) &&
+        isValidStr(data.createdAt, 1, 64) &&
+        data.status in ['new', 'reviewed', 'resolved'];
+    }
+
+    function isValidWebsiteRelease(data) {
+      return data.keys().hasAll(['releaseId', 'version', 'title', 'publishedAtIso', 'isCurrent']) &&
+        data.keys().hasOnly(['releaseId', 'version', 'title', 'summary', 'publishedAtIso', 'publishedBy', 'isCurrent']) &&
+        isValidId(data.releaseId) &&
+        isValidStr(data.version, 1, 40) &&
+        isValidStr(data.title, 1, 200) &&
+        (!('summary' in data) || isValidStr(data.summary, 0, 2000)) &&
+        isValidStr(data.publishedAtIso, 1, 64) &&
+        (!('publishedBy' in data) || isValidStr(data.publishedBy, 0, 160)) &&
+        data.isCurrent is bool;
+    }
+
+    // ------------------------------------------------------------------------
+    // COLLECTION SECURITY RULES
+    // ------------------------------------------------------------------------
+
+    // Connection health check (single health probe doc only, read-only for clients)
     match /test/{docId} {
-      allow read, write: if true;
+      allow get: if docId == 'connection';
+      allow list, write: if isAdmin();
     }
 
-    // Admins lookup collection
+    // Admin directory (only readable by the matching verified user or another admin)
     match /admins/{adminUid} {
-      allow read, write: if true;
+      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin() && isValidId(adminUid);
     }
 
-    // 1. Access Requests
+    // 1. Access Requests (Clients can submit PENDING request and check their own requestId; list/approve restricted to Master Admin)
     match /access_requests/{requestId} {
-      allow read, write: if true;
+      allow get: if isValidId(requestId);
+      allow list: if isAdmin();
+      allow create: if isValidId(requestId) &&
+        isValidAccessRequest(incoming()) &&
+        incoming().requestId == requestId &&
+        incoming().status == 'PENDING' &&
+        incoming().assignedUserId == '' &&
+        incoming().assignedLicenseKey == '';
+      allow update: if isValidId(requestId) &&
+        isValidAccessRequest(incoming()) &&
+        isAdmin() &&
+        incoming().requestId == existing().requestId;
+      allow delete: if isValidId(requestId) && isAdmin();
     }
 
-    // 2. Software Licenses
+    // 2. Software Licenses (1-PC Hardware Lock Enforced)
     match /software_licenses/{userId} {
-      allow read, write: if true;
+      allow get: if isValidId(userId);
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isValidSoftwareLicense(incoming()) && isAdmin();
+      allow update: if isValidId(userId) && isValidSoftwareLicense(incoming()) && (
+        isAdmin() ||
+        (
+          existing().status == 'ACTIVE' &&
+          incoming().userId == existing().userId &&
+          incoming().password == existing().password &&
+          incoming().licenseKey == existing().licenseKey &&
+          incoming().status == existing().status &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['boundPcHardwareId', 'boundPcName', 'installedVersion', 'lastSeenAtIso']) &&
+          (existing().boundPcHardwareId == '' || existing().boundPcHardwareId == incoming().boundPcHardwareId)
+        )
+      );
+      allow delete: if isValidId(userId) && isAdmin();
     }
 
-    // 3. Software Releases
+    // 3. Software Releases (Published updates readable by clients; managed strictly by Admin)
     match /software_releases/{releaseId} {
-      allow read, write: if true;
+      allow get: if isValidId(releaseId) && (existing().status == 'PUBLISHED' || isAdmin());
+      allow list: if resource.data.status == 'PUBLISHED' || isAdmin();
+      allow create: if isValidId(releaseId) && isAdmin() && isValidSoftwareRelease(incoming());
+      allow update: if isValidId(releaseId) && isAdmin() && isValidSoftwareRelease(incoming());
+      allow delete: if isValidId(releaseId) && isAdmin();
     }
 
-    // 4. Master PCs
+    // 4. Master PCs (Bypass checks allowed by PC hardware ID; Admin manages registrations)
     match /master_pcs/{pcHardwareId} {
-      allow read, write: if true;
+      allow get: if isValidId(pcHardwareId);
+      allow list: if isAdmin();
+      allow create, update: if isValidId(pcHardwareId) && isAdmin() && isValidMasterPc(incoming());
+      allow delete: if isValidId(pcHardwareId) && isAdmin();
     }
 
-    // 5. User Workspaces
+    // 5. User Workspaces & Owner-Scoped Engineering Subcollections
     match /user_workspaces/{uid} {
-      allow read, write: if true;
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(uid) && (isOwner(uid) || isAdmin()) && isValidUserWorkspace(incoming(), uid);
+      allow update: if isValidId(uid) && isValidUserWorkspace(incoming(), uid) && (
+        isAdmin() ||
+        (
+          isOwner(uid) &&
+          incoming().uid == existing().uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'updatedAtIso', 'payloadJson'])
+        )
+      );
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+
+      // 5A. Saved Projects / Headings / Rounds
+      match /projects/{projectId} {
+        allow get: if isValidId(uid) && isValidId(projectId) && (isOwner(uid) || isAdmin());
+        allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+        allow create: if isValidId(uid) && isValidId(projectId) && isOwner(uid) &&
+          isValidProjectRecord(incoming(), uid) && incoming().id == projectId &&
+          exists(/databases/$(database)/documents/user_workspaces/$(uid));
+        allow update: if isValidId(uid) && isValidId(projectId) && isValidProjectRecord(incoming(), uid) && (
+          isAdmin() ||
+          (
+            isOwner(uid) &&
+            incoming().id == existing().id &&
+            incoming().uid == existing().uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['projectName', 'locationName', 'industryMode', 'chainageLabel', 'updatedAtIso', 'payloadJson'])
+          )
+        );
+        allow delete: if isValidId(uid) && isValidId(projectId) && (isOwner(uid) || isAdmin());
+      }
+
+      // 5B. Core Logging Runs
+      match /core_logs/{runId} {
+        allow get: if isValidId(uid) && isValidId(runId) && (isOwner(uid) || isAdmin());
+        allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+        allow create: if isValidId(uid) && isValidId(runId) && isOwner(uid) &&
+          isValidCoreLoggingRun(incoming(), uid) && incoming().id == runId &&
+          exists(/databases/$(database)/documents/user_workspaces/$(uid));
+        allow update: if isValidId(uid) && isValidId(runId) && isValidCoreLoggingRun(incoming(), uid) && (
+          isAdmin() ||
+          (
+            isOwner(uid) &&
+            incoming().id == existing().id &&
+            incoming().uid == existing().uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['boreholeId', 'projectName', 'industryMode', 'updatedAtIso', 'payloadJson'])
+          )
+        );
+        allow delete: if isValidId(uid) && isValidId(runId) && (isOwner(uid) || isAdmin());
+      }
+
+      // 5C. Convergence & Geotechnical Monitoring Readings
+      match /monitoring/{readingId} {
+        allow get: if isValidId(uid) && isValidId(readingId) && (isOwner(uid) || isAdmin());
+        allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+        allow create: if isValidId(uid) && isValidId(readingId) && isOwner(uid) &&
+          isValidMonitoringReading(incoming(), uid) && incoming().id == readingId &&
+          exists(/databases/$(database)/documents/user_workspaces/$(uid));
+        allow update: if isValidId(uid) && isValidId(readingId) && isValidMonitoringReading(incoming(), uid) && (
+          isAdmin() ||
+          (
+            isOwner(uid) &&
+            incoming().id == existing().id &&
+            incoming().uid == existing().uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['project', 'location', 'structureType', 'updatedAtIso', 'payloadJson'])
+          )
+        );
+        allow delete: if isValidId(uid) && isValidId(readingId) && (isOwner(uid) || isAdmin());
+      }
+
+      // 5D. Next-Blast Readiness & Stand-Up Time Assessments
+      match /blast_assessments/{assessmentId} {
+        allow get: if isValidId(uid) && isValidId(assessmentId) && (isOwner(uid) || isAdmin());
+        allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+        allow create: if isValidId(uid) && isValidId(assessmentId) && isOwner(uid) &&
+          isValidBlastAssessment(incoming(), uid) && incoming().id == assessmentId &&
+          exists(/databases/$(database)/documents/user_workspaces/$(uid));
+        allow update: if isValidId(uid) && isValidId(assessmentId) && isValidBlastAssessment(incoming(), uid) && (
+          isAdmin() ||
+          (
+            isOwner(uid) &&
+            incoming().id == existing().id &&
+            incoming().uid == existing().uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['projectName', 'tunnelShape', 'verdict', 'updatedAtIso', 'payloadJson'])
+          )
+        );
+        allow delete: if isValidId(uid) && isValidId(assessmentId) && (isOwner(uid) || isAdmin());
+      }
     }
 
-    // 6. Device Directory
+    // 6. Device Directory (Owner-writable, signed-in lookup by deviceId)
     match /device_directory/{deviceId} {
-      allow read, write: if true;
+      allow get: if isValidId(deviceId) && isEmailVerified();
+      allow list: if isAdmin() || (isEmailVerified() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(deviceId) && isEmailVerified() && isValidDeviceDirectoryEntry(incoming());
+      allow update: if isValidId(deviceId) && isValidDeviceDirectoryEntry(incoming()) && (
+        isAdmin() ||
+        (
+          isEmailVerified() &&
+          existing().uid == request.auth.uid &&
+          incoming().uid == existing().uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['customAlias', 'email', 'displayName', 'updatedAtIso'])
+        )
+      );
+      allow delete: if isValidId(deviceId) && (isAdmin() || (isEmailVerified() && existing().uid == request.auth.uid));
     }
 
     // 7. Device Peer Review & Transfers
     match /device_transfers/{transferId} {
-      allow read, write: if true;
+      allow get: if isValidId(transferId) && isEmailVerified();
+      allow list: if isAdmin() || (isEmailVerified() && (
+        resource.data.senderUid == request.auth.uid ||
+        resource.data.senderEmail == request.auth.token.email
+      ));
+      allow create: if isValidId(transferId) && isEmailVerified() &&
+        isValidDeviceTransferRecord(incoming()) &&
+        incoming().senderUid == request.auth.uid &&
+        incoming().status == 'PENDING';
+      allow update: if isValidId(transferId) && isValidDeviceTransferRecord(incoming()) && (
+        isAdmin() ||
+        (
+          isEmailVerified() &&
+          existing().status in ['PENDING', 'CHANGES_REQUESTED'] &&
+          incoming().senderUid == existing().senderUid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerRemarks', 'reviewerName', 'reviewerSign', 'updatedAtIso'])
+        )
+      );
+      allow delete: if isValidId(transferId) && (isAdmin() || (isEmailVerified() && existing().senderUid == request.auth.uid));
     }
 
     // 8. Shared Projects Collaboration
     match /shared_projects/{projectId} {
-      allow read, write: if true;
+      allow get: if isValidId(projectId) && isEmailVerified();
+      allow list: if isAdmin() || (isEmailVerified() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isValidId(projectId) && isEmailVerified() && isValidSharedProject(incoming());
+      allow update: if isValidId(projectId) && isEmailVerified() && isValidSharedProject(incoming()) && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['lastSyncTimestamp', 'allocatedDevices', 'projectName', 'portalScope'])
+      );
+      allow delete: if isValidId(projectId) && (isAdmin() || (isEmailVerified() && existing().ownerUid == request.auth.uid));
     }
 
     // 9. Project Join Codes
     match /project_join_codes/{codeId} {
-      allow read, write: if true;
+      allow get: if isValidId(codeId) && isEmailVerified();
+      allow list: if isAdmin();
+      allow create: if isValidId(codeId) && isEmailVerified() && isValidProjectJoinCode(incoming()) &&
+        exists(/databases/$(database)/documents/shared_projects/$(incoming().projectId));
+      allow update, delete: if isValidId(codeId) && isAdmin();
     }
 
-    // 10. AI Training Telemetry
+    // 10. AI Training Telemetry (Append by verified users, read/export strictly Master Admin)
     match /ai_training_telemetry/{recordId} {
-      allow read, write: if true;
+      allow get, list: if isAdmin();
+      allow create: if isValidId(recordId) && isEmailVerified() && isValidAiTelemetry(incoming());
+      allow update: if isValidId(recordId) && isAdmin() && isValidAiTelemetry(incoming());
+      allow delete: if isValidId(recordId) && isAdmin();
     }
 
-    // 11. Master Admin Auth Challenges (for 6-digit email codes)
+    // 11. Master Admin Auth Challenges (Strictly Admin-only)
     match /eswa_master_auth_challenges/{challengeId} {
-      allow read, write: if true;
+      allow get, list: if isAdmin();
+      allow create, update: if isValidId(challengeId) && isAdmin() && isValidMasterAuthChallenge(incoming());
+      allow delete: if isValidId(challengeId) && isAdmin();
     }
 
-    // 12. User Feedback
+    // 12. User Feedback (Verified users can create; owner or admin can read)
     match /eswa_user_feedback/{feedbackId} {
-      allow read, write: if true;
+      allow get: if isValidId(feedbackId) && (isAdmin() || (isEmailVerified() && existing().userEmail == request.auth.token.email));
+      allow list: if isAdmin() || (isEmailVerified() && resource.data.userEmail == request.auth.token.email);
+      allow create: if isValidId(feedbackId) && isEmailVerified() && isValidUserFeedback(incoming()) && incoming().status == 'new';
+      allow update: if isValidId(feedbackId) && isAdmin() && isValidUserFeedback(incoming());
+      allow delete: if isValidId(feedbackId) && isAdmin();
     }
 
-    // 13. Standalone Download Website Releases
+    // 13. Website Releases (Publicly readable; Admin-managed)
     match /website_releases/{releaseId} {
-      allow read, write: if true;
-    }
-
-    // Fallback: Full permission across any documents to prevent permission errors
-    match /{document=**} {
-      allow read, write: if true;
+      allow get: if isValidId(releaseId);
+      allow list: if resource.data.isCurrent == true || isAdmin();
+      allow create, update: if isValidId(releaseId) && isAdmin() && isValidWebsiteRelease(incoming());
+      allow delete: if isValidId(releaseId) && isAdmin();
     }
   }
 }

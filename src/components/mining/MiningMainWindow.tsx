@@ -36,6 +36,7 @@ import { ThemeToggleButton, useTheme } from '../../context/ThemeContext';
 import { IndustryMode } from '../../types/tunnel';
 import { GoogleUserAccountInfo, GeologistUserProfile } from '../../engine/userCloudAndPackageEngine';
 import { DeviceIdAndNotificationHeaderWidget } from '../DeviceIdReviewAndNotificationCenter';
+import { GoogleCloudSyncHeaderControl } from '../GoogleCloudSyncHeaderControl';
 import {
   loadMiningProjects,
   loadMiningStopes,
@@ -53,6 +54,7 @@ export interface MiningMainWindowProps {
   industryMode: IndustryMode;
   onChangeIndustryMode: (mode: IndustryMode) => void;
   googleUser?: GoogleUserAccountInfo | null;
+  onUserChanged?: (user: GoogleUserAccountInfo | null) => void;
   activeGeologist?: GeologistUserProfile | null;
   onOpenGlobalSettings: () => void;
   onOpenContinuousTunnelLog?: () => void;
@@ -71,6 +73,7 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
   industryMode,
   onChangeIndustryMode,
   googleUser,
+  onUserChanged,
   activeGeologist,
   onOpenGlobalSettings,
   onOpenFeedback,
@@ -199,6 +202,12 @@ export const MiningMainWindow: React.FC<MiningMainWindowProps> = React.memo(({
             <span className="font-semibold">Blast Calc</span>
           </button>
         )}
+        <GoogleCloudSyncHeaderControl
+          googleUser={googleUser}
+          onUserChanged={onUserChanged}
+          onOpenSettingsAccount={onOpenGlobalSettings}
+          variant="dark-amber"
+        />
         <button
           type="button"
           onClick={onOpenGlobalSettings}

@@ -154,6 +154,10 @@ export async function testConnection(): Promise<void> {
   }
 }
 
+if (typeof window !== 'undefined') {
+  void testConnection();
+}
+
 export const SCOPES = [
   'openid',
   'email',
@@ -162,8 +166,11 @@ export const SCOPES = [
 ];
 
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive');
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export const googleDriveProvider = new GoogleAuthProvider();
+googleDriveProvider.addScope('https://www.googleapis.com/auth/drive');
+googleDriveProvider.setCustomParameters({ prompt: 'select_account' });
 
 export function isEmbeddedWebViewOrRestrictedOrigin(): boolean {
   if (typeof window === 'undefined') return false;
@@ -247,7 +254,7 @@ export const initAuth = (
   });
 };
 
-export const googleSignIn = async (): Promise<{
+export const googleSignIn = async (requireDriveScope = false): Promise<{
   user: User;
   accessToken: string;
 } | null> => {
@@ -257,14 +264,16 @@ export const googleSignIn = async (): Promise<{
       return null;
     }
 
-    const result = await signInWithPopup(auth, googleProvider);
+    const provider = requireDriveScope ? googleDriveProvider : googleProvider;
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to get access token from Firebase Auth');
+    const token = credential?.accessToken || '';
+    if (requireDriveScope && !token) {
+      throw new Error('Failed to get Drive access token from Firebase Auth');
     }
-    cachedAccessToken = credential.accessToken;
+    cachedAccessToken = token || cachedAccessToken;
     cachedGisUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
+    return { user: result.user, accessToken: token };
   } catch (error: unknown) {
     console.warn('Google popup sign-in error:', error);
     return null;
@@ -548,5 +557,6 @@ export function handleFirestoreError(
   ) {
     firestoreCloudPermissionDenied = true;
   }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
