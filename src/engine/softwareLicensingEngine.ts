@@ -3985,16 +3985,33 @@ export function subscribeAdminLicensingData(callbacks: {
   onReleases: (list: SoftwareReleaseRecord[]) => void;
   onMasterPcs: (list: MasterPcRecord[]) => void;
 }): () => void {
+  const dedupListById = <T,>(items: T[], getId: (item: T) => string): T[] => {
+    const map = new Map<string, T>();
+    for (const item of items) {
+      const id = getId(item);
+      if (id && !map.has(id)) {
+        map.set(id, item);
+      }
+    }
+    return Array.from(map.values());
+  };
+
   const pushFromMirror = () => {
     callbacks.onRequests(
-      readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY)
-        .filter((r) => r.status !== 'REJECTED' && !isRequestTombstoned(r))
-        .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''))
+      dedupListById(
+        readLocalMirror<AccessRequestRecord>(LOCAL_MIRROR_REQUESTS_KEY)
+          .filter((r) => r && r.status !== 'REJECTED' && !isRequestTombstoned(r))
+          .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || '')),
+        (r) => r.requestId
+      )
     );
     callbacks.onLicenses(
-      readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY)
-        .filter((l) => !isLicenseTombstoned(l))
-        .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''))
+      dedupListById(
+        readLocalMirror<SoftwareLicenseRecord>(LOCAL_MIRROR_LICENSES_KEY)
+          .filter((l) => l && !isLicenseTombstoned(l))
+          .sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || '')),
+        (l) => l.userId
+      )
     );
     const allMirrorReleases = readLocalMirror<SoftwareReleaseRecord>(
       LOCAL_MIRROR_RELEASES_KEY
@@ -4034,18 +4051,25 @@ export function subscribeAdminLicensingData(callbacks: {
       }
     }
     callbacks.onReleases(
-      allMirrorReleases
-        .filter(
-          (r) =>
-            r.releaseId !== 'GITHUB_REPO_CONFIG' &&
-            r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG' &&
-            r.releaseId !== CLOUD_TOMBSTONE_REGISTRY_DOC_ID
-        )
-        .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || ''))
+      dedupListById(
+        allMirrorReleases
+          .filter(
+            (r) =>
+              r &&
+              r.releaseId !== 'GITHUB_REPO_CONFIG' &&
+              r.releaseId !== 'GDRIVE_PERMANENT_FILE_IDS_CONFIG' &&
+              r.releaseId !== CLOUD_TOMBSTONE_REGISTRY_DOC_ID
+          )
+          .sort((a, b) => (b.publishedAtIso || '').localeCompare(a.publishedAtIso || '')),
+        (r) => r.releaseId
+      )
     );
     callbacks.onMasterPcs(
-      readLocalMirror<MasterPcRecord>(LOCAL_MIRROR_MASTER_PCS_KEY).sort((a, b) =>
-        (b.registeredAtIso || '').localeCompare(a.registeredAtIso || '')
+      dedupListById(
+        readLocalMirror<MasterPcRecord>(LOCAL_MIRROR_MASTER_PCS_KEY).sort((a, b) =>
+          (b.registeredAtIso || '').localeCompare(a.registeredAtIso || '')
+        ),
+        (p) => p.pcHardwareId
       )
     );
   };

@@ -412,6 +412,32 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
       return valid.reduce((newest, cur) => (cur > newest ? cur : newest), valid[0]);
     };
 
+    const seenIndexById = new Map<string, number>();
+
+    const upsertUserEntry = (entry: UnifiedUser) => {
+      const existingIdx = seenIndexById.get(entry.id);
+      if (existingIdx === undefined) {
+        seenIndexById.set(entry.id, list.length);
+        list.push(entry);
+        return;
+      }
+      const existing = list[existingIdx];
+      const keepIncomingMeta = (entry.date || '') >= (existing.date || '');
+      list[existingIdx] = {
+        ...existing,
+        ...(keepIncomingMeta ? entry : {}),
+        isRequest: Boolean(existing.isRequest && entry.isRequest),
+        rawLic: existing.rawLic || entry.rawLic,
+        rawReq:
+          !existing.rawReq ||
+          (entry.rawReq &&
+            (entry.rawReq.createdAtIso || '') >= (existing.rawReq.createdAtIso || ''))
+            ? entry.rawReq || existing.rawReq
+            : existing.rawReq,
+        date: pickNewestDate(existing.date, entry.date),
+      };
+    };
+
     // 1. Add requests and link any matching license strictly by userId or exact device hardwareId
     requests.forEach((r) => {
       if (!r) return;
@@ -438,8 +464,8 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
         ? 'revoked'
         : 'approved';
 
-      list.push({
-        id: matchedLic?.userId || reqIdStr || `req_${ list.length }`,
+      upsertUserEntry({
+        id: matchedLic?.userId || reqIdStr || `req_${list.length}`,
         isRequest: !matchedLic,
         name: matchedLic?.fullName || r.fullName || 'Unnamed User',
         email: matchedLic?.email || r.email || '',
@@ -461,20 +487,23 @@ export const MasterAdminPortalWebsite: React.FC<MasterAdminPortalWebsiteProps> =
     // 2. Add licenses that did not have a matching request entry
     licenses.forEach((l) => {
       if (!l) return;
-      const alreadyIncluded = list.some(
-        (item) =>
-          item.rawLic?.userId === l.userId ||
-          item.id === l.userId ||
-          (l.boundPcHardwareId &&
-            l.boundPcHardwareId !== 'N/A' &&
-            item.hardwareId &&
-            item.hardwareId !== 'N/A' &&
-            item.hardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
-            (!l.email || !item.email || item.email.toLowerCase() === l.email.toLowerCase()))
-      );
+      const licId = l.userId || `lic_${list.length}`;
+      const alreadyIncluded =
+        seenIndexById.has(licId) ||
+        list.some(
+          (item) =>
+            item.rawLic?.userId === l.userId ||
+            item.id === l.userId ||
+            (l.boundPcHardwareId &&
+              l.boundPcHardwareId !== 'N/A' &&
+              item.hardwareId &&
+              item.hardwareId !== 'N/A' &&
+              item.hardwareId.toLowerCase() === l.boundPcHardwareId.toLowerCase() &&
+              (!l.email || !item.email || item.email.toLowerCase() === l.email.toLowerCase()))
+        );
       if (!alreadyIncluded) {
-        list.push({
-          id: l.userId || `lic_${list.length}`,
+        upsertUserEntry({
+          id: licId,
           isRequest: false,
           name: l.fullName || 'Licensed User',
           email: l.email || '',
